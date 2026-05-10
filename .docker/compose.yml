@@ -1,0 +1,24 @@
+services:
+  solo-desk-web:
+   container_name: web
+   image: ${REGISTRY}/solo-desk-web:latest
+   restart: always
+   environment:
+    BASE_URL: ${BASE_URL}
+   ports:
+     - "5173:5173"
+   build:
+    context: ..
+    dockerfile: Dockerfile
+    args:
+     BASE_URL: ${BASE_URL}
+   profiles:
+     - build
+     - production
+   networks:
+    solo-desk-application:
+
+   
+networks:
+  solo-desk-application:
+   name: solo-desk-application
