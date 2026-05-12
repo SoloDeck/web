@@ -1,12 +1,10 @@
-import React from 'react';
-import KanbanBoard from './features/deals/KanbanBoard';
+import { RouterProvider } from "@tanstack/react-router";
+import { getRouter } from "./router";
+
+const router = getRouter();
 
 function App() {
-  return (
-    <div className="h-screen bg-slate-100">
-      <KanbanBoard />
-    </div>
-  );
+  return <RouterProvider router={router} />;
 }
 
 export default App;

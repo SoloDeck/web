@@ -12,13 +12,14 @@ services:
     dockerfile: Dockerfile
     args:
      BASE_URL: ${BASE_URL}
-   profiles:
-     - build
-     - production
+  #  profiles:
+  #    - build
+  #    - production
    networks:
     solo-desk-application:
 
    
 networks:
   solo-desk-application:
+   external: true
    name: solo-desk-application
