@@ -37,7 +37,7 @@ export const DealColumn: React.FC<DealColumnProps> = ({ id, title, deals }) => {
         </SortableContext>
         {deals.length === 0 && (
           <div className="text-center text-sm text-slate-400 mt-6 border-2 border-dashed border-slate-200 rounded-lg p-4">
-            Kéo thả Deal vào đây
+            Kéo thả Cơ hội vào đây
           </div>
         )}
       </div>

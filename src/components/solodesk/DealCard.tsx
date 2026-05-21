@@ -4,9 +4,9 @@ import { FileText, Flame, Snowflake, Sun } from "lucide-react";
 import { formatVND, type Deal } from "@/lib/mock-data";
 
 const scoreCfg = {
-  hot: { icon: Flame, label: "Hot", cls: "bg-hot/15 text-hot border-hot/30" },
-  warm: { icon: Sun, label: "Warm", cls: "bg-warm/15 text-warm border-warm/30" },
-  cold: { icon: Snowflake, label: "Cold", cls: "bg-cold/15 text-cold border-cold/30" },
+  hot: { icon: Flame, label: "Nóng", cls: "bg-hot/15 text-hot border-hot/30" },
+  warm: { icon: Sun, label: "Ấm", cls: "bg-warm/15 text-warm border-warm/30" },
+  cold: { icon: Snowflake, label: "Lạnh", cls: "bg-cold/15 text-cold border-cold/30" },
 } as const;
 
 export function DealCard({
@@ -62,7 +62,7 @@ export function DealCard({
           }}
           className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-md bg-accent text-accent-foreground text-[11px] font-medium py-1.5 hover:bg-accent/80 transition"
         >
-          <FileText className="h-3 w-3" /> Tạo Proposal AI
+          <FileText className="h-3 w-3" /> Tạo Báo Giá AI
         </button>
       )}
     </div>

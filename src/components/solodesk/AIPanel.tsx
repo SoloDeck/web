@@ -71,8 +71,8 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
               <Sparkles className="h-4 w-4 text-primary-foreground" />
             </div>
             <div>
-              <div className="font-semibold">AI Quick Action</div>
-              <div className="text-xs text-muted-foreground">Powered by SoloDesk LangChain Engine</div>
+              <div className="font-semibold">Tác vụ Nhanh AI</div>
+              <div className="text-xs text-muted-foreground">Vận hành bởi Hệ thống SoloDesk LangChain</div>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
@@ -83,9 +83,9 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
         <div className="p-6 space-y-5">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Lead Qualifier — Dán tin nhắn khách hàng</label>
+              <label className="text-sm font-medium">Đánh giá Cơ hội — Dán tin nhắn khách hàng</label>
               <div className="flex items-center gap-1 text-xs">
-                <span className="text-muted-foreground">Tone:</span>
+                <span className="text-muted-foreground">Giọng điệu:</span>
                 {(["formal", "casual"] as const).map((t) => (
                   <button
                     key={t}
@@ -94,7 +94,7 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
                       tone === t ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"
                     }`}
                   >
-                    {t === "formal" ? "Formal" : "Casual"}
+                    {t === "formal" ? "Lịch sự" : "Thân mật"}
                   </button>
                 ))}
               </div>
@@ -111,7 +111,7 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
               className="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md hover:opacity-95 disabled:opacity-50"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {loading ? "AI đang phân tích..." : "Phân tích Lead"}
+              {loading ? "AI đang phân tích..." : "Phân tích Cơ hội"}
             </button>
           </div>
 
@@ -119,10 +119,10 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
             <div className="rounded-xl border border-border bg-gradient-to-br from-accent/40 to-background p-5 space-y-4 animate-in fade-in slide-in-from-bottom-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Lead Score</div>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Điểm Đánh Giá</div>
                   <div className={`mt-1 inline-flex items-center gap-2 text-lg font-bold capitalize text-${result.score === "hot" ? "hot" : result.score === "warm" ? "warm" : "cold"}`}>
                     <ScoreIcon className="h-5 w-5" />
-                    {result.score}
+                    {result.score === "hot" ? "Nóng" : result.score === "warm" ? "Ấm" : "Lạnh"}
                   </div>
                 </div>
                 <div className="text-right">
@@ -134,7 +134,7 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
               </div>
 
               <div>
-                <div className="text-xs font-semibold text-muted-foreground mb-1">AI Rationale</div>
+                <div className="text-xs font-semibold text-muted-foreground mb-1">Cơ sở phân tích AI</div>
                 <p className="text-sm">{result.rationale}</p>
               </div>
 
@@ -147,7 +147,7 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
               </div>
 
               <div>
-                <div className="text-xs font-semibold text-muted-foreground mb-1.5">Tin nhắn trả lời gợi ý ({tone})</div>
+                <div className="text-xs font-semibold text-muted-foreground mb-1.5">Tin nhắn trả lời gợi ý ({tone === "formal" ? "Lịch sự" : "Thân mật"})</div>
                 <div className="rounded-lg bg-card border border-border p-3 text-sm whitespace-pre-wrap font-mono">
                   {result.suggestedReply}
                 </div>
@@ -169,7 +169,7 @@ export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void 
                 <Bell className="h-4 w-4 text-warning-foreground" />
               </div>
               <div>
-                <div className="text-sm font-semibold">Auto-Reminder cho thanh toán quá hạn</div>
+                <div className="text-sm font-semibold">Tự động nhắc nhở khi quá hạn thanh toán</div>
                 <div className="text-xs text-muted-foreground">Gửi nhắc nhở qua Zalo & Email sau 3 ngày trễ hạn.</div>
               </div>
             </div>

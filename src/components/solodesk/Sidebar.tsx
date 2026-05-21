@@ -1,7 +1,23 @@
-import { Briefcase, LayoutDashboard, MessageSquare, Settings, Sparkles, TrendingUp, Wallet } from "lucide-react";
+import { Briefcase, LayoutDashboard, MessageSquareHeart, Settings, Sparkles, TrendingUp, Wallet, X } from "lucide-react";
 import { formatVND, type Deal } from "@/lib/mock-data";
 
-export function AppSidebar({ deals, onOpenAI }: { deals: Deal[]; onOpenAI: () => void }) {
+type NavKey = "pipeline" | "clients" | "revenue" | "settings";
+
+export function AppSidebar({ 
+  deals, 
+  onOpenAI,
+  open,
+  onClose,
+  active,
+  onNavigate,
+}: { 
+  deals: Deal[]; 
+  onOpenAI: () => void;
+  open: boolean;
+  onClose: () => void;
+  active: NavKey;
+  onNavigate: (nav: NavKey) => void;
+}) {
   const billed = deals.filter((d) => d.stage === "completed").reduce((s, d) => s + d.value, 0);
   const won = deals.filter((d) => d.stage === "completed").length;
   const lost = 2;
@@ -9,27 +25,42 @@ export function AppSidebar({ deals, onOpenAI }: { deals: Deal[]; onOpenAI: () =>
   const pipeline = deals.filter((d) => !["completed"].includes(d.stage)).reduce((s, d) => s + d.value, 0);
 
   return (
-    <aside className="hidden lg:flex w-72 shrink-0 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
+    <aside 
+      className={`
+        fixed inset-y-0 left-0 z-40 w-72 shrink-0 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 ease-in-out
+        lg:static lg:h-screen lg:top-0
+        ${open ? "translate-x-0 opacity-100" : "-translate-x-full lg:translate-x-0 lg:w-0 lg:opacity-0 lg:border-r-0 overflow-hidden"}
+      `}
+    >
       <div className="p-5 border-b border-sidebar-border">
-        <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-primary-glow grid place-items-center shadow-lg">
-            <Briefcase className="h-5 w-5 text-primary-foreground" />
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-primary-glow grid place-items-center shadow-lg shrink-0">
+              <Briefcase className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-bold tracking-tight text-base truncate">SoloDesk</div>
+              <div className="text-[11px] text-sidebar-foreground/60 truncate">Trợ lý của Freelancer Việt</div>
+            </div>
           </div>
-          <div>
-            <div className="font-bold tracking-tight text-base">SoloDesk</div>
-            <div className="text-[11px] text-sidebar-foreground/60">Trợ lý của Freelancer Việt</div>
-          </div>
+          <button 
+            onClick={onClose}
+            className="lg:hidden p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition"
+            title="Đóng menu"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary-glow to-primary grid place-items-center font-semibold">
+          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary-glow to-primary grid place-items-center font-semibold shrink-0">
             MN
           </div>
           <div className="min-w-0">
             <div className="text-sm font-medium truncate">Minh Nguyễn</div>
-            <div className="text-xs text-sidebar-foreground/60 truncate">Brand & Content Designer</div>
+            <div className="text-xs text-sidebar-foreground/60 truncate">Thiết kế Thương hiệu & Nội dung</div>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
@@ -46,15 +77,16 @@ export function AppSidebar({ deals, onOpenAI }: { deals: Deal[]; onOpenAI: () =>
 
       <nav className="p-3 space-y-1">
         {[
-          { icon: LayoutDashboard, label: "Pipeline", active: true },
-          { icon: MessageSquare, label: "Tin nhắn khách" },
-          { icon: Wallet, label: "Thanh toán & Hợp đồng" },
-          { icon: Settings, label: "Cài đặt hồ sơ" },
+          { key: "pipeline" as const, icon: LayoutDashboard, label: "Kênh cơ hội" },
+          { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
+          { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
+          { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
         ].map((it) => (
           <button
-            key={it.label}
+            key={it.key}
+            onClick={() => onNavigate(it.key)}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-              it.active
+              active === it.key
                 ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                 : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60"
             }`}
@@ -71,7 +103,7 @@ export function AppSidebar({ deals, onOpenAI }: { deals: Deal[]; onOpenAI: () =>
           className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-3 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 hover:opacity-95 transition"
         >
           <Sparkles className="h-4 w-4" />
-          AI Quick Action
+          Tác vụ Nhanh AI
         </button>
       </div>
 
@@ -84,20 +116,20 @@ export function AppSidebar({ deals, onOpenAI }: { deals: Deal[]; onOpenAI: () =>
           <div className="text-xs text-sidebar-foreground/60 mt-0.5">Đã xuất hoá đơn</div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <div>
-              <div className="text-sidebar-foreground/60">Win rate</div>
+              <div className="text-sidebar-foreground/60">Tỉ lệ thắng</div>
               <div className="font-semibold text-success">{winRate}%</div>
             </div>
             <div>
-              <div className="text-sidebar-foreground/60">Pipeline</div>
+              <div className="text-sidebar-foreground/60">Tổng dự kiến</div>
               <div className="font-semibold">{formatVND(pipeline)}</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* <div className="mt-auto p-4 text-[11px] text-sidebar-foreground/40">
-        v0.1 MVP · Made in Vietnam 🇻🇳
-      </div> */}
+      <div className="mt-auto p-4 text-[11px] text-sidebar-foreground/40">
+        Phiên bản v0.1 MVP · Phát triển tại Việt Nam 🇻🇳
+      </div>
     </aside>
   );
 }

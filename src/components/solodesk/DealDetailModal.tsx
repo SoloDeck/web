@@ -14,7 +14,7 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
       <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl shadow-2xl border border-border">
         <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-border px-6 py-4 flex items-center justify-between">
           <div>
-            <div className="text-xs text-muted-foreground">Chi tiết Deal</div>
+            <div className="text-xs text-muted-foreground">Chi tiết Cơ hội</div>
             <div className="font-semibold">{deal.client}</div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
@@ -87,7 +87,7 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
                 <button className="text-xs text-primary font-medium">Xem</button>
               </div>
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                <span>Brief khách hàng.docx</span>
+                <span>Yêu cầu khách hàng.docx</span>
                 <button className="text-xs text-primary font-medium">Xem</button>
               </div>
             </div>

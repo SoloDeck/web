@@ -91,7 +91,7 @@ export const KanbanBoard: React.FC = () => {
           <p className="text-slate-500 text-sm mt-1">Kéo thả để thay đổi trạng thái quy trình làm việc và sắp xếp ưu tiên.</p>
         </div>
         <button className="bg-slate-900 text-white px-4 py-2 rounded-md font-medium text-sm hover:bg-slate-800 transition-colors">
-          + Thêm Deal mới
+          + Thêm Cơ hội mới
         </button>
       </div>
 

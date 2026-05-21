@@ -18,6 +18,11 @@ import { DealCard } from "@/components/solodesk/DealCard";
 import { AIPanel } from "@/components/solodesk/AIPanel";
 import { ProposalModal } from "@/components/solodesk/ProposalModal";
 import { DealDetailModal } from "@/components/solodesk/DealDetailModal";
+import { ReminderCenter } from "@/components/solodesk/ReminderCenter";
+import { ProfileSettings } from "@/components/solodesk/ProfileSettings";
+import { ClientRecords } from "@/components/solodesk/ClientRecords";
+import { RevenueDashboard } from "@/components/solodesk/RevenueDashboard";
+import { useClauses, useProfile } from "@/lib/profile-store";
 import { INITIAL_DEALS, STAGES, type Deal, type Stage } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/")({
@@ -28,9 +33,14 @@ function Index() {
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
   const [detail, setDetail] = useState<Deal | null>(null);
   const [proposal, setProposal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
+  const [nav, setNav] = useState<"pipeline" | "clients" | "revenue" | "settings">("pipeline");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { profile, setProfile } = useProfile();
+  const { clauses, setClauses } = useClauses();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -63,11 +73,17 @@ function Index() {
       const targetStage = overId as Stage;
       if (targetStage === activeDealItem.stage) return;
       setDeals((prev) => {
-        // remove active and append to end of target stage
-        const without = prev.filter((p) => p.id !== active.id);
-        const beforeTarget = without.filter((p) => p.stage !== targetStage);
-        const targetItems = without.filter((p) => p.stage === targetStage);
-        return [...beforeTarget, ...targetItems, { ...activeDealItem, stage: targetStage }];
+        const withoutActive = prev.filter((d) => d.id !== active.id);
+        const targetItems = withoutActive.filter((d) => d.stage === targetStage);
+        const newTargetItems = [...targetItems, { ...activeDealItem, stage: targetStage }];
+
+        const firstIndex = withoutActive.findIndex((d) => d.stage === targetStage);
+        if (firstIndex === -1) {
+          return [...withoutActive, ...newTargetItems];
+        }
+        const before = withoutActive.slice(0, firstIndex);
+        const after = withoutActive.slice(firstIndex).filter((d) => d.stage !== targetStage);
+        return [...before, ...newTargetItems, ...after];
       });
       return;
     }
@@ -101,25 +117,48 @@ function Index() {
       const newTargetItems = [...targetItems];
       newTargetItems.splice(insertIndex, 0, { ...activeDealItem, stage: targetStage });
 
-      // rebuild array replacing target stage items and removing active from original
-      let ti = 0;
-      return withoutActive.map((d) => (d.stage === targetStage ? newTargetItems[ti++] : d));
+      const firstIndex = withoutActive.findIndex((d) => d.stage === targetStage);
+      if (firstIndex === -1) {
+        return [...withoutActive, ...newTargetItems];
+      }
+      const before = withoutActive.slice(0, firstIndex);
+      const after = withoutActive.slice(firstIndex).filter((d) => d.stage !== targetStage);
+      return [...before, ...newTargetItems, ...after];
     });
   };
 
   return (
     <div className="flex min-h-screen bg-background">
-      <AppSidebar deals={deals} onOpenAI={() => setAiOpen(true)} />
+      {/* Mobile sidebar overlay backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <AppSidebar 
+        deals={deals} 
+        onOpenAI={() => setAiOpen(true)} 
+        open={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)}
+        active={nav}
+        onNavigate={setNav}
+      />
 
       <main className="flex-1 flex flex-col min-w-0">
         <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-20">
           <div className="px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <button className="lg:hidden p-2 rounded-md hover:bg-secondary">
+              <button 
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 rounded-md hover:bg-secondary text-foreground"
+                title={sidebarOpen ? "Đóng sidebar" : "Mở sidebar"}
+              >
                 <Menu className="h-5 w-5" />
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg font-bold tracking-tight truncate">Deal Pipeline</h1>
+                <h1 className="text-lg font-bold tracking-tight truncate">Đường Ống Cơ Hội</h1>
                 <p className="text-xs text-muted-foreground truncate">
                   Quản lý {deals.length} cơ hội · Kéo thả để cập nhật trạng thái
                 </p>
@@ -144,49 +183,104 @@ function Index() {
                 <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
               </button>
               <button
+                onClick={() => setReminderOpen(true)}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+              >
+                <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
+              </button>
+              <button
                 onClick={() => setAiOpen(true)}
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-primary to-primary-glow px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow"
               >
-                <Sparkles className="h-4 w-4" /> AI Action
+                <Sparkles className="h-4 w-4" /> Tác vụ AI
               </button>
             </div>
           </div>
         </header>
 
         <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-          >
-            <div className="flex gap-4 p-4 lg:p-6 h-full min-w-max">
-              {STAGES.map((s) => (
-                <KanbanColumn
-                  key={s.id}
-                  stage={s.id}
-                  title={s.title}
-                  hint={s.hint}
-                  deals={byStage(s.id)}
-                  onCardClick={setDetail}
-                  onDraft={setProposal}
-                />
-              ))}
+          {nav === "pipeline" && (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            >
+              <div className="flex gap-4 p-4 lg:p-6 h-full min-w-max">
+                {STAGES.map((s) => (
+                  <KanbanColumn
+                    key={s.id}
+                    stage={s.id}
+                    title={s.title}
+                    hint={s.hint}
+                    deals={byStage(s.id)}
+                    onCardClick={setDetail}
+                    onDraft={setProposal}
+                  />
+                ))}
+              </div>
+              <DragOverlay>
+                {activeDeal && (
+                  <div className="rotate-3">
+                    <DealCard deal={activeDeal} onClick={() => {}} onDraft={() => {}} />
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          )}
+
+          {nav === "clients" && (
+            <div className="p-4 lg:p-6">
+              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+                Bảng khách hàng đang được mở dưới dạng cửa sổ modal từ sidebar. Chọn một khách hàng để xem chi tiết.
+              </div>
             </div>
-            <DragOverlay>
-              {activeDeal && (
-                <div className="rotate-3">
-                  <DealCard deal={activeDeal} onClick={() => {}} onDraft={() => {}} />
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
+          )}
+
+          {nav === "revenue" && (
+            <div className="p-4 lg:p-6">
+              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+                Bảng thanh toán và hợp đồng đang được mở dưới dạng modal từ sidebar.
+              </div>
+            </div>
+          )}
+
+          {nav === "settings" && (
+            <div className="p-4 lg:p-6">
+              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+                Cài đặt hồ sơ đang được mở từ sidebar.
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
       <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
+      <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
+      <ProfileSettings
+        open={nav === "settings"}
+        onClose={() => setNav("pipeline")}
+        profile={profile}
+        onSave={setProfile}
+        clauses={clauses}
+        onSaveClauses={setClauses}
+      />
+      <ClientRecords
+        open={nav === "clients"}
+        onClose={() => setNav("pipeline")}
+        deals={deals}
+        onOpenDeal={(d) => {
+          setNav("pipeline");
+          setDetail(d);
+        }}
+      />
+      <RevenueDashboard
+        open={nav === "revenue"}
+        onClose={() => setNav("pipeline")}
+        deals={deals}
+      />
     </div>
   );
 }
