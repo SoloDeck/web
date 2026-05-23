@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Loader2, Sparkles, X, Flame, Sun, Snowflake, Bell, MessageCircle, Mail } from "lucide-react";
-import { formatVND } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
 
 type Result = {
   score: "hot" | "warm" | "cold";

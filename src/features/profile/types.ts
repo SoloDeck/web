@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 export type ServiceCategory =
   | "Brand & Content Designer"
   | "Web Developer"
@@ -128,46 +126,3 @@ export const DEFAULT_CLAUSES: ContractClause[] = [
     enabled: false,
   },
 ];
-
-const PROFILE_KEY = "solodesk.profile.v1";
-const CLAUSES_KEY = "solodesk.clauses.v1";
-
-export function useProfile() {
-  const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PROFILE_KEY);
-      if (raw) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(raw) });
-    } catch {}
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-  }, [profile, hydrated]);
-
-  return { profile, setProfile };
-}
-
-export function useClauses() {
-  const [clauses, setClauses] = useState<ContractClause[]>(DEFAULT_CLAUSES);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(CLAUSES_KEY);
-      if (raw) setClauses(JSON.parse(raw));
-    } catch {}
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(CLAUSES_KEY, JSON.stringify(clauses));
-  }, [clauses, hydrated]);
-
-  return { clauses, setClauses };
-}

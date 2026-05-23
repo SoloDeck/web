@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Search, Phone, MessageCircle, FileText, Mail, Share2 } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
 
 const channelIcon = {
   Zalo: MessageCircle,

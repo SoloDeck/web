@@ -5,7 +5,7 @@ import {
   type ServiceCategory,
   type PricingTier,
   type ContractClause,
-} from "@/lib/profile-store";
+} from "@/features/profile/types";
 
 const SERVICE_CATEGORIES: ServiceCategory[] = [
   "Brand & Content Designer",

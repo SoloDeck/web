@@ -1,5 +1,7 @@
 import { Briefcase, LayoutDashboard, MessageSquareHeart, Settings, Sparkles, TrendingUp, Wallet, X } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
+import { UserMenu } from "@/features/auth/components/UserMenu";
 
 type NavKey = "pipeline" | "clients" | "revenue" | "settings";
 
@@ -54,15 +56,7 @@ export function AppSidebar({
       </div>
 
       <div className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary-glow to-primary grid place-items-center font-semibold shrink-0">
-            MN
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-medium truncate">Minh Nguyễn</div>
-            <div className="text-xs text-sidebar-foreground/60 truncate">Thiết kế Thương hiệu & Nội dung</div>
-          </div>
-        </div>
+        <UserMenu onOpenSettings={() => onNavigate("settings")} />
         <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
           <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
             <div className="text-sidebar-foreground/60">Giá / giờ</div>
@@ -77,7 +71,7 @@ export function AppSidebar({
 
       <nav className="p-3 space-y-1">
         {[
-          { key: "pipeline" as const, icon: LayoutDashboard, label: "Kênh cơ hội" },
+          { key: "pipeline" as const, icon: LayoutDashboard, label: "Dự án" },
           { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
           { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
           { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
@@ -128,7 +122,7 @@ export function AppSidebar({
       </div>
 
       <div className="mt-auto p-4 text-[11px] text-sidebar-foreground/40">
-        Phiên bản v0.1 MVP · Phát triển tại Việt Nam 🇻🇳
+         Phát triển tại Việt Nam 🇻🇳
       </div>
     </aside>
   );

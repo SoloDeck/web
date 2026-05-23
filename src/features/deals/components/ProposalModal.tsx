@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, X, FileText, Download, Send, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
 
 export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: () => void }) {
   const [loading, setLoading] = useState(true);

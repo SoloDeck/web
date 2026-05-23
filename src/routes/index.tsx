@@ -1,48 +1,43 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import {
-  DndContext,
-  type DragEndEvent,
-  type DragStartEvent,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCorners,
-} from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
-import { Bell, Filter, Menu, Search, Sparkles } from "lucide-react";
-import { AppSidebar } from "@/components/solodesk/Sidebar";
-import { KanbanColumn } from "@/components/solodesk/KanbanColumn";
-import { DealCard } from "@/components/solodesk/DealCard";
-import { AIPanel } from "@/components/solodesk/AIPanel";
-import { ProposalModal } from "@/components/solodesk/ProposalModal";
-import { DealDetailModal } from "@/components/solodesk/DealDetailModal";
-import { ReminderCenter } from "@/components/solodesk/ReminderCenter";
-import { ProfileSettings } from "@/components/solodesk/ProfileSettings";
-import { ClientRecords } from "@/components/solodesk/ClientRecords";
-import { RevenueDashboard } from "@/components/solodesk/RevenueDashboard";
-import { useClauses, useProfile } from "@/lib/profile-store";
-import { INITIAL_DEALS, STAGES, type Deal, type Stage } from "@/lib/mock-data";
+import { Bell, Filter, Loader2, Menu, Search, Sparkles } from "lucide-react";
+import { AppSidebar } from "@/components/layout/Sidebar";
+import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
+import { AIPanel } from "@/features/ai/components/AIPanel";
+import { ProposalModal } from "@/features/deals/components/ProposalModal";
+import { DealDetailModal } from "@/features/deals/components/DealDetailModal";
+import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
+import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
+import { ClientRecords } from "@/features/clients/components/ClientRecords";
+import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
+import { useDeals } from "@/features/deals/hooks/useDeals";
+import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
+import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import type { Deal } from "@/features/deals/types";
 
 export const Route = createFileRoute("/")({
+  beforeLoad: () => {
+    if (!useAuthStore.getState().isAuthenticated) {
+      throw redirect({ to: "/login" });
+    }
+  },
   component: Index,
 });
 
+type NavKey = "pipeline" | "clients" | "revenue" | "settings";
+
 function Index() {
-  const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const { deals, isLoading } = useDeals();
+  const { profile, setProfile } = useProfile();
+  const { clauses, setClauses } = useClauses();
+
   const [aiOpen, setAiOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [detail, setDetail] = useState<Deal | null>(null);
   const [proposal, setProposal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
-  const [nav, setNav] = useState<"pipeline" | "clients" | "revenue" | "settings">("pipeline");
+  const [nav, setNav] = useState<NavKey>("pipeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { profile, setProfile } = useProfile();
-  const { clauses, setClauses } = useClauses();
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const filtered = useMemo(
     () =>
@@ -54,93 +49,20 @@ function Index() {
     [deals, query]
   );
 
-  const byStage = (stage: Stage) => filtered.filter((d) => d.stage === stage);
-  const activeDeal = activeId ? deals.find((d) => d.id === activeId) ?? null : null;
-
-  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
-
-  const onDragEnd = (e: DragEndEvent) => {
-    setActiveId(null);
-    const { active, over } = e;
-    if (!over) return;
-    const activeDealItem = deals.find((d) => d.id === active.id);
-    if (!activeDealItem) return;
-    const overId = String(over.id);
-    const stageIds = STAGES.map((s) => s.id) as string[];
-
-    // If dropped on a stage column (empty area), move to end of that stage
-    if (stageIds.includes(overId)) {
-      const targetStage = overId as Stage;
-      if (targetStage === activeDealItem.stage) return;
-      setDeals((prev) => {
-        const withoutActive = prev.filter((d) => d.id !== active.id);
-        const targetItems = withoutActive.filter((d) => d.stage === targetStage);
-        const newTargetItems = [...targetItems, { ...activeDealItem, stage: targetStage }];
-
-        const firstIndex = withoutActive.findIndex((d) => d.stage === targetStage);
-        if (firstIndex === -1) {
-          return [...withoutActive, ...newTargetItems];
-        }
-        const before = withoutActive.slice(0, firstIndex);
-        const after = withoutActive.slice(firstIndex).filter((d) => d.stage !== targetStage);
-        return [...before, ...newTargetItems, ...after];
-      });
-      return;
-    }
-
-    // Dropped on another deal card
-    const overDeal = deals.find((d) => d.id === overId);
-    if (!overDeal) return;
-
-    // If same stage -> reorder within that stage
-    if (overDeal.stage === activeDealItem.stage) {
-      setDeals((prev) => {
-        const stage = activeDealItem.stage;
-        const stageItems = prev.filter((d) => d.stage === stage);
-        const fromIndex = stageItems.findIndex((d) => d.id === active.id);
-        const toIndex = stageItems.findIndex((d) => d.id === overDeal.id);
-        if (fromIndex === -1 || toIndex === -1) return prev;
-        const newStageItems = arrayMove(stageItems, fromIndex, toIndex);
-        // rebuild full list preserving other stages order but replace this stage's order
-        let si = 0;
-        return prev.map((d) => (d.stage === stage ? newStageItems[si++] : d));
-      });
-      return;
-    }
-
-    // Moving to a different stage and placing at the overDeal's position
-    setDeals((prev) => {
-      const withoutActive = prev.filter((d) => d.id !== active.id);
-      const targetStage = overDeal.stage;
-      const targetItems = withoutActive.filter((d) => d.stage === targetStage);
-      const insertIndex = targetItems.findIndex((d) => d.id === overDeal.id);
-      const newTargetItems = [...targetItems];
-      newTargetItems.splice(insertIndex, 0, { ...activeDealItem, stage: targetStage });
-
-      const firstIndex = withoutActive.findIndex((d) => d.stage === targetStage);
-      if (firstIndex === -1) {
-        return [...withoutActive, ...newTargetItems];
-      }
-      const before = withoutActive.slice(0, firstIndex);
-      const after = withoutActive.slice(firstIndex).filter((d) => d.stage !== targetStage);
-      return [...before, ...newTargetItems, ...after];
-    });
-  };
-
   return (
     <div className="flex min-h-screen bg-background">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <AppSidebar 
-        deals={deals} 
-        onOpenAI={() => setAiOpen(true)} 
-        open={sidebarOpen} 
+      <AppSidebar
+        deals={deals}
+        onOpenAI={() => setAiOpen(true)}
+        open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         active={nav}
         onNavigate={setNav}
@@ -150,7 +72,7 @@ function Index() {
         <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-20">
           <div className="px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <button 
+              <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-2 rounded-md hover:bg-secondary text-foreground"
                 title={sidebarOpen ? "Đóng sidebar" : "Mở sidebar"}
@@ -211,57 +133,39 @@ function Index() {
         </header>
 
         <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          {nav === "pipeline" && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCorners}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-            >
-              <div className="flex gap-4 p-4 lg:p-6 h-full min-w-max">
-                {STAGES.map((s) => (
-                  <KanbanColumn
-                    key={s.id}
-                    stage={s.id}
-                    title={s.title}
-                    hint={s.hint}
-                    deals={byStage(s.id)}
-                    onCardClick={setDetail}
-                    onDraft={setProposal}
-                  />
-                ))}
+          {isLoading ? (
+            <div className="h-full grid place-items-center text-muted-foreground">
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" /> Đang tải dữ liệu...
               </div>
-              <DragOverlay>
-                {activeDeal && (
-                  <div className="rotate-3">
-                    <DealCard deal={activeDeal} onClick={() => {}} onDraft={() => {}} />
-                  </div>
-                )}
-              </DragOverlay>
-            </DndContext>
-          )}
+            </div>
+          ) : (
+            <>
+              {nav === "pipeline" && (
+                <KanbanBoard deals={filtered} onCardClick={setDetail} onDraft={setProposal} />
+              )}
 
-          {nav === "clients" && (
-            <ClientRecords
-              deals={deals}
-              onOpenDeal={(d) => {
-                setNav("pipeline");
-                setDetail(d);
-              }}
-            />
-          )}
+              {nav === "clients" && (
+                <ClientRecords
+                  deals={deals}
+                  onOpenDeal={(d) => {
+                    setNav("pipeline");
+                    setDetail(d);
+                  }}
+                />
+              )}
 
-          {nav === "revenue" && (
-            <RevenueDashboard deals={deals} />
-          )}
+              {nav === "revenue" && <RevenueDashboard deals={deals} />}
 
-          {nav === "settings" && (
-            <ProfileSettings
-              profile={profile}
-              onSave={setProfile}
-              clauses={clauses}
-              onSaveClauses={setClauses}
-            />
+              {nav === "settings" && (
+                <ProfileSettings
+                  profile={profile}
+                  onSave={setProfile}
+                  clauses={clauses}
+                  onSaveClauses={setClauses}
+                />
+              )}
+            </>
           )}
         </div>
       </main>
@@ -270,7 +174,6 @@ function Index() {
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
-
     </div>
   );
 }

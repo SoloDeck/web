@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { TrendingUp, Wallet, Target, BarChart3, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
 
 export function RevenueDashboard({
   deals,

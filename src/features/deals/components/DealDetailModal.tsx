@@ -1,5 +1,6 @@
 import { X, Phone, MessageCircle, FileText, CreditCard, Clock } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
 
 const paymentColor = {
   "Chưa thanh toán": "bg-destructive/15 text-destructive",

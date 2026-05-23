@@ -14,7 +14,8 @@ import {
   Landmark,
   Sparkles,
 } from "lucide-react";
-import { formatVND, type Deal } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal } from "@/features/deals/types";
 
 type Tone = "formal" | "casual";
 type Channel = "email" | "zalo";

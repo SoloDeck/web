@@ -1,39 +1,16 @@
-export type Stage =
-  | "new_lead"
-  | "qualified"
-  | "proposal_sent"
-  | "negotiation"
-  | "active"
-  | "completed";
+import type { Deal, Stage } from "@/features/deals/types";
+// import axiosClient from "@/configs/axios";
 
-export type LeadScore = "hot" | "warm" | "cold";
+// ---------------------------------------------------------------------------
+// Deals service
+//
+// Centralises data access for the pipeline. Today it resolves an in-memory
+// fixture so the UI works without a backend; each function is shaped like the
+// eventual REST call so swapping to the FastAPI backend is a one-line change
+// (replace the mock body with the commented axios call).
+// ---------------------------------------------------------------------------
 
-export type Deal = {
-  id: string;
-  client: string;
-  projectType: string;
-  value: number; // VND
-  score: LeadScore;
-  stage: Stage;
-  contact: string;
-  channel: "Zalo" | "Email" | "Facebook";
-  createdAt: string;
-  notes: string;
-  paymentStatus: "Chưa thanh toán" | "Đã đặt cọc" | "Đã thanh toán";
-  paymentMethod: "MoMo" | "Vietcombank" | "Techcombank" | "—";
-  history: { date: string; text: string }[];
-};
-
-export const STAGES: { id: Stage; title: string; hint: string }[] = [
-  { id: "new_lead", title: "Lead Mới", hint: "Khách hàng vừa liên hệ" },
-  { id: "qualified", title: "Đã Sàng Lọc", hint: "Phù hợp dịch vụ" },
-  { id: "proposal_sent", title: "Đã Gửi Báo Giá", hint: "Chờ phản hồi" },
-  { id: "negotiation", title: "Đang Đàm Phán", hint: "Trao đổi điều khoản" },
-  { id: "active", title: "Đang Triển Khai", hint: "Dự án đang chạy" },
-  { id: "completed", title: "Hoàn Thành & Đã Thu", hint: "Đã thanh toán" },
-];
-
-export const INITIAL_DEALS: Deal[] = [
+const MOCK_DEALS: Deal[] = [
   {
     id: "d1",
     client: "Công ty Cổ phần An Nhiên",
@@ -186,5 +163,15 @@ export const INITIAL_DEALS: Deal[] = [
   },
 ];
 
-export const formatVND = (n: number) =>
-  new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(n);
+/** Fetch the full pipeline. Maps to `GET /deals`. */
+export async function getDeals(): Promise<Deal[]> {
+  // return (await axiosClient.get<Deal[]>("/deals")).data;
+  return structuredClone(MOCK_DEALS);
+}
+
+/** Persist a deal's stage transition. Maps to `PATCH /deals/:id`. */
+export async function updateDealStage(id: string, stage: Stage): Promise<void> {
+  // await axiosClient.patch(`/deals/${id}`, { stage });
+  void id;
+  void stage;
+}

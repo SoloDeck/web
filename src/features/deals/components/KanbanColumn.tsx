@@ -1,7 +1,8 @@
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { DealCard } from "./DealCard";
-import { formatVND, type Deal, type Stage } from "@/lib/mock-data";
+import { formatVND } from "@/utils/format";
+import type { Deal, Stage } from "@/features/deals/types";
 
 export function KanbanColumn({
   stage,
