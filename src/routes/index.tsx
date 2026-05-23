@@ -158,26 +158,38 @@ function Index() {
                 <Menu className="h-5 w-5" />
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg font-bold tracking-tight truncate">Đường Ống Cơ Hội</h1>
+                <h1 className="text-lg font-bold tracking-tight truncate">
+                  {nav === "pipeline" && "Đường Ống Cơ Hội"}
+                  {nav === "clients" && "Hồ Sơ Khách Hàng"}
+                  {nav === "revenue" && "Thanh Toán & Hợp Đồng"}
+                  {nav === "settings" && "Cài Đặt Hồ Sơ"}
+                </h1>
                 <p className="text-xs text-muted-foreground truncate">
-                  Quản lý {deals.length} cơ hội · Kéo thả để cập nhật trạng thái
+                  {nav === "pipeline" && `Quản lý ${deals.length} cơ hội · Kéo thả để cập nhật trạng thái`}
+                  {nav === "clients" && "Quản lý thông tin khách hàng"}
+                  {nav === "revenue" && "Bảng điều khiển tài chính"}
+                  {nav === "settings" && "Cấu hình workspace của bạn"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden md:flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 w-72">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Tìm khách hàng, dự án..."
-                  className="bg-transparent text-sm flex-1 outline-none"
-                />
-              </div>
-              <button className="p-2 rounded-md border border-border hover:bg-secondary">
-                <Filter className="h-4 w-4" />
-              </button>
+              {nav === "pipeline" && (
+                <>
+                  <div className="hidden md:flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 w-72">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Tìm khách hàng, dự án..."
+                      className="bg-transparent text-sm flex-1 outline-none"
+                    />
+                  </div>
+                  <button className="p-2 rounded-md border border-border hover:bg-secondary">
+                    <Filter className="h-4 w-4" />
+                  </button>
+                </>
+              )}
               <button className="p-2 rounded-md border border-border hover:bg-secondary relative">
                 <Bell className="h-4 w-4" />
                 <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
@@ -230,27 +242,26 @@ function Index() {
           )}
 
           {nav === "clients" && (
-            <div className="p-4 lg:p-6">
-              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
-                Bảng khách hàng đang được mở dưới dạng cửa sổ modal từ sidebar. Chọn một khách hàng để xem chi tiết.
-              </div>
-            </div>
+            <ClientRecords
+              deals={deals}
+              onOpenDeal={(d) => {
+                setNav("pipeline");
+                setDetail(d);
+              }}
+            />
           )}
 
           {nav === "revenue" && (
-            <div className="p-4 lg:p-6">
-              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
-                Bảng thanh toán và hợp đồng đang được mở dưới dạng modal từ sidebar.
-              </div>
-            </div>
+            <RevenueDashboard deals={deals} />
           )}
 
           {nav === "settings" && (
-            <div className="p-4 lg:p-6">
-              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
-                Cài đặt hồ sơ đang được mở từ sidebar.
-              </div>
-            </div>
+            <ProfileSettings
+              profile={profile}
+              onSave={setProfile}
+              clauses={clauses}
+              onSaveClauses={setClauses}
+            />
           )}
         </div>
       </main>
@@ -259,28 +270,7 @@ function Index() {
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
-      <ProfileSettings
-        open={nav === "settings"}
-        onClose={() => setNav("pipeline")}
-        profile={profile}
-        onSave={setProfile}
-        clauses={clauses}
-        onSaveClauses={setClauses}
-      />
-      <ClientRecords
-        open={nav === "clients"}
-        onClose={() => setNav("pipeline")}
-        deals={deals}
-        onOpenDeal={(d) => {
-          setNav("pipeline");
-          setDetail(d);
-        }}
-      />
-      <RevenueDashboard
-        open={nav === "revenue"}
-        onClose={() => setNav("pipeline")}
-        deals={deals}
-      />
+
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { X, Search, Phone, MessageCircle, FileText, Mail, Share2 } from "lucide-react";
+import { Search, Phone, MessageCircle, FileText, Mail, Share2 } from "lucide-react";
 import { formatVND, type Deal } from "@/lib/mock-data";
 
 const channelIcon = {
@@ -15,13 +15,9 @@ const paymentColor = {
 } as const;
 
 export function ClientRecords({
-  open,
-  onClose,
   deals,
   onOpenDeal,
 }: {
-  open: boolean;
-  onClose: () => void;
   deals: Deal[];
   onOpenDeal: (d: Deal) => void;
 }) {
@@ -47,7 +43,7 @@ export function ClientRecords({
     });
   }, [deals, q, filter]);
 
-  if (!open) return null;
+
 
   const totals = {
     clients: deals.length,
@@ -56,19 +52,16 @@ export function ClientRecords({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-5xl max-h-[92vh] overflow-hidden bg-card rounded-2xl shadow-2xl border border-border flex flex-col">
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-muted-foreground">Hồ sơ khách hàng</div>
-            <div className="font-semibold">{totals.clients} khách · {totals.active} đang hoạt động · {totals.unpaid} chưa thanh toán đủ</div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <div className="p-4 lg:p-6 h-full flex flex-col">
+      <div className="flex items-center gap-4 text-sm mb-4">
+        <div className="font-semibold">{totals.clients} khách hàng</div>
+        <div className="text-muted-foreground">·</div>
+        <div className="text-muted-foreground">{totals.active} đang hoạt động</div>
+        <div className="text-muted-foreground">·</div>
+        <div className="text-muted-foreground">{totals.unpaid} chưa thanh toán đủ</div>
+      </div>
 
-        <div className="border-b border-border px-6 py-3 flex flex-wrap items-center gap-3">
+      <div className="py-3 flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 flex-1 min-w-[240px]">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input
@@ -100,7 +93,7 @@ export function ClientRecords({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-card/95 backdrop-blur border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -169,7 +162,6 @@ export function ClientRecords({
               )}
             </tbody>
           </table>
-        </div>
       </div>
     </div>
   );

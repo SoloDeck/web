@@ -1,14 +1,10 @@
 import { useMemo } from "react";
-import { X, TrendingUp, Wallet, Target, BarChart3, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { TrendingUp, Wallet, Target, BarChart3, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
 import { formatVND, type Deal } from "@/lib/mock-data";
 
 export function RevenueDashboard({
-  open,
-  onClose,
   deals,
 }: {
-  open: boolean;
-  onClose: () => void;
   deals: Deal[];
 }) {
   const stats = useMemo(() => {
@@ -37,26 +33,14 @@ export function RevenueDashboard({
     return { billed, outstanding, pipeline, winRate, avgDealSize, won, lost, byMethod };
   }, [deals]);
 
-  if (!open) return null;
 
   const outstanding = deals.filter(
     (d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead"
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-card rounded-2xl shadow-2xl border border-border">
-        <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-border px-6 py-4 flex items-center justify-between z-10">
-          <div>
-            <div className="text-xs text-muted-foreground">Doanh thu & Thanh toán</div>
-            <div className="font-semibold">Bảng điều khiển tài chính</div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-6">
+    <div className="p-4 lg:p-6 h-full overflow-y-auto">
+      <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Metric
               icon={Wallet}
@@ -177,7 +161,6 @@ export function RevenueDashboard({
                 ))}
             </div>
           </div>
-        </div>
       </div>
     </div>
   );

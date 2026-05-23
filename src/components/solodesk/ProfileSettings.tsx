@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Check, Save, ShieldCheck, AlertCircle, Briefcase, CreditCard, MessageCircle, FileText } from "lucide-react";
+import { Check, Save, ShieldCheck, AlertCircle, Briefcase, CreditCard, MessageCircle, FileText } from "lucide-react";
 import {
   type Profile,
   type ServiceCategory,
@@ -23,22 +23,18 @@ const PRICING_TIERS: { id: PricingTier; label: string; hint: string }[] = [
 ];
 
 type Props = {
-  open: boolean;
-  onClose: () => void;
   profile: Profile;
   onSave: (p: Profile) => void;
   clauses: ContractClause[];
   onSaveClauses: (c: ContractClause[]) => void;
 };
 
-export function ProfileSettings({ open, onClose, profile, onSave, clauses, onSaveClauses }: Props) {
+export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Props) {
   const [tab, setTab] = useState<"profile" | "payment" | "zalo" | "contract">("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [draftClauses, setDraftClauses] = useState<ContractClause[]>(clauses);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-
-  if (!open) return null;
 
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(profile) ||
@@ -60,24 +56,8 @@ export function ProfileSettings({ open, onClose, profile, onSave, clauses, onSav
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-4xl max-h-[92vh] overflow-hidden bg-card rounded-2xl shadow-2xl border border-border flex flex-col">
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-muted-foreground">Cài đặt hồ sơ</div>
-            <div className="font-semibold">Cấu hình workspace của bạn</div>
-          </div>
-          <div className="flex items-center gap-2">
-            {savedFlash && (
-              <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
-                <Check className="h-3.5 w-3.5" /> Đã lưu
-              </span>
-            )}
-            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+    <div className="p-4 lg:p-6 h-full flex flex-col">
+      <div className="flex-1 flex flex-col rounded-xl border border-border bg-card overflow-hidden">
 
         <div className="flex flex-1 min-h-0">
           <nav className="w-48 shrink-0 border-r border-border p-3 space-y-1 bg-muted/20">
@@ -407,8 +387,13 @@ export function ProfileSettings({ open, onClose, profile, onSave, clauses, onSav
         </div>
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
             {dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ"}
+            {savedFlash && (
+              <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
+                <Check className="h-3.5 w-3.5" /> Đã lưu
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {confirming ? (
