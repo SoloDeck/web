@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -30,8 +31,9 @@ export function UserMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   const initials = getInitials(user.fullName);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Đã đăng xuất thành công.");
     navigate({ to: "/login" });
   };
 

@@ -18,7 +18,7 @@ import type { Deal } from "@/features/deals/types";
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
     if (!useAuthStore.getState().isAuthenticated) {
-      throw redirect({ to: "/login" });
+      throw redirect({ to: "/home", replace: true });
     }
   },
   component: Index,

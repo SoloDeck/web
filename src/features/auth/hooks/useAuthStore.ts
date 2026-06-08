@@ -15,7 +15,7 @@ interface AuthState {
   login: (creds: LoginCredentials) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -51,8 +51,8 @@ export const useAuthStore = create<AuthState>((set) => {
     register: (payload) => run(() => authService.register(payload)),
     loginWithGoogle: () => run(() => authService.loginWithGoogle()),
 
-    logout: () => {
-      authService.logout();
+    logout: async () => {
+      await authService.logout();
       set({ user: null, token: null, isAuthenticated: false, error: null });
     },
 
