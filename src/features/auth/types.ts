@@ -22,3 +22,19 @@ export type AuthSession = {
   token: string;
   user: User;
 };
+
+/** Raw response shape from POST /auth/login and POST /auth/register. */
+export type ApiAuthResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+};
+
+/** Generic wrapper mà backend dùng cho mọi response: { success, code, data: T } */
+export type ApiResponse<T> = {
+  success: boolean;
+  code: number;
+  timestamp: string;
+  data: T;
+};

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,7 +35,11 @@ export function RegisterForm() {
     }
     try {
       await register({ fullName, email, password });
-      navigate({ to: "/" });
+      toast.success("Tạo tài khoản thành công!", {
+        description: "Chào mừng bạn đến với SoloDesk!",
+        duration: 2000,
+      });
+      setTimeout(() => navigate({ to: "/" }), 2000);
     } catch {
       /* error surfaced via store */
     }
