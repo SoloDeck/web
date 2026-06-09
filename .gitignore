@@ -17,6 +17,13 @@ dist
 dist-ssr
 *.local
 
+# testing
+coverage
+playwright-report
+test-results
+/blob-report
+/playwright/.cache
+
 
 # Editor directories and files
 .vscode/*
@@ -39,3 +46,7 @@ lerna-lock.json
 .env
 .env.*.local
 !.env.example
+# claude-code-harness (lifecycle) runtime state — keep out of git
+.claude/state/
+.claude/agent-memory/
+.claude/logs/
