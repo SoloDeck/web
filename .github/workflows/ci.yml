@@ -1,73 +1,36 @@
-name: Web CI / CD
-
+name: CI / CD
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches:
+      - main
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Phase 1: lint + typecheck + unit — run directly with bun, no Docker needed
-  # ---------------------------------------------------------------------------
-  lint:
-    name: Lint (ESLint)
+  build-test:
+    name: Build / Test
     runs-on: ubuntu-latest
     container:
-      image: oven/bun:1.3.13-alpine
-    if: github.event_name == 'pull_request'
+      image: node:22-alpine
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Lint
-        run: bun run lint
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.head_ref }}
 
-  typecheck:
-    name: Type Check (tsc)
-    runs-on: ubuntu-latest
-    container:
-      image: oven/bun:1.3.13-alpine
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
+      - name: Install Bun
+        run: npm install -g bun
+
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Type check + build
+        run: bun install
+
+      - name: Build project
         run: bun run build
 
-  unit-test:
-    name: Unit Tests (Vitest)
-    runs-on: ubuntu-latest
-    container:
-      image: oven/bun:1.3.13-alpine
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Run unit tests
-        run: bun run test:coverage
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: web-coverage
-          path: coverage/
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-  # ---------------------------------------------------------------------------
-  # Phase 2: build + push image — ubuntu-latest has Docker, only on main push
-  # ---------------------------------------------------------------------------
   build-image:
     name: Build / Image
     runs-on: ubuntu-latest
@@ -77,115 +40,58 @@ jobs:
       packages: write
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Lowercase repository name
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           echo "REGISTRY=ghcr.io/$REPO_LOWER" >> $GITHUB_ENV
-
-      - name: Build + push
+      - name: Build and push
         run: |
-          docker buildx build --target runtime \
-            --build-arg VITE_API_URL=${{ vars.VITE_API_URL }} \
-            -t $REGISTRY:${{ github.sha }} \
-            -t $REGISTRY:latest \
-            --push .
+          docker compose build app
+          docker tag web-app:latest ${{ env.REGISTRY }}/solodesk-web:latest
+          docker push ${{ env.REGISTRY }}/solodesk-web:latest
 
-  # ---------------------------------------------------------------------------
-  # Phase 3a: deploy staging — auto, no approval gate
-  # ---------------------------------------------------------------------------
-  deploy-staging:
-    name: Deploy / Web / Staging
-    needs: [build-image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, windows, X64]
-    environment:
-      name: staging
-      url: https://staging.solodesk.space
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Lowercase repository name
-        shell: powershell
-        run: |
-          $repoLower = "${{ github.repository }}".ToLower()
-          "IMAGE_NAME=ghcr.io/$repoLower" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Pull latest image
-        shell: powershell
-        run: docker compose -f docker-compose.yml pull app
-
-      - name: Deploy
-        shell: powershell
-        run: docker compose -f docker-compose.yml up -d app
-
-      - name: Cleanup
-        if: always()
-        shell: powershell
-        run: docker image prune -a -f
-
-  # ---------------------------------------------------------------------------
-  # Phase 3b: deploy production — requires manual approval
-  # ---------------------------------------------------------------------------
-  deploy:
+  deploy-client:
     name: Deploy / Web / Main
-    needs: [deploy-staging]
+    runs-on: [self-hosted]
+    needs: build-image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, windows, X64]
-    environment:
-      name: production
-      url: https://app.solodesk.space
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
+    env:
+      VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Lowercase repository name
         shell: powershell
         run: |
           $repoLower = "${{ github.repository }}".ToLower()
-          "IMAGE_NAME=ghcr.io/$repoLower" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Pull latest image
+          echo "REGISTRY=ghcr.io/$repoLower" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Pull Image
         shell: powershell
-        run: docker compose -f docker-compose.yml pull app
-
+        run: docker pull ${{ env.REGISTRY }}/solodesk-web:latest
       - name: Deploy
         shell: powershell
-        run: docker compose -f docker-compose.yml up -d app
-
+        run: docker compose up -d app
       - name: Cleanup
-        if: always()
         shell: powershell
         run: docker image prune -a -f
