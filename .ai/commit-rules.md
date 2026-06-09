@@ -33,3 +33,15 @@ fix(ui): correct modal overflow
 
 - Secrets, `.env` files.
 - `node_modules/`.
+
+## Version Bump (REQUIRED before a deployable change is done)
+
+Once tests pass and the change is deployable, you **MUST** bump the application version in
+`package.json` (`"version": "X.Y.Z"`, semver) as part of the same change:
+
+- `fix` → patch (`0.0.0` → `0.0.1`)
+- `feat` → minor (`0.0.0` → `0.1.0`)
+- breaking change → major (`0.0.0` → `1.0.0`)
+
+Pure `docs`/`test`/`chore`/`refactor` changes that are not independently deployable do not require a
+bump. Commit the bump as `chore(version): bump to X.Y.Z` (or fold it into the deployable commit).
