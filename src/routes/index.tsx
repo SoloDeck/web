@@ -26,6 +26,7 @@ export const Route = createFileRoute("/")({
 
 type NavKey = "pipeline" | "clients" | "revenue" | "settings";
 
+// eslint-disable-next-line react-refresh/only-export-components
 function Index() {
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();

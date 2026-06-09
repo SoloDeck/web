@@ -11,11 +11,11 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
 
   useEffect(() => {
     if (!deal) return;
-    setLoading(true);
+
     const deposit = Math.round(deal.value * 0.5);
     const final = deal.value - deposit;
 
-    const t = setTimeout(() => {
+    const generate = () => {
       setProposalHtml(`
         <div style="text-align: center; border-bottom: 1px solid hsl(var(--border)); padding-bottom: 16px; margin-bottom: 20px;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: hsl(var(--muted-foreground)); font-weight: 500;">ĐỀ XUẤT DỊCH VỤ</div>
@@ -82,9 +82,15 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
         </div>
       `);
       setLoading(false);
-    }, 900);
+    };
 
-    return () => clearTimeout(t);
+    const start = () => {
+      setLoading(true);
+      const t = setTimeout(generate, 900);
+      return () => clearTimeout(t);
+    };
+
+    return start();
   }, [deal, today]);
 
   if (!deal) return null;

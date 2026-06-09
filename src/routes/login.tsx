@@ -21,6 +21,7 @@ export const Route = createFileRoute("/login")({
 
 // ── Page root ─────────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 function LoginPage() {
   return (
     <div className="min-h-screen flex bg-background">
@@ -112,6 +113,7 @@ const KANBAN_COLS = [
   },
 ];
 
+// eslint-disable-next-line react-refresh/only-export-components
 function HeroPanel() {
   return (
     <div className="hidden lg:flex lg:w-[54%] xl:w-[56%] relative bg-sidebar overflow-hidden">
