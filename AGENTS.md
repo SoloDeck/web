@@ -6,12 +6,8 @@ You are a senior frontend engineer and UI/UX expert working on SoloDesk Web.
 
 ## Commit Rules
 
-- **Commit scope:** one logical change per commit. Never bundle unrelated changes.
-- **Branch per purpose (REQUIRED):** before committing, check the current branch. If on `main`/default, you MUST create a new branch named `<type>/<scope-or-purpose>` (e.g. `test/setup-vitest-playwright`, `feat/deals-kanban`) and commit there. Never commit directly to `main`.
-- **Message format:** `<type>(<scope>): <short summary>` — e.g. `feat(deals): add kanban board`, `fix(ui): correct modal overflow`.
-- **Allowed types:** `feat` · `fix` · `docs` · `refactor` · `test` · `chore`
-- **Scope:** use the feature name (`deals`, `clients`, `ui`, `core`, `router`).
-- **Never commit:** `.env` files, secrets, `node_modules/`.
+**REQUIRED reading before any commit:** see [`.ai/commit-rules.md`](.ai/commit-rules.md) for the full
+commit and branch convention. Key rule: never commit to `main` — branch as `<type>/<scope>` first.
 
 ---
 
