@@ -43,9 +43,11 @@ pnpm-lock.yaml
 lerna-lock.json
 
 # Environment variables
-.env
+*.env*
 .env.*.local
 !.env.example
+!.env.staging.example
+!.env.production.example
 # claude-code-harness (lifecycle) runtime state — keep out of git
 .claude/state/
 .claude/agent-memory/
