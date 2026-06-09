@@ -272,6 +272,32 @@ Build production:
 bun run build
 ```
 
+## 🧪 Testing
+
+Toolchain: **Vitest** (unit + component, jsdom) và **Playwright** (e2e đa trình duyệt — Chromium/Firefox/WebKit).
+
+| Lệnh | Mục đích |
+|---|---|
+| `bun run test` | Vitest ở chế độ watch |
+| `bun run test:run` | Chạy 1 lần (CI) |
+| `bun run test:ui` | Vitest UI |
+| `bun run test:coverage` | Báo cáo coverage (v8) |
+| `bun run test:e2e` | Playwright e2e (tự khởi dev server) |
+| `bun run test:e2e:ui` | Playwright UI mode |
+
+```bash
+# Unit & component
+bun run test
+
+# E2E — chạy 1 lần đầu để tải browser binaries
+bunx playwright install
+bun run test:e2e
+```
+
+- Unit/component test: đặt cạnh source dưới dạng `*.test.ts(x)` trong `src/`.
+- E2E spec: `*.spec.ts` trong `e2e/`.
+- Mọi business logic mới (hooks/utils/services) bắt buộc kèm test.
+
 ## 🗺️ Roadmap gần
 
 - [ ] Đưa toàn bộ deals route sang React Query + API thật.
