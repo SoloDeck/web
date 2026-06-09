@@ -26,8 +26,10 @@ test-results
 
 
 # Editor directories and files
-.vscode/*
+.vscode/
 !.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -37,9 +39,7 @@ test-results
 *.sw?
 
 # auto generated files
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+# (Removed lock files from here to ensure reproducible builds)
 lerna-lock.json
 
 # Environment variables
