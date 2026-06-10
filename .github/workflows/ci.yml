@@ -114,7 +114,7 @@ jobs:
 
       - name: Cleanup old images
         shell: powershell
-        run: docker image prune -a -f
+        run: docker image prune -f
 
   deploy-production:
     name: Deploy / Production
@@ -163,4 +163,4 @@ jobs:
 
       - name: Cleanup old images
         shell: powershell
-        run: docker image prune -a -f
+        run: docker image prune -f
