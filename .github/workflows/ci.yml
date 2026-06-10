@@ -64,7 +64,7 @@ jobs:
           echo "REGISTRY=ghcr.io/$REPO_LOWER" >> $GITHUB_ENV
       - name: Build and push
         run: |
-          docker compose build app
+          docker compose -f docker-compose.yml build app
           docker tag web-app:latest ${{ env.REGISTRY }}/solodesk-web:latest
           docker push ${{ env.REGISTRY }}/solodesk-web:latest
 
@@ -106,7 +106,7 @@ jobs:
         shell: powershell
         run: |
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
-          docker compose up -d app
+          docker compose -f docker-compose.yml up -d app
 
       - name: Remove .env
         if: always()
@@ -155,7 +155,7 @@ jobs:
         shell: powershell
         run: |
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
-          docker compose up -d app
+          docker compose -f docker-compose.yml up -d app
 
       - name: Remove .env
         if: always()
