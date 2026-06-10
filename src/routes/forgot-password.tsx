@@ -12,6 +12,7 @@ export const Route = createFileRoute("/forgot-password")({
   component: ForgotPasswordPage,
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 function ForgotPasswordPage() {
   return (
     <AuthLayout

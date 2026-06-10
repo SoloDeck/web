@@ -1,0 +1,38 @@
+# ===========================================================================
+# SoloDesk Web — development + CI compose stack
+# ===========================================================================
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Web app (production build preview)
+  # -------------------------------------------------------------------------
+  app:
+    image: ${IMAGE_NAME:-solodesk-web:local}
+    build:
+      context: .
+      target: runtime
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+
+  # -------------------------------------------------------------------------
+  # Test runner — lint + typecheck + unit tests + e2e
+  # Usage: docker compose run --rm test bun run lint
+  #        docker compose run --rm test bun run test:coverage
+  # -------------------------------------------------------------------------
+  test:
+    build:
+      context: .
+      target: test
+    restart: "no"
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    volumes:
+      - ./src:/app/src
+      - ./e2e:/app/e2e

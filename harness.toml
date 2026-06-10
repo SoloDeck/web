@@ -1,0 +1,25 @@
+# Harness v4 Configuration — SoloDesk web (React 19 + TypeScript, bun)
+# Applies when Claude Code is launched rooted in this submodule.
+
+[project]
+name = "SoloDesk-web"
+version = "0.1.0"
+description = "SoloDesk web — React 19 + TypeScript + TanStack Query/Router + shadcn/ui + Tailwind v4 + zustand (bun)."
+
+[agent]
+# default = "security-reviewer"
+
+[env]
+CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
+
+[safety.permissions]
+deny = [
+  "Bash(sudo:*)",
+]
+ask = [
+  "Bash(rm -r:*)",
+  "Bash(git push --force:*)",
+]
+
+[safety.sandbox]
+failIfUnavailable = false

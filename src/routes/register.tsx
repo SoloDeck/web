@@ -12,6 +12,7 @@ export const Route = createFileRoute("/register")({
   component: RegisterPage,
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 function RegisterPage() {
   return (
     <AuthLayout
