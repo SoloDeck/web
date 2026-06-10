@@ -31,7 +31,7 @@ export const DEMO_CREDENTIALS = [
 
 // ── JWT helpers ──────────────────────────────────────────────────────────────
 
-type JwtClaims = { sub: string; email: string; role?: string };
+type JwtClaims = { sub: string; email: string; role?: string; exp?: number };
 
 function parseJwtPayload(token: string): JwtClaims {
   const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
