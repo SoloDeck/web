@@ -64,8 +64,7 @@ jobs:
           echo "REGISTRY=ghcr.io/$REPO_LOWER" >> $GITHUB_ENV
       - name: Build and push
         run: |
-          docker compose -f docker-compose.yml build app
-          docker tag web-app:latest ${{ env.REGISTRY }}/solodesk-web:latest
+          docker build --target runtime -t ${{ env.REGISTRY }}/solodesk-web:latest .
           docker push ${{ env.REGISTRY }}/solodesk-web:latest
 
   deploy-staging:
