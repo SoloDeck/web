@@ -37,9 +37,12 @@ COPY package.json bun.lock ./
 COPY --from=runtime-build /app/node_modules ./node_modules
 COPY --from=runtime-build /app/dist ./dist
 
-EXPOSE 5173
+ARG WEB_PORT=5173
+ENV PORT=${WEB_PORT}
+
+EXPOSE ${PORT}
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:5173/ || exit 1
+    CMD wget -qO- http://localhost:${PORT}/ || exit 1
 
-CMD ["bun", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["sh", "-c", "bun run preview -- --host 0.0.0.0 --port ${PORT}"]

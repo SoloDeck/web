@@ -99,11 +99,15 @@ jobs:
         run: |
           @"
           VITE_API_URL=${{ secrets.VITE_API_URL }}
+          VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_ALLOWED_HOSTS=${{ vars.VITE_ALLOWED_HOSTS }}
+          WEB_PORT=${{ vars.WEB_PORT }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
       - name: Pull & deploy
         shell: powershell
         run: |
+          $env:WEB_PORT = "${{ vars.WEB_PORT }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -f docker-compose.yml up -d app
 
@@ -145,11 +149,15 @@ jobs:
         run: |
           @"
           VITE_API_URL=${{ secrets.VITE_API_URL }}
+          VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_ALLOWED_HOSTS=${{ vars.VITE_ALLOWED_HOSTS }}
+          WEB_PORT=${{ vars.WEB_PORT }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
       - name: Pull & deploy
         shell: powershell
         run: |
+          $env:WEB_PORT = "${{ vars.WEB_PORT }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -f docker-compose.yml up -d app
 

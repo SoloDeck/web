@@ -14,8 +14,9 @@ services:
       target: runtime
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        WEB_PORT: ${WEB_PORT:-5173}
     ports:
-      - "5173:5173"
+      - "${WEB_PORT:-5173}:${WEB_PORT:-5173}"
     restart: unless-stopped
     env_file:
       - path: .env
