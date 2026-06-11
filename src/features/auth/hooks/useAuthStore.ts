@@ -5,6 +5,7 @@ import type {
   User,
 } from "@/features/auth/types";
 import * as authService from "@/services/authService";
+import { getMe } from "@/services/usersService";
 
 interface AuthState {
   user: User | null;
@@ -12,11 +13,16 @@ interface AuthState {
   isAuthenticated: boolean;
   isSubmitting: boolean;
   error: string | null;
-  login: (creds: LoginCredentials) => Promise<void>;
+  login: (creds: LoginCredentials, rememberMe?: boolean) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  handleGoogleCallback: (code: string, state: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  /** Refresh user name/avatar from /users/me without a full re-auth. */
+  hydrate: () => Promise<void>;
+  /** Patch the in-store user object (e.g. after a profile update). */
+  updateUser: (partial: Partial<User>) => void;
 }
 
 const initialSession = authService.getStoredSession();
@@ -47,9 +53,10 @@ export const useAuthStore = create<AuthState>((set) => {
     isSubmitting: false,
     error: null,
 
-    login: (creds) => run(() => authService.login(creds)),
+    login: (creds, rememberMe = false) => run(() => authService.login(creds, rememberMe)),
     register: (payload) => run(() => authService.register(payload)),
     loginWithGoogle: () => run(() => authService.loginWithGoogle()),
+    handleGoogleCallback: (code, state) => run(() => authService.handleGoogleCallback(code, state)),
 
     logout: async () => {
       await authService.logout();
@@ -57,5 +64,24 @@ export const useAuthStore = create<AuthState>((set) => {
     },
 
     clearError: () => set({ error: null }),
+
+    hydrate: async () => {
+      try {
+        const me = await getMe();
+        set((state) => ({
+          user: state.user
+            ? { ...state.user, fullName: me.full_name, avatarUrl: me.avatar_url ?? undefined }
+            : null,
+        }));
+      } catch {
+        // silent — user may not be authenticated yet
+      }
+    },
+
+    updateUser: (partial) => {
+      set((state) => ({
+        user: state.user ? { ...state.user, ...partial } : null,
+      }));
+    },
   };
 });

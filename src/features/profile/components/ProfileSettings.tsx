@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Check, Save, ShieldCheck, AlertCircle, Briefcase, CreditCard, MessageCircle, FileText } from "lucide-react";
+import { Check, Save, ShieldCheck, AlertCircle, Briefcase, CreditCard, MessageCircle, FileText, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   type Profile,
   type ServiceCategory,
   type PricingTier,
   type ContractClause,
 } from "@/features/profile/types";
+import { changePassword } from "@/services/usersService";
 
 const SERVICE_CATEGORIES: ServiceCategory[] = [
   "Brand & Content Designer",
@@ -30,11 +32,16 @@ type Props = {
 };
 
 export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Props) {
-  const [tab, setTab] = useState<"profile" | "payment" | "zalo" | "contract">("profile");
+  const [tab, setTab] = useState<"profile" | "payment" | "zalo" | "contract" | "security">("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [draftClauses, setDraftClauses] = useState<ContractClause[]>(clauses);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+
+  // Password change form state
+  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
+  const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
+  const [pwLoading, setPwLoading] = useState(false);
 
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(profile) ||
@@ -48,11 +55,33 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
     setTimeout(() => setSavedFlash(false), 1800);
   };
 
+  const handleChangePassword = async () => {
+    if (pwForm.next !== pwForm.confirm) {
+      toast.error("Mật khẩu mới không khớp.");
+      return;
+    }
+    if (pwForm.next.length < 8) {
+      toast.error("Mật khẩu mới phải có ít nhất 8 ký tự.");
+      return;
+    }
+    setPwLoading(true);
+    try {
+      await changePassword({ current_password: pwForm.current, new_password: pwForm.next });
+      toast.success("Đổi mật khẩu thành công.");
+      setPwForm({ current: "", next: "", confirm: "" });
+    } catch {
+      toast.error("Mật khẩu hiện tại không đúng hoặc có lỗi xảy ra.");
+    } finally {
+      setPwLoading(false);
+    }
+  };
+
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
     { id: "payment" as const, label: "Thanh toán", icon: CreditCard },
     { id: "zalo" as const, label: "Zalo OA", icon: MessageCircle },
     { id: "contract" as const, label: "Hợp đồng", icon: FileText },
+    { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
 
   return (
@@ -99,8 +128,9 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                     <input
                       type="email"
                       value={draft.email}
-                      onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                      className={inputCls}
+                      readOnly
+                      className={`${inputCls} cursor-default opacity-60`}
+                      title="Email không thể thay đổi"
                     />
                   </Field>
                   <Field label="Số điện thoại">
@@ -383,12 +413,99 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                 </div>
               </div>
             )}
+
+            {tab === "security" && (
+              <div className="space-y-6 max-w-md">
+                <div>
+                  <div className="text-sm font-semibold mb-1">Đổi mật khẩu</div>
+                  <div className="text-xs text-muted-foreground mb-4">
+                    Mật khẩu mới phải có ít nhất 8 ký tự.
+                  </div>
+                  <div className="space-y-3">
+                    <Field label="Mật khẩu hiện tại">
+                      <div className="relative">
+                        <input
+                          type={showPw.current ? "text" : "password"}
+                          value={pwForm.current}
+                          onChange={(e) => setPwForm({ ...pwForm, current: e.target.value })}
+                          className={`${inputCls} pr-10`}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPw((s) => ({ ...s, current: !s.current }))}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showPw.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Mật khẩu mới">
+                      <div className="relative">
+                        <input
+                          type={showPw.next ? "text" : "password"}
+                          value={pwForm.next}
+                          onChange={(e) => setPwForm({ ...pwForm, next: e.target.value })}
+                          className={`${inputCls} pr-10`}
+                          placeholder="••••••••"
+                          autoComplete="new-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPw((s) => ({ ...s, next: !s.next }))}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showPw.next ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Xác nhận mật khẩu mới">
+                      <div className="relative">
+                        <input
+                          type={showPw.confirm ? "text" : "password"}
+                          value={pwForm.confirm}
+                          onChange={(e) => setPwForm({ ...pwForm, confirm: e.target.value })}
+                          className={`${inputCls} pr-10`}
+                          placeholder="••••••••"
+                          autoComplete="new-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPw((s) => ({ ...s, confirm: !s.confirm }))}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showPw.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </Field>
+                  </div>
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={pwLoading || !pwForm.current || !pwForm.next || !pwForm.confirm}
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-95 disabled:opacity-40"
+                  >
+                    {pwLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                    Đổi mật khẩu
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-border p-4 space-y-2 opacity-50">
+                  <div className="text-sm font-semibold text-muted-foreground">Sắp ra mắt</div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>• Xác thực 2 bước (2FA)</div>
+                    <div>• Quản lý phiên đăng nhập</div>
+                    <div>• Lịch sử hoạt động tài khoản</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
-            {dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ"}
+            {tab !== "security" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                 <Check className="h-3.5 w-3.5" /> Đã lưu
@@ -396,7 +513,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
             )}
           </div>
           <div className="flex items-center gap-2">
-            {confirming ? (
+            {tab !== "security" && confirming ? (
               <>
                 <span className="text-xs text-muted-foreground">Xác nhận lưu thay đổi?</span>
                 <button
@@ -412,7 +529,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                   <Check className="h-3.5 w-3.5" /> Đồng ý
                 </button>
               </>
-            ) : (
+            ) : tab !== "security" ? (
               <button
                 disabled={!dirty}
                 onClick={() => setConfirming(true)}
@@ -420,7 +537,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
               >
                 <Save className="h-4 w-4" /> Lưu thay đổi
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

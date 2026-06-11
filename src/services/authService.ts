@@ -7,29 +7,12 @@ import type {
   User,
 } from "@/features/auth/types";
 import axiosClient from "@/configs/axios";
-
-// ---------------------------------------------------------------------------
-// Auth service
-//
-// Calls the FastAPI backend for login / register. Google OAuth and token
-// refresh endpoints are commented out on the backend side — those paths keep
-// a local mock until the server implements them.
-//
-// Swapping any individual function to a real endpoint only requires editing
-// this file; the Zustand store and all UI components are untouched.
-// ---------------------------------------------------------------------------
+import { getMe } from "@/services/usersService";
 
 const SESSION_KEY = "solodesk.auth.session.v1";
-const REFRESH_KEY  = "solodesk.auth.refresh.v1";
+const REFRESH_KEY = "solodesk.auth.refresh.v1";
 
-// ── Demo credential hints (displayed in LoginForm; users must exist in DB) ───
-
-export const DEMO_CREDENTIALS = [
-  { label: "Admin",      email: "admin@gmail.com",      password: "123456" },
-  { label: "Freelancer", email: "freelancer@gmail.com", password: "123456" },
-];
-
-// ── JWT helpers ──────────────────────────────────────────────────────────────
+// ── JWT helpers ───────────────────────────────────────────────────────────────
 
 type JwtClaims = { sub: string; email: string; role?: string; exp?: number };
 
@@ -38,53 +21,50 @@ function parseJwtPayload(token: string): JwtClaims {
   return JSON.parse(atob(base64)) as JwtClaims;
 }
 
-// ── Session mapping ──────────────────────────────────────────────────────────
+// ── Session storage ───────────────────────────────────────────────────────────
 
 function toSession(res: ApiAuthResponse): AuthSession {
   const claims = parseJwtPayload(res.access_token);
-  localStorage.setItem(REFRESH_KEY, res.refresh_token);
   const user: User = {
-    id:       claims.sub,
-    fullName: claims.email,   // /users/me not yet implemented → use email as fallback
-    email:    claims.email,
+    id: claims.sub,
+    fullName: claims.email,
+    email: claims.email,
   };
   return { token: res.access_token, user };
 }
 
-function persistSession(session: AuthSession): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+function persistSession(session: AuthSession, rememberMe: boolean, refreshToken: string): void {
+  const storage = rememberMe ? localStorage : sessionStorage;
+  storage.setItem(SESSION_KEY, JSON.stringify(session));
+  storage.setItem(REFRESH_KEY, refreshToken);
 }
 
-// ── Public helpers ────────────────────────────────────────────────────────────
-
-/** The current persisted session, if any. Read synchronously at store init.
- *  Automatically clears stale mock tokens and expired JWTs. */
+/** Reads session from either storage, skipping expired access tokens. */
 export function getStoredSession(): AuthSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw) as AuthSession;
-    if (!session?.token) return null;
-
-    // Validate token is a real JWT and not expired
+  for (const storage of [localStorage, sessionStorage]) {
     try {
-      const claims = parseJwtPayload(session.token);
-      if (typeof claims.exp === "number" && claims.exp * 1000 < Date.now()) {
-        localStorage.removeItem(SESSION_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        return null;
-      }
-    } catch {
-      // Token không phải JWT hợp lệ (ví dụ: mock token cũ) → xóa
-      localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      return null;
-    }
+      const raw = storage.getItem(SESSION_KEY);
+      if (!raw) continue;
+      const session = JSON.parse(raw) as AuthSession;
+      if (!session?.token) continue;
 
-    return session;
-  } catch {
-    return null;
+      try {
+        const claims = parseJwtPayload(session.token);
+        if (typeof claims.exp === "number" && claims.exp * 1000 < Date.now()) {
+          // Expired — let the axios refresh interceptor handle it on next request;
+          // don't clear here so the refresh token is still available.
+          continue;
+        }
+      } catch {
+        storage.removeItem(SESSION_KEY);
+        storage.removeItem(REFRESH_KEY);
+        continue;
+      }
+
+      return session;
+    } catch { /* ignore */ }
   }
+  return null;
 }
 
 export function getToken(): string | null {
@@ -109,61 +89,89 @@ function toVietnameseError(err: unknown): Error {
   return new Error(msg);
 }
 
-// ── Auth calls ───────────────────────────────────────────────────────────────
+// ── Auth calls ────────────────────────────────────────────────────────────────
 
-/** Maps to `POST /auth/login`. */
-export async function login(creds: LoginCredentials): Promise<AuthSession> {
+/** Fetches real full_name and avatarUrl from /users/me and patches them into the session. */
+async function enrichSession(session: AuthSession, rememberMe: boolean, refreshToken: string): Promise<AuthSession> {
+  try {
+    const me = await getMe();
+    session.user.fullName = me.full_name;
+    if (me.avatar_url) session.user.avatarUrl = me.avatar_url;
+    persistSession(session, rememberMe, refreshToken);
+  } catch {
+    // keep email fallback if /users/me fails
+  }
+  return session;
+}
+
+/** Maps to `POST /auth/login`.
+ *  rememberMe=true  → localStorage  (persists across browser sessions + auto-refresh)
+ *  rememberMe=false → sessionStorage (cleared when tab closes) */
+export async function login(creds: LoginCredentials, rememberMe = false): Promise<AuthSession> {
   try {
     const { data } = await axiosClient.post<ApiResponse<ApiAuthResponse>>("/auth/login", creds);
     const session = toSession(data.data);
-    persistSession(session);
-    return session;
+    persistSession(session, rememberMe, data.data.refresh_token);
+    return enrichSession(session, rememberMe, data.data.refresh_token);
   } catch (err) {
     throw toVietnameseError(err);
   }
 }
 
-/** Maps to `POST /auth/register`. */
+/** Maps to `POST /auth/register`. Always persists to localStorage. */
 export async function register(payload: RegisterPayload): Promise<AuthSession> {
   try {
     const { data } = await axiosClient.post<ApiResponse<ApiAuthResponse>>("/auth/register", {
-      full_name: payload.fullName,   // backend uses snake_case
-      email:     payload.email,
-      password:  payload.password,
+      full_name: payload.fullName,
+      email: payload.email,
+      password: payload.password,
     });
     const session = toSession(data.data);
-    persistSession(session);
-    return session;
+    persistSession(session, true, data.data.refresh_token);
+    return enrichSession(session, true, data.data.refresh_token);
   } catch (err) {
     throw toVietnameseError(err);
   }
 }
 
-/**
- * Google OAuth — backend endpoint still commented out.
- * Keeps a local mock until the server implements /auth/google.
- */
+/** Initiates the Google OAuth redirect flow.
+ *  Navigates the browser to the backend's /auth/google endpoint.
+ *  This function intentionally never resolves — the page navigates away. */
 export async function loginWithGoogle(): Promise<AuthSession> {
-  throw new Error("Đăng nhập Google chưa được hỗ trợ. Vui lòng dùng email.");
+  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000/api/v1";
+  window.location.href = `${base}/auth/google`;
+  return new Promise(() => {}); // browser navigates away; this never settles
 }
 
-/**
- * Maps to `POST /auth/forgot-password`. Always resolves successfully so the
- * response never reveals whether an email is registered.
- */
+/** Exchanges the Google authorization code for application tokens.
+ *  Called by the /auth/google-callback route. Always persists to localStorage. */
+export async function handleGoogleCallback(code: string, state: string): Promise<AuthSession> {
+  try {
+    const { data } = await axiosClient.get<ApiResponse<ApiAuthResponse>>("/auth/google/callback", {
+      params: { code, state },
+    });
+    const session = toSession(data.data);
+    persistSession(session, true, data.data.refresh_token);
+    return enrichSession(session, true, data.data.refresh_token);
+  } catch (err) {
+    throw toVietnameseError(err);
+  }
+}
+
 export async function requestPasswordReset(email: string): Promise<void> {
-  // await axiosClient.post("/auth/forgot-password", { email });
   void email;
 }
 
-/** Maps to `POST /auth/logout`. Clears local session regardless of API result. */
+/** Maps to `POST /auth/logout`. Clears both storages regardless of API result. */
 export async function logout(): Promise<void> {
   try {
     await axiosClient.post("/auth/logout");
   } catch {
-    /* best-effort — always clear local state */
+    /* best-effort */
   } finally {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    for (const storage of [localStorage, sessionStorage]) {
+      storage.removeItem(SESSION_KEY);
+      storage.removeItem(REFRESH_KEY);
+    }
   }
 }

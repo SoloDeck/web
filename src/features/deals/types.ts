@@ -1,13 +1,11 @@
-// Domain types for the Deal pipeline (Kanban). Shared across the deals,
-// clients, revenue and reminders features.
-
 export type Stage =
   | "new_lead"
   | "qualified"
   | "proposal_sent"
-  | "negotiation"
+  | "in_negotiation"
   | "active"
-  | "completed";
+  | "completed_and_billed"
+  | "lost";
 
 export type LeadScore = "hot" | "warm" | "cold";
 
@@ -17,6 +15,7 @@ export type Channel = "Zalo" | "Email" | "Facebook";
 
 export type Deal = {
   id: string;
+  clientId: string;
   client: string;
   projectType: string;
   value: number; // VND
@@ -32,10 +31,23 @@ export type Deal = {
 };
 
 export const STAGES: { id: Stage; title: string; hint: string }[] = [
-  { id: "new_lead", title: "Yêu Cầu Mới", hint: "Khách hàng vừa liên hệ" },
-  { id: "qualified", title: "Đã Sàng Lọc", hint: "Phù hợp dịch vụ" },
-  { id: "proposal_sent", title: "Đã Gửi Báo Giá", hint: "Chờ phản hồi" },
-  { id: "negotiation", title: "Đang Đàm Phán", hint: "Trao đổi điều khoản" },
-  { id: "active", title: "Đang Triển Khai", hint: "Dự án đang chạy" },
-  { id: "completed", title: "Hoàn Thành & Đã Thu", hint: "Đã thanh toán" },
+  { id: "new_lead",           title: "Yêu Cầu Mới",         hint: "Khách hàng vừa liên hệ" },
+  { id: "qualified",          title: "Đã Sàng Lọc",          hint: "Phù hợp dịch vụ" },
+  { id: "proposal_sent",      title: "Đã Gửi Báo Giá",       hint: "Chờ phản hồi" },
+  { id: "in_negotiation",     title: "Đang Đàm Phán",         hint: "Trao đổi điều khoản" },
+  { id: "active",             title: "Đang Triển Khai",       hint: "Dự án đang chạy" },
+  { id: "completed_and_billed", title: "Hoàn Thành & Đã Thu", hint: "Đã thanh toán" },
+  { id: "lost",               title: "Không Chốt Được",       hint: "Deal đã mất" },
 ];
+
+// Mirror of backend VALID_TRANSITIONS — used for client-side validation before
+// calling POST /deals/{id}/stage so invalid drags are rejected immediately.
+export const VALID_TRANSITIONS: Record<Stage, Stage[]> = {
+  new_lead:             ["qualified", "lost"],
+  qualified:            ["proposal_sent", "lost"],
+  proposal_sent:        ["in_negotiation", "lost"],
+  in_negotiation:       ["active", "lost"],
+  active:               ["completed_and_billed", "lost"],
+  completed_and_billed: [],
+  lost:                 [],
+};

@@ -7,7 +7,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { DEMO_CREDENTIALS } from "@/services/authService";
 import { GoogleButton } from "./GoogleButton";
 
 export function LoginForm() {
@@ -24,7 +23,7 @@ export function LoginForm() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await login({ email, password });
+      await login({ email, password }, rememberMe);
       toast.success("Đăng nhập thành công!", {
         description: "Đang chuyển hướng vào SoloDesk...",
         duration: 2000,
@@ -33,11 +32,6 @@ export function LoginForm() {
     } catch {
       /* error surfaced via store */
     }
-  };
-
-  const fillDemo = (cred: (typeof DEMO_CREDENTIALS)[number]) => {
-    setEmail(cred.email);
-    setPassword(cred.password);
   };
 
   return (
@@ -144,30 +138,6 @@ export function LoginForm() {
 
       {/* Google */}
       <GoogleButton onDone={() => navigate({ to: "/" })} />
-
-      {/* Demo accounts */}
-      <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 space-y-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Tài khoản demo — bấm để điền
-        </p>
-        <div className="space-y-1.5">
-          {DEMO_CREDENTIALS.map((cred) => (
-            <button
-              key={cred.email}
-              type="button"
-              onClick={() => fillDemo(cred)}
-              className="flex w-full items-center justify-between rounded-lg border border-border/40 bg-background/80 px-3 py-2 text-xs transition-colors hover:border-primary/30 hover:bg-secondary text-left"
-            >
-              <span className="font-semibold text-foreground">{cred.label}</span>
-              <span className="font-mono text-muted-foreground">{cred.email}</span>
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Mật khẩu:{" "}
-          <span className="font-mono font-medium text-foreground">123456</span>
-        </p>
-      </div>
     </form>
   );
 }
