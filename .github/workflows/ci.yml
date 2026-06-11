@@ -136,7 +136,7 @@ jobs:
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
-          docker compose -p solodesk-web-staging -f docker-compose.yml up -d app
+          docker compose -p solodesk-web-staging up -d app
 
       - name: Remove .env
         if: always()
@@ -185,7 +185,7 @@ jobs:
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
-          docker compose -p solodesk-web-production -f docker-compose.yml up -d app
+          docker compose -p solodesk-web-production up -d app
 
       - name: Remove .env
         if: always()
