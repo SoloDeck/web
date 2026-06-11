@@ -46,7 +46,7 @@ export type Profile = {
 export const DEFAULT_PROFILE: Profile = {
   fullName: "Minh Nguyễn",
   displayTitle: "Brand & Content Designer",
-  email: "minh.nguyen@solodesk.vn",
+  email: "minh.nguyen@solodesk.space",
   phone: "0909123456",
   taxCode: "8123456789",
   serviceCategory: "Brand & Content Designer",

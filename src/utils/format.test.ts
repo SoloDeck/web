@@ -3,7 +3,7 @@ import { formatVND } from './format'
 
 describe('formatVND', () => {
   it('formats a number as Vietnamese đồng with dot thousands separators', () => {
-    //   is the non-breaking space Intl inserts before the ₫ symbol.
+    // The space before the ₫ symbol is the non-breaking space Intl inserts.
     expect(formatVND(25000000)).toBe('25.000.000 ₫')
   })
 

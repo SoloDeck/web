@@ -26,8 +26,10 @@ test-results
 
 
 # Editor directories and files
-.vscode/*
+.vscode/
 !.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -37,15 +39,15 @@ test-results
 *.sw?
 
 # auto generated files
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+# (Removed lock files from here to ensure reproducible builds)
 lerna-lock.json
 
 # Environment variables
-.env
+*.env*
 .env.*.local
 !.env.example
+!.env.staging.example
+!.env.production.example
 # claude-code-harness (lifecycle) runtime state — keep out of git
 .claude/state/
 .claude/agent-memory/

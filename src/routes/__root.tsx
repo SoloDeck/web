@@ -6,6 +6,7 @@ export const Route = createRootRoute({
   component: RootComponent,
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 function RootComponent() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrate = useAuthStore((s) => s.hydrate);

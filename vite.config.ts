@@ -6,6 +6,8 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
+const allowedHosts = process.env.VITE_ALLOWED_HOSTS?.split(',') || []
+
 export default defineConfig({
   plugins: [
     react(),
@@ -16,6 +18,12 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  server: {
+    allowedHosts,
+  },
+  preview: {
+    allowedHosts,
   },
   test: {
     globals: true,

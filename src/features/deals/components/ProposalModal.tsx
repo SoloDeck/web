@@ -11,11 +11,11 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
 
   useEffect(() => {
     if (!deal) return;
-    setLoading(true);
+
     const deposit = Math.round(deal.value * 0.5);
     const final = deal.value - deposit;
 
-    const t = setTimeout(() => {
+    const generate = () => {
       setProposalHtml(`
         <div style="text-align: center; border-bottom: 1px solid hsl(var(--border)); padding-bottom: 16px; margin-bottom: 20px;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: hsl(var(--muted-foreground)); font-weight: 500;">ĐỀ XUẤT DỊCH VỤ</div>
@@ -27,7 +27,7 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
           <div>
             <div style="font-size: 10px; font-weight: 600; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">BÊN CUNG CẤP</div>
             <div style="font-weight: 600; font-size: 14px; color: hsl(var(--foreground));">Minh Nguyễn</div>
-            <div style="color: hsl(var(--muted-foreground)); font-size: 12px; margin-top: 2px;">Thiết kế Thương hiệu & Nội dung · solodesk.vn</div>
+            <div style="color: hsl(var(--muted-foreground)); font-size: 12px; margin-top: 2px;">Thiết kế Thương hiệu & Nội dung · solodesk.space</div>
           </div>
           <div>
             <div style="font-size: 10px; font-weight: 600; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">BÊN KHÁCH HÀNG</div>
@@ -82,9 +82,15 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
         </div>
       `);
       setLoading(false);
-    }, 900);
+    };
 
-    return () => clearTimeout(t);
+    const start = () => {
+      setLoading(true);
+      const t = setTimeout(generate, 900);
+      return () => clearTimeout(t);
+    };
+
+    return start();
   }, [deal, today]);
 
   if (!deal) return null;
