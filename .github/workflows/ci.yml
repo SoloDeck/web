@@ -88,7 +88,11 @@ jobs:
           echo "REGISTRY=ghcr.io/$REPO_LOWER" >> $GITHUB_ENV
       - name: Build and push
         run: |
-          docker build --target runtime -t ${{ env.REGISTRY }}/solodesk-web:latest .
+          docker build \
+            --target runtime \
+            --build-arg VITE_API_URL=${{ secrets.VITE_API_URL }} \
+            --build-arg VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }} \
+            -t ${{ env.REGISTRY }}/solodesk-web:latest .
           docker push ${{ env.REGISTRY }}/solodesk-web:latest
 
   deploy-staging:
@@ -100,7 +104,7 @@ jobs:
       packages: read   # pull image from GHCR
     environment:
       name: staging
-      url: https://staging.solodesk.space
+      url: ${{ vars.PUBLIC_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -124,7 +128,6 @@ jobs:
           @"
           VITE_API_URL=${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
-          VITE_ALLOWED_HOSTS=${{ vars.VITE_ALLOWED_HOSTS }}
           WEB_PORT=${{ vars.WEB_PORT }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
@@ -132,7 +135,6 @@ jobs:
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
-          $env:VITE_ALLOWED_HOSTS = "${{ vars.VITE_ALLOWED_HOSTS || '.solodesk.space' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-staging -f docker-compose.yml up -d app
 
@@ -151,7 +153,7 @@ jobs:
       packages: read   # pull image from GHCR
     environment:
       name: production
-      url: https://app.solodesk.space
+      url: ${{ vars.PUBLIC_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -175,7 +177,6 @@ jobs:
           @"
           VITE_API_URL=${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
-          VITE_ALLOWED_HOSTS=${{ vars.VITE_ALLOWED_HOSTS }}
           WEB_PORT=${{ vars.WEB_PORT }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
@@ -183,7 +184,6 @@ jobs:
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
-          $env:VITE_ALLOWED_HOSTS = "${{ vars.VITE_ALLOWED_HOSTS || '.solodesk.space' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-production -f docker-compose.yml up -d app
 

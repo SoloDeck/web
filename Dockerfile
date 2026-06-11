@@ -1,48 +1,36 @@
+# ===========================================================================
+# Stage 1: Build stage
+# ===========================================================================
 FROM oven/bun:1.3.13-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments (VITE_* variables must be present at build time)
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY . .
-
-
-# ---------------------------------------------------------------------------
-# Stage: test — lint + typecheck + unit tests (used by CI)
-# ---------------------------------------------------------------------------
-FROM builder AS test
-
-# No additional install needed — node_modules already present from builder
-
-
-# ---------------------------------------------------------------------------
-# Stage: runtime — production image serving the built static assets
-# ---------------------------------------------------------------------------
-FROM builder AS runtime-build
-
 RUN bun run build
 
-FROM oven/bun:1.3.13-alpine AS runtime
+# ---------------------------------------------------------------------------
+# Stage 2: runtime — Nginx serving built static assets
+# ---------------------------------------------------------------------------
+FROM nginx:1.27-alpine AS runtime
 
-WORKDIR /app
+# Copy built assets from builder
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-ARG VITE_API_URL
-ENV VITE_API_URL=${VITE_API_URL}
+# Copy custom Nginx configuration for SPA support
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY package.json bun.lock ./
-COPY --from=runtime-build /app/node_modules ./node_modules
-COPY --from=runtime-build /app/dist ./dist
-
-ARG WEB_PORT=5173
-ENV PORT=${WEB_PORT}
-
-EXPOSE ${PORT}
+EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:${PORT}/ || exit 1
+    CMD wget -qO- http://localhost:80/ || exit 1
 
-CMD ["sh", "-c", "bun run preview -- --host 0.0.0.0 --port ${PORT}"]
+CMD ["nginx", "-g", "daemon off;"]
