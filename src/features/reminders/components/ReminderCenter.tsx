@@ -49,7 +49,7 @@ function pickTargets(deals: Deal[]): Record<ReminderKind, Deal[]> {
   const overdue = deals.filter(
     (d) => d.stage === "active" && d.paymentStatus === "Đã đặt cọc"
   );
-  const reengage = deals.filter((d) => d.stage === "completed");
+  const reengage = deals.filter((d) => d.stage === "completed_and_billed");
   return { due_soon: due, overdue, reengage };
 }
 

@@ -9,7 +9,7 @@ export function RevenueDashboard({
   deals: Deal[];
 }) {
   const stats = useMemo(() => {
-    const completed = deals.filter((d) => d.stage === "completed");
+    const completed = deals.filter((d) => d.stage === "completed_and_billed");
     const billed = completed.reduce((s, d) => s + d.value, 0);
     const outstanding = deals
       .filter((d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead")
@@ -147,7 +147,7 @@ export function RevenueDashboard({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {deals
-                .filter((d) => d.stage === "completed")
+                .filter((d) => d.stage === "completed_and_billed")
                 .map((d) => (
                   <div
                     key={d.id}
