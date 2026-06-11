@@ -15,7 +15,7 @@ export function RevenueDashboard({
       .filter((d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead")
       .reduce((s, d) => s + d.value, 0);
     const pipeline = deals
-      .filter((d) => d.stage !== "completed")
+      .filter((d) => d.stage !== "completed_and_billed")
       .reduce((s, d) => s + d.value, 0);
     const won = completed.length;
     const lost = 2; // mock
