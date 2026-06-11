@@ -6,7 +6,8 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
-const allowedHosts = process.env.VITE_ALLOWED_HOSTS?.split(',') || []
+const envAllowedHosts = process.env.VITE_ALLOWED_HOSTS?.split(',') || []
+const allowedHosts = [...envAllowedHosts, '.solodesk.space', 'localhost']
 
 export default defineConfig({
   plugins: [

@@ -132,6 +132,7 @@ jobs:
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
+          $env:VITE_ALLOWED_HOSTS = "${{ vars.VITE_ALLOWED_HOSTS || '.solodesk.space' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-staging -f docker-compose.yml up -d app
 
@@ -182,6 +183,7 @@ jobs:
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
+          $env:VITE_ALLOWED_HOSTS = "${{ vars.VITE_ALLOWED_HOSTS || '.solodesk.space' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-production -f docker-compose.yml up -d app
 

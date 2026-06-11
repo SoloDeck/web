@@ -34,6 +34,8 @@ services:
     restart: "no"
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-.solodesk.space}
+      WEB_PORT: ${WEB_PORT:-5173}
     volumes:
       - ./src:/app/src
       - ./e2e:/app/e2e
