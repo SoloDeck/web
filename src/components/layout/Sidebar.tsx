@@ -20,11 +20,11 @@ export function AppSidebar({
   active: NavKey;
   onNavigate: (nav: NavKey) => void;
 }) {
-  const billed = deals.filter((d) => d.stage === "completed").reduce((s, d) => s + d.value, 0);
-  const won = deals.filter((d) => d.stage === "completed").length;
+  const billed = deals.filter((d) => d.stage === "completed_and_billed").reduce((s, d) => s + d.value, 0);
+  const won = deals.filter((d) => d.stage === "completed_and_billed").length;
   const lost = 2;
   const winRate = Math.round((won / (won + lost)) * 100);
-  const pipeline = deals.filter((d) => !["completed"].includes(d.stage)).reduce((s, d) => s + d.value, 0);
+  const pipeline = deals.filter((d) => !["completed_and_billed"].includes(d.stage)).reduce((s, d) => s + d.value, 0);
 
   return (
     <aside 
