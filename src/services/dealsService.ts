@@ -1,177 +1,114 @@
+import axiosClient from "@/configs/axios";
+import type { ApiResponse } from "@/features/auth/types";
 import type { Deal, Stage } from "@/features/deals/types";
-// import axiosClient from "@/configs/axios";
 
 // ---------------------------------------------------------------------------
-// Deals service
-//
-// Centralises data access for the pipeline. Today it resolves an in-memory
-// fixture so the UI works without a backend; each function is shaped like the
-// eventual REST call so swapping to the FastAPI backend is a one-line change
-// (replace the mock body with the commented axios call).
+// Backend response shapes
 // ---------------------------------------------------------------------------
 
-const MOCK_DEALS: Deal[] = [
-  {
-    id: "d1",
-    client: "Công ty Cổ phần An Nhiên",
-    projectType: "Thiết kế Bộ Nhận Diện Thương Hiệu",
-    value: 25000000,
-    score: "hot",
-    stage: "new_lead",
-    contact: "Chị Mai - 0901xxx234",
-    channel: "Zalo",
-    createdAt: "2026-05-08",
-    notes: "Cần logo + tài liệu hướng dẫn thương hiệu trong 3 tuần.",
-    paymentStatus: "Chưa thanh toán",
-    paymentMethod: "—",
-    history: [
-      { date: "2026-05-08", text: "Khách nhắn tin qua Zalo OA, hỏi báo giá nhận diện thương hiệu." },
-    ],
-  },
-  {
-    id: "d2",
-    client: "Quán Cà Phê Hạt Nhỏ",
-    projectType: "Tư vấn Đánh Giá Tối Ưu SEO Website",
-    value: 8000000,
-    score: "warm",
-    stage: "new_lead",
-    contact: "Anh Khoa - 0938xxx112",
-    channel: "Facebook",
-    createdAt: "2026-05-09",
-    notes: "Website mới mở, cần đánh giá từ khoá địa phương.",
-    paymentStatus: "Chưa thanh toán",
-    paymentMethod: "—",
-    history: [{ date: "2026-05-09", text: "Liên hệ qua trang Fanpage." }],
-  },
-  {
-    id: "d3",
-    client: "Startup EduKid Vietnam",
-    projectType: "Viết Nội Dung Khoá Học",
-    value: 15000000,
-    score: "warm",
-    stage: "qualified",
-    contact: "Chị Linh - 0912xxx889",
-    channel: "Email",
-    createdAt: "2026-05-04",
-    notes: "20 bài viết blog + 5 trang đích (landing page), xuất bản trong tháng.",
-    paymentStatus: "Chưa thanh toán",
-    paymentMethod: "—",
-    history: [
-      { date: "2026-05-04", text: "Cuộc họp giới thiệu qua Google Meet." },
-      { date: "2026-05-06", text: "Xác nhận phạm vi công việc, chờ báo giá chính thức." },
-    ],
-  },
-  {
-    id: "d4",
-    client: "Shop Thời Trang LaLuna",
-    projectType: "Chụp Ảnh Sản Phẩm Bộ Sưu Tập Thời Trang (Lookbook)",
-    value: 12000000,
-    score: "hot",
-    stage: "proposal_sent",
-    contact: "Chị Hà - 0967xxx556",
-    channel: "Zalo",
-    createdAt: "2026-05-02",
-    notes: "Đã gửi báo giá phiên bản 2.",
-    paymentStatus: "Chưa thanh toán",
-    paymentMethod: "—",
-    history: [
-      { date: "2026-05-02", text: "Gửi báo giá lần 1." },
-      { date: "2026-05-07", text: "Chỉnh sửa báo giá theo ý kiến phản hồi." },
-    ],
-  },
-  {
-    id: "d5",
-    client: "Phòng Khám Nha Khoa Việt Đức",
-    projectType: "Quản Trị Fanpage 3 Tháng",
-    value: 18000000,
-    score: "warm",
-    stage: "negotiation",
-    contact: "Anh Tuấn - 0903xxx411",
-    channel: "Zalo",
-    createdAt: "2026-04-28",
-    notes: "Đang đàm phán điều khoản chỉ số hiệu quả (KPI) và hình ảnh.",
-    paymentStatus: "Chưa thanh toán",
-    paymentMethod: "—",
-    history: [{ date: "2026-04-28", text: "Họp trực tuyến thống nhất phạm vi công việc." }],
-  },
-  {
-    id: "d6",
-    client: "Nhà Hàng Bếp Nhà",
-    projectType: "Truyền Thông Tổng Thể - Khai Trương",
-    value: 35000000,
-    score: "hot",
-    stage: "active",
-    contact: "Chị Trang - 0918xxx700",
-    channel: "Email",
-    createdAt: "2026-04-15",
-    notes: "Đang chạy chiến dịch khai trương cơ sở 2.",
-    paymentStatus: "Đã đặt cọc",
-    paymentMethod: "MoMo",
-    history: [
-      { date: "2026-04-15", text: "Ký hợp đồng, nhận cọc 50%." },
-      { date: "2026-04-30", text: "Triển khai bài đăng giai đoạn 1." },
-    ],
-  },
-  {
-    id: "d7",
-    client: "Anh Long - Cá Nhân",
-    projectType: "Thiết Kế Slide Thuyết Trình Gọi Vốn",
-    value: 6000000,
-    score: "cold",
-    stage: "active",
-    contact: "Anh Long - 0977xxx320",
-    channel: "Zalo",
-    createdAt: "2026-04-20",
-    notes: "Slide gọi vốn vòng hạt giống (seed).",
-    paymentStatus: "Đã đặt cọc",
-    paymentMethod: "Vietcombank",
-    history: [{ date: "2026-04-20", text: "Nhận yêu cầu dự án & ảnh tư liệu." }],
-  },
-  {
-    id: "d8",
-    client: "Spa Thanh Tâm",
-    projectType: "Quay Dựng Phim Quảng Cáo (TVC) 30s",
-    value: 22000000,
-    score: "warm",
-    stage: "completed",
-    contact: "Chị Thảo - 0939xxx108",
-    channel: "Zalo",
-    createdAt: "2026-03-10",
-    notes: "Đã bàn giao tài liệu hoàn thiện, xuất hoá đơn.",
-    paymentStatus: "Đã thanh toán",
-    paymentMethod: "Techcombank",
-    history: [
-      { date: "2026-03-10", text: "Ký hợp đồng." },
-      { date: "2026-04-02", text: "Bàn giao phim quảng cáo hoàn thiện." },
-      { date: "2026-04-05", text: "Nhận thanh toán đủ qua Techcombank." },
-    ],
-  },
-  {
-    id: "d9",
-    client: "Trung Tâm Tiếng Anh BrightPath",
-    projectType: "Thiết kế Trang Đích Website (Landing Page)",
-    value: 14000000,
-    score: "hot",
-    stage: "completed",
-    contact: "Cô Yến - 0908xxx221",
-    channel: "Email",
-    createdAt: "2026-02-22",
-    notes: "Hoàn thành đúng thời hạn.",
-    paymentStatus: "Đã thanh toán",
-    paymentMethod: "MoMo",
-    history: [{ date: "2026-03-15", text: "Bàn giao website." }],
-  },
-];
+type ApiDealResponse = {
+  id: string;
+  client_id: string;
+  client_name?: string; // denormalized — present in responses, absent in older payloads
+  title: string;
+  stage: Stage;
+  source: string | null;
+  estimated_value: number | null;
+  actual_value: number | null;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
-/** Fetch the full pipeline. Maps to `GET /deals`. */
-export async function getDeals(): Promise<Deal[]> {
-  // return (await axiosClient.get<Deal[]>("/deals")).data;
-  return structuredClone(MOCK_DEALS);
+type ApiClientResponse = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Mapping helpers
+// ---------------------------------------------------------------------------
+
+function mapSourceToChannel(source: string | null): Deal["channel"] {
+  if (!source) return "Zalo";
+  const s = source.toLowerCase();
+  if (s.includes("email")) return "Email";
+  if (s.includes("facebook") || s.includes("fb")) return "Facebook";
+  return "Zalo";
 }
 
-/** Persist a deal's stage transition. Maps to `PATCH /deals/:id`. */
+function mapDeal(d: ApiDealResponse, clientMap: Map<string, ApiClientResponse>): Deal {
+  const client = clientMap.get(d.client_id);
+  const clientName = d.client_name ?? client?.name ?? "Khách hàng";
+  const value = Number(d.estimated_value ?? d.actual_value ?? 0);
+
+  let paymentStatus: Deal["paymentStatus"] = "Chưa thanh toán";
+  if (d.stage === "completed_and_billed") paymentStatus = "Đã thanh toán";
+  else if (d.actual_value && d.actual_value > 0) paymentStatus = "Đã đặt cọc";
+
+  return {
+    id: d.id,
+    clientId: d.client_id,
+    client: clientName,
+    projectType: d.title,
+    value,
+    score: "warm", // not in API yet — tracked as "Đang phát triển"
+    stage: d.stage,
+    contact: client
+      ? [client.name, client.phone].filter(Boolean).join(" - ")
+      : clientName,
+    channel: mapSourceToChannel(d.source),
+    createdAt: d.created_at.split("T")[0],
+    notes: d.notes ?? "",
+    paymentStatus,
+    paymentMethod: "—", // not in API yet — tracked as "Đang phát triển"
+    history: [],        // not in API yet — tracked as "Đang phát triển"
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Service functions
+// ---------------------------------------------------------------------------
+
+/** GET /deals — fetches all user deals, enriched with client names. */
+export async function getDeals(): Promise<Deal[]> {
+  const [dealsRes, clientsRes] = await Promise.all([
+    axiosClient.get<ApiResponse<ApiDealResponse[]>>("/deals"),
+    axiosClient
+      .get<ApiResponse<ApiClientResponse[]>>("/clients")
+      .catch(() => ({ data: { data: [] as ApiClientResponse[] } })),
+  ]);
+
+  const clientMap = new Map<string, ApiClientResponse>(
+    (clientsRes.data.data ?? []).map((c) => [c.id, c])
+  );
+
+  return dealsRes.data.data.map((d) => mapDeal(d, clientMap));
+}
+
+/** POST /deals/{id}/stage — transitions a deal to a new stage. */
 export async function updateDealStage(id: string, stage: Stage): Promise<void> {
-  // await axiosClient.patch(`/deals/${id}`, { stage });
-  void id;
-  void stage;
+  await axiosClient.post(`/deals/${id}/stage`, { stage });
+}
+
+
+/** POST /deals — creates a new deal (UI coming soon). */
+export async function createDeal(payload: {
+  client_id: string;
+  title: string;
+  stage?: Stage;
+  estimated_value?: number;
+  notes?: string;
+  source?: string;
+}): Promise<Deal> {
+  const { data } = await axiosClient.post<ApiResponse<ApiDealResponse>>("/deals", payload);
+  return mapDeal(data.data, new Map());
+}
+
+/** DELETE /deals/{id} — soft-deletes a deal (UI coming soon). */
+export async function deleteDeal(id: string): Promise<void> {
+  await axiosClient.delete(`/deals/${id}`);
 }

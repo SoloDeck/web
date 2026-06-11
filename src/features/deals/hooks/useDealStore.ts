@@ -9,6 +9,8 @@ interface DealState {
   hydrated: boolean;
   /** Seed the board from the server payload (runs once). */
   hydrate: (deals: Deal[]) => void;
+  /** Append a newly-created deal to the board (optimistic after POST /deals). */
+  addDeal: (deal: Deal) => void;
   /** Move a deal to a stage, appending it to the end of that column. */
   moveToStage: (dealId: string, stage: Stage) => void;
   /**
@@ -24,6 +26,9 @@ export const useDealStore = create<DealState>((set) => ({
 
   hydrate: (deals) =>
     set((state) => (state.hydrated ? state : { deals, hydrated: true })),
+
+  addDeal: (deal) =>
+    set((state) => ({ deals: [deal, ...state.deals] })),
 
   moveToStage: (dealId, stage) =>
     set((state) => ({

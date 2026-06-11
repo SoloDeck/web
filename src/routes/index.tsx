@@ -1,9 +1,10 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { Bell, Filter, Loader2, Menu, Search, Sparkles } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Bell, Filter, Loader2, Menu, Plus, Search, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
-import { AIPanel } from "@/features/ai/components/AIPanel";
+import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { DealDetailModal } from "@/features/deals/components/DealDetailModal";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
@@ -13,7 +14,9 @@ import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import { updateMe } from "@/services/usersService";
 import type { Deal } from "@/features/deals/types";
+import type { Profile } from "@/features/profile/types";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
@@ -30,8 +33,19 @@ function Index() {
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
   const { clauses, setClauses } = useClauses();
+  const updateUser = useAuthStore((s) => s.updateUser);
 
-  const [aiOpen, setAiOpen] = useState(false);
+  const handleSaveProfile = useCallback(async (p: Profile) => {
+    setProfile(p);
+    try {
+      await updateMe({ full_name: p.fullName, phone: p.phone || undefined });
+      updateUser({ fullName: p.fullName });
+    } catch {
+      toast.error("Không thể lưu hồ sơ lên server. Thay đổi vẫn được lưu cục bộ.");
+    }
+  }, [setProfile, updateUser]);
+
+  const [newDealOpen, setNewDealOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [detail, setDetail] = useState<Deal | null>(null);
   const [proposal, setProposal] = useState<Deal | null>(null);
@@ -61,7 +75,7 @@ function Index() {
 
       <AppSidebar
         deals={deals}
-        onOpenAI={() => setAiOpen(true)}
+        onOpenAI={() => setNewDealOpen(true)}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         active={nav}
@@ -81,13 +95,13 @@ function Index() {
               </button>
               <div className="min-w-0">
                 <h1 className="text-lg font-bold tracking-tight truncate">
-                  {nav === "pipeline" && "Đường Ống Cơ Hội"}
+                  {nav === "pipeline" && "Quy Trình Dự Án"}
                   {nav === "clients" && "Hồ Sơ Khách Hàng"}
                   {nav === "revenue" && "Thanh Toán & Hợp Đồng"}
                   {nav === "settings" && "Cài Đặt Hồ Sơ"}
                 </h1>
                 <p className="text-xs text-muted-foreground truncate">
-                  {nav === "pipeline" && `Quản lý ${deals.length} cơ hội · Kéo thả để cập nhật trạng thái`}
+                  {nav === "pipeline" && `Quản lý ${deals.length} dự án · Kéo thả để cập nhật tiến độ`}
                   {nav === "clients" && "Quản lý thông tin khách hàng"}
                   {nav === "revenue" && "Bảng điều khiển tài chính"}
                   {nav === "settings" && "Cấu hình workspace của bạn"}
@@ -123,10 +137,10 @@ function Index() {
                 <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
               </button>
               <button
-                onClick={() => setAiOpen(true)}
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-primary to-primary-glow px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow"
+                onClick={() => setNewDealOpen(true)}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90"
               >
-                <Sparkles className="h-4 w-4" /> Tác vụ AI
+                <Plus className="h-4 w-4" /> Thêm dự án mới
               </button>
             </div>
           </div>
@@ -147,7 +161,6 @@ function Index() {
 
               {nav === "clients" && (
                 <ClientRecords
-                  deals={deals}
                   onOpenDeal={(d) => {
                     setNav("pipeline");
                     setDetail(d);
@@ -160,7 +173,7 @@ function Index() {
               {nav === "settings" && (
                 <ProfileSettings
                   profile={profile}
-                  onSave={setProfile}
+                  onSave={handleSaveProfile}
                   clauses={clauses}
                   onSaveClauses={setClauses}
                 />
@@ -170,7 +183,7 @@ function Index() {
         </div>
       </main>
 
-      <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} />
+      <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />

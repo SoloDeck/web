@@ -55,19 +55,6 @@ export function AppSidebar({
         </div>
       </div>
 
-      <div className="p-4 border-b border-sidebar-border">
-        <UserMenu onOpenSettings={() => onNavigate("settings")} />
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
-            <div className="text-sidebar-foreground/60">Giá / giờ</div>
-            <div className="font-semibold">350.000 ₫</div>
-          </div>
-          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
-            <div className="text-sidebar-foreground/60">Zalo OA</div>
-            <div className="font-semibold text-success">Đã kết nối</div>
-          </div>
-        </div>
-      </div>
 
       <nav className="p-3 space-y-1">
         {[
@@ -121,8 +108,18 @@ export function AppSidebar({
         </div>
       </div>
 
-      <div className="mt-auto p-4 text-[11px] text-sidebar-foreground/40">
-         Phát triển tại Việt Nam 🇻🇳
+      <div className="mt-auto p-4 border-t border-sidebar-border space-y-3">
+        <UserMenu onOpenSettings={() => onNavigate("settings")} />
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
+            <div className="text-sidebar-foreground/60">Zalo</div>
+            <div className="font-semibold text-success">Đã kết nối</div>
+          </div>
+          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
+            <div className="text-sidebar-foreground/60">Email</div>
+            <div className="font-semibold text-success">Đã kết nối</div>
+          </div>
+        </div>
       </div>
     </aside>
   );
