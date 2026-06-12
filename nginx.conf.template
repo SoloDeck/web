@@ -14,7 +14,12 @@ server {
     gzip_disable "MSIE [1-6]\.";
 
     location /api/ {
-        proxy_pass http://api:8000;
+        # Use Docker's internal DNS resolver
+        resolver 127.0.0.11 valid=30s;
+        # Define a variable for the upstream host to defer DNS resolution until request time.
+        # This prevents Nginx from failing to start if the host is not immediately available.
+        set $upstream_api ${API_HOST};
+        proxy_pass http://$upstream_api:${API_PORT};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

@@ -129,12 +129,16 @@ jobs:
           VITE_API_URL=${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
           WEB_PORT=${{ vars.WEB_PORT }}
+          API_HOST=${{ vars.API_HOST || 'api' }}
+          API_PORT=${{ vars.API_PORT || '8000' }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
       - name: Pull & deploy
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
+          $env:API_HOST = "${{ vars.API_HOST || 'api' }}"
+          $env:API_PORT = "${{ vars.API_PORT || '8000' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-staging up -d app
 
@@ -178,12 +182,16 @@ jobs:
           VITE_API_URL=${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
           WEB_PORT=${{ vars.WEB_PORT }}
+          API_HOST=${{ vars.API_HOST || 'api' }}
+          API_PORT=${{ vars.API_PORT || '8000' }}
           "@ | Out-File -FilePath .env -Encoding utf8
 
       - name: Pull & deploy
         shell: powershell
         run: |
           $env:WEB_PORT = "${{ vars.WEB_PORT }}"
+          $env:API_HOST = "${{ vars.API_HOST || 'api' }}"
+          $env:API_PORT = "${{ vars.API_PORT || '8000' }}"
           docker pull ${{ env.REGISTRY }}/solodesk-web:latest
           docker compose -p solodesk-web-production up -d app
 

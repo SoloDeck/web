@@ -25,8 +25,11 @@ FROM nginx:1.27-alpine AS runtime
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy custom Nginx configuration for SPA support
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom Nginx configuration template for SPA support and environment variables
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+ENV API_HOST=api
+ENV API_PORT=8000
 
 EXPOSE 80
 
