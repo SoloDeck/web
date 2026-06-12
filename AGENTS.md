@@ -75,6 +75,7 @@ Each feature module owns its components, local state, query hooks, and services.
 
 Every task that adds or modifies a feature must follow this sequence:
 
+0. **DO NOT HARDCODE:** Respect the root `GEMINI.md` principle. Use environment variables for all API URLs and configuration.
 1. Validate the feature requirement and understand the UI/UX impact.
 2. Implement through the proper feature folder structure (`src/features/<name>`).
 3. Update routing or shared components only if necessary.
