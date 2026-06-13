@@ -3,11 +3,13 @@ import {
   DndContext,
   type DragEndEvent,
   type DragStartEvent,
+  type CollisionDetection,
   DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { KanbanColumn } from "./KanbanColumn";
@@ -18,6 +20,13 @@ import { updateDealStage } from "@/services/dealsService";
 
 const STAGE_IDS = STAGES.map((s) => s.id) as string[];
 const STAGE_LABEL = Object.fromEntries(STAGES.map((s) => [s.id, s.title])) as Record<Stage, string>;
+
+// closestCorners misses empty columns (no items to measure corners against).
+// pointerWithin uses the actual cursor position → reliable for any column state.
+const multiContainerCollision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length > 0 ? hits : rectIntersection(args);
+};
 
 export function KanbanBoard({
   deals,
@@ -89,7 +98,7 @@ export function KanbanBoard({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={multiContainerCollision}
       onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
       onDragEnd={onDragEnd}
     >

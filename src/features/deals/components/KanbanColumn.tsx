@@ -23,8 +23,8 @@ export function KanbanColumn({
   const total = deals.reduce((s, d) => s + d.value, 0);
 
   return (
-    <div className="flex flex-col w-[300px] shrink-0">
-      <div className="px-1 mb-2">
+    <div className="flex flex-col w-[300px] shrink-0 h-full">
+      <div className="px-1 mb-2 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="text-sm font-semibold text-foreground">{title}</div>
@@ -39,7 +39,7 @@ export function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 rounded-xl border-2 border-dashed p-2 space-y-2 min-h-[400px] transition-colors ${
+        className={`flex-1 min-h-0 overflow-y-auto rounded-xl border-2 border-dashed p-2 space-y-2 transition-colors ${
           isOver ? "border-primary bg-primary/5" : "border-border bg-muted/40"
         }`}
       >

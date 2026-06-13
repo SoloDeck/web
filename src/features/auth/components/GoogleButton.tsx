@@ -2,7 +2,16 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 
-/** Mock Google OAuth 2.0 entry point (real flow handled by the backend). */
+/**
+ * Nút đăng nhập bằng Google.
+ *
+ * Khi bấm: gọi `loginWithGoogle()` → browser chuyển hướng sang backend
+ * (`GET /auth/google`) → backend redirect sang Google OAuth → Google redirect
+ * về `/auth/google-callback?code=...&state=...` → hoàn tất xác thực.
+ *
+ * Vì đây là redirect toàn trang nên `onDone` thực tế không bao giờ được gọi
+ * trong luồng Google thành công — chỉ dùng khi có lỗi và store resolve sớm.
+ */
 export function GoogleButton({ onDone }: { onDone: () => void }) {
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
   const isSubmitting = useAuthStore((s) => s.isSubmitting);
@@ -10,9 +19,9 @@ export function GoogleButton({ onDone }: { onDone: () => void }) {
   const onClick = async () => {
     try {
       await loginWithGoogle();
-      onDone();
+      onDone(); // không thực sự chạy — browser đã navigate đi rồi
     } catch {
-      /* error surfaced via store */
+      // lỗi đã được đẩy vào store.error, hiển thị qua LoginForm
     }
   };
 

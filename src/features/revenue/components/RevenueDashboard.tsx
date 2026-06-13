@@ -1,193 +1,216 @@
-import { useMemo } from "react";
-import { TrendingUp, Wallet, Target, BarChart3, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  TrendingUp, Wallet, FileText, AlertCircle,
+  CheckCircle2, Clock, XCircle, FilePenLine, Send, Ban,
+} from "lucide-react";
 import { formatVND } from "@/utils/format";
-import type { Deal } from "@/features/deals/types";
+import { getContracts, type Contract } from "@/services/contractsService";
+import { getInvoices, getAnalyticsDashboard, type Invoice, type AnalyticsDashboard } from "@/services/invoicesService";
 
-export function RevenueDashboard({
-  deals,
-}: {
-  deals: Deal[];
-}) {
-  const stats = useMemo(() => {
-    const completed = deals.filter((d) => d.stage === "completed_and_billed");
-    const billed = completed.reduce((s, d) => s + d.value, 0);
-    const outstanding = deals
-      .filter((d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead")
-      .reduce((s, d) => s + d.value, 0);
-    const pipeline = deals
-      .filter((d) => d.stage !== "completed_and_billed")
-      .reduce((s, d) => s + d.value, 0);
-    const won = completed.length;
-    const lost = 2; // mock
-    const winRate = Math.round((won / Math.max(won + lost, 1)) * 100);
-    const avgDealSize = won > 0 ? Math.round(billed / won) : 0;
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-    const byMethod = deals
-      .filter((d) => d.paymentMethod !== "—")
-      .reduce<Record<string, { count: number; total: number }>>((acc, d) => {
-        acc[d.paymentMethod] = acc[d.paymentMethod] || { count: 0, total: 0 };
-        acc[d.paymentMethod].count++;
-        acc[d.paymentMethod].total += d.value;
-        return acc;
-      }, {});
+const CONTRACT_STATUS: Record<string, { label: string; cls: string }> = {
+  draft:                { label: "Bản nháp",        cls: "bg-secondary text-muted-foreground" },
+  pending_signatures:   { label: "Chờ ký",          cls: "bg-amber-500/10 text-amber-600 dark:text-amber-400" },
+  active:               { label: "Hiệu lực",        cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+  completed:            { label: "Hoàn thành",      cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400" },
+  terminated:           { label: "Đã huỷ",          cls: "bg-destructive/10 text-destructive" },
+};
 
-    return { billed, outstanding, pipeline, winRate, avgDealSize, won, lost, byMethod };
-  }, [deals]);
+const INVOICE_STATUS: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
+  draft:     { label: "Bản nháp",     icon: FilePenLine,   cls: "bg-secondary text-muted-foreground" },
+  sent:      { label: "Đã gửi",       icon: Send,          cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400" },
+  paid:      { label: "Đã thanh toán",icon: CheckCircle2,  cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+  overdue:   { label: "Quá hạn",      icon: AlertCircle,   cls: "bg-destructive/10 text-destructive" },
+  cancelled: { label: "Đã huỷ",       icon: Ban,           cls: "bg-secondary text-muted-foreground" },
+};
 
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
-  const outstanding = deals.filter(
-    (d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead"
-  );
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function RevenueDashboard() {
+  const [analytics, setAnalytics] = useState<AnalyticsDashboard | null>(null);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [invoices, setInvoices]   = useState<Invoice[]>([]);
+  const [loading, setLoading]     = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      getAnalyticsDashboard(),
+      getContracts(),
+      getInvoices(),
+    ]).then(([a, c, i]) => {
+      setAnalytics(a);
+      setContracts(c);
+      setInvoices(i);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Đang tải...
+      </div>
+    );
+  }
+
+  const overdueInvoices = invoices.filter((i) => i.status === "overdue");
+  const paidRevenue     = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.total, 0);
+  const remaining       = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled")
+                                  .reduce((s, i) => s + (i.total - i.amount_paid), 0);
 
   return (
-    <div className="p-4 lg:p-6 h-full overflow-y-auto">
-      <div className="space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Metric
-              icon={Wallet}
-              label="Doanh thu tháng"
-              value={formatVND(stats.billed)}
-              hint={`${stats.won} dự án đã xuất hoá đơn`}
-              tone="primary"
-            />
-            <Metric
-              icon={Clock}
-              label="Còn phải thu"
-              value={formatVND(stats.outstanding)}
-              hint={`${outstanding.length} khoản chưa thu đủ`}
-              tone="warning"
-            />
-            <Metric
-              icon={Target}
-              label="Win rate"
-              value={`${stats.winRate}%`}
-              hint={`${stats.won} thắng · ${stats.lost} thua`}
-              tone="success"
-            />
-            <Metric
-              icon={BarChart3}
-              label="Giá trị TB / deal"
-              value={formatVND(stats.avgDealSize)}
-              hint={`Pipeline: ${formatVND(stats.pipeline)}`}
-              tone="default"
-            />
-          </div>
+    <div className="p-4 lg:p-6 h-full overflow-y-auto space-y-6">
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 rounded-xl border border-border p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="font-semibold flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-warning" /> Khoản phải thu
-                </div>
-                <div className="text-xs text-muted-foreground">{outstanding.length} mục</div>
-              </div>
-              <div className="space-y-2">
-                {outstanding.length === 0 && (
-                  <div className="text-sm text-muted-foreground py-6 text-center">
-                    Tất cả khoản đã được thanh toán đủ 🎉
-                  </div>
-                )}
-                {outstanding.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5 hover:bg-secondary/30"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{d.client}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        {d.projectType} · {d.paymentStatus}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 ml-3">
-                      <div className="font-semibold text-sm text-primary">{formatVND(d.value)}</div>
-                      <div className="text-[10px] text-muted-foreground">{d.paymentMethod}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* ── Metric cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard
+          icon={Wallet}
+          label="Doanh thu thực thu"
+          value={formatVND(analytics?.total_revenue ?? paidRevenue)}
+          tone="primary"
+        />
+        <MetricCard
+          icon={Clock}
+          label="Còn phải thu"
+          value={formatVND(remaining)}
+          hint={`${analytics?.pending_invoices ?? overdueInvoices.length} hoá đơn chưa xong`}
+          tone="warning"
+        />
+        <MetricCard
+          icon={FileText}
+          label="Hợp đồng"
+          value={String(contracts.length)}
+          hint={`${contracts.filter((c) => c.status === "active").length} đang hiệu lực`}
+          tone="success"
+        />
+        <MetricCard
+          icon={TrendingUp}
+          label="Dự án đang chạy"
+          value={String(analytics?.active_deals ?? 0)}
+          tone="default"
+        />
+      </div>
 
-            <div className="rounded-xl border border-border p-5">
-              <div className="font-semibold flex items-center gap-2 mb-4">
-                <TrendingUp className="h-4 w-4 text-primary" /> Theo phương thức
-              </div>
-              <div className="space-y-3">
-                {Object.entries(stats.byMethod).map(([method, v]) => {
-                  const pct = stats.billed + stats.outstanding > 0
-                    ? Math.round((v.total / (stats.billed + stats.outstanding)) * 100)
-                    : 0;
-                  const color =
-                    method === "MoMo"
-                      ? "bg-pink-500"
-                      : method === "Vietcombank"
-                        ? "bg-emerald-500"
-                        : "bg-blue-500";
+      {/* ── Invoices ── */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-sm flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" /> Hoá đơn
+          </h2>
+          <span className="text-xs text-muted-foreground">{invoices.length} mục</span>
+        </div>
+
+        {invoices.length === 0 ? (
+          <EmptyState text="Chưa có hoá đơn nào." />
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/30 text-xs text-muted-foreground">
+                  <th className="text-left px-4 py-2.5 font-medium">Số HĐ</th>
+                  <th className="text-left px-4 py-2.5 font-medium hidden sm:table-cell">Hạn thanh toán</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Tổng</th>
+                  <th className="text-right px-4 py-2.5 font-medium hidden md:table-cell">Đã trả</th>
+                  <th className="text-center px-4 py-2.5 font-medium">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {invoices.map((inv) => {
+                  const st = INVOICE_STATUS[inv.status] ?? INVOICE_STATUS.draft;
+                  const StatusIcon = st.icon;
                   return (
-                    <div key={method}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="font-medium">{method}</span>
-                        <span className="text-muted-foreground">{formatVND(v.total)} · {v.count}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
+                    <tr key={inv.id} className="hover:bg-secondary/20 transition-colors">
+                      <td className="px-4 py-3 font-medium text-foreground">{inv.invoice_number}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{fmtDate(inv.due_date)}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{formatVND(inv.total)}</td>
+                      <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{formatVND(inv.amount_paid)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${st.cls}`}>
+                          <StatusIcon className="h-3 w-3" />
+                          {st.label}
+                        </span>
+                      </td>
+                    </tr>
                   );
                 })}
-                {Object.keys(stats.byMethod).length === 0 && (
-                  <div className="text-xs text-muted-foreground">Chưa có dữ liệu thanh toán.</div>
-                )}
-              </div>
-            </div>
+              </tbody>
+            </table>
           </div>
+        )}
+      </section>
 
-          <div className="rounded-xl border border-border p-5">
-            <div className="font-semibold flex items-center gap-2 mb-3">
-              <CheckCircle2 className="h-4 w-4 text-success" /> Doanh thu đã ghi nhận
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {deals
-                .filter((d) => d.stage === "completed_and_billed")
-                .map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between rounded-md bg-success/5 border border-success/15 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{d.client}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{d.paymentMethod}</div>
-                    </div>
-                    <div className="text-sm font-semibold text-success">{formatVND(d.value)}</div>
-                  </div>
-                ))}
-            </div>
+      {/* ── Contracts ── */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-sm flex items-center gap-2">
+            <FilePenLine className="h-4 w-4 text-primary" /> Hợp đồng
+          </h2>
+          <span className="text-xs text-muted-foreground">{contracts.length} mục</span>
+        </div>
+
+        {contracts.length === 0 ? (
+          <EmptyState text="Chưa có hợp đồng nào." />
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/30 text-xs text-muted-foreground">
+                  <th className="text-left px-4 py-2.5 font-medium">Hợp đồng</th>
+                  <th className="text-left px-4 py-2.5 font-medium hidden sm:table-cell">Ngày tạo</th>
+                  <th className="text-left px-4 py-2.5 font-medium hidden md:table-cell">Phiên bản</th>
+                  <th className="text-center px-4 py-2.5 font-medium">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {contracts.map((c) => {
+                  const st = CONTRACT_STATUS[c.status] ?? CONTRACT_STATUS.draft;
+                  const title = (c.content?.title as string) || `Hợp đồng #${c.id.slice(0, 8)}`;
+                  return (
+                    <tr key={c.id} className="hover:bg-secondary/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-foreground truncate max-w-[200px]">{title}</div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{fmtDate(c.created_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">v{c.version_number}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full ${st.cls}`}>
+                          {st.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-      </div>
+        )}
+      </section>
+
     </div>
   );
 }
 
-function Metric({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function MetricCard({
+  icon: Icon, label, value, hint, tone,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ElementType;
   label: string;
   value: string;
-  hint: string;
+  hint?: string;
   tone: "primary" | "warning" | "success" | "default";
 }) {
   const toneCls =
-    tone === "primary"
-      ? "text-primary bg-primary/10"
-      : tone === "warning"
-        ? "text-warning-foreground bg-warning/15"
-        : tone === "success"
-          ? "text-success bg-success/10"
-          : "text-foreground bg-secondary";
+    tone === "primary" ? "text-primary bg-primary/10" :
+    tone === "warning"  ? "text-amber-600 bg-amber-500/10" :
+    tone === "success"  ? "text-emerald-600 bg-emerald-500/10" :
+    "text-foreground bg-secondary";
 
   return (
     <div className="rounded-xl border border-border p-4">
@@ -196,7 +219,16 @@ function Metric({
       </div>
       <div className="text-xs text-muted-foreground mt-3">{label}</div>
       <div className="text-xl font-bold tracking-tight mt-0.5">{value}</div>
-      <div className="text-[11px] text-muted-foreground mt-1">{hint}</div>
+      {hint && <div className="text-[11px] text-muted-foreground mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
+      <XCircle className="h-6 w-6 mx-auto mb-2 opacity-30" />
+      {text}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { DealDetailModal } from "@/features/deals/components/DealDetailModal";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
+import { NewClientModal } from "@/features/clients/components/NewClientModal";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
@@ -47,12 +48,14 @@ function Index() {
   }, [setProfile, updateUser]);
 
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [newClientOpen, setNewClientOpen] = useState(false);
+  const [clientsRefreshKey, setClientsRefreshKey] = useState(0);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [detail, setDetail] = useState<Deal | null>(null);
   const [proposal, setProposal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
   const [nav, setNav] = useState<NavKey>("pipeline");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const filtered = useMemo(
     () =>
@@ -65,25 +68,25 @@ function Index() {
   );
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity"
+          className="fixed top-0 left-72 right-0 bottom-0 z-30"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       <AppSidebar
         deals={deals}
-        onOpenAI={() => setNewDealOpen(true)}
+        onNewDeal={() => setNewDealOpen(true)}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         active={nav}
         onNavigate={setNav}
       />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className={`flex-1 flex flex-col min-w-0 transition-[margin-left] duration-300 ease-in-out ${sidebarOpen ? "ml-72" : "ml-0"}`}>
         <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-20">
           <div className="px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -137,17 +140,27 @@ function Index() {
               >
                 <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
               </button>
-              <button
-                onClick={() => setNewDealOpen(true)}
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90"
-              >
-                <Plus className="h-4 w-4" /> Thêm dự án mới
-              </button>
+              {nav !== "clients" && (
+                <button
+                  onClick={() => setNewDealOpen(true)}
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" /> Thêm dự án mới
+                </button>
+              )}
+              {nav === "clients" && (
+                <button
+                  onClick={() => setNewClientOpen(true)}
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" /> Khách hàng mới
+                </button>
+              )}
             </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
           {isLoading ? (
             <div className="h-full grid place-items-center text-muted-foreground">
               <div className="flex items-center gap-2 text-sm">
@@ -162,6 +175,7 @@ function Index() {
 
               {nav === "clients" && (
                 <ClientRecords
+                  key={clientsRefreshKey}
                   onOpenDeal={(d) => {
                     setNav("pipeline");
                     setDetail(d);
@@ -169,7 +183,7 @@ function Index() {
                 />
               )}
 
-              {nav === "revenue" && <RevenueDashboard deals={deals} />}
+              {nav === "revenue" && <RevenueDashboard />}
 
               {nav === "settings" && (
                 <ProfileSettings
@@ -185,6 +199,11 @@ function Index() {
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
+      <NewClientModal
+        open={newClientOpen}
+        onClose={() => setNewClientOpen(false)}
+        onCreated={() => setClientsRefreshKey((k) => k + 1)}
+      />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />

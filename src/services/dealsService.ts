@@ -61,7 +61,8 @@ function mapDeal(d: ApiDealResponse, clientMap: Map<string, ApiClientResponse>):
       ? [client.name, client.phone].filter(Boolean).join(" - ")
       : clientName,
     channel: mapSourceToChannel(d.source),
-    createdAt: d.created_at.split("T")[0],
+    createdAt: d.created_at,
+    updatedAt: d.updated_at,
     notes: d.notes ?? "",
     paymentStatus,
     paymentMethod: "—", // not in API yet — tracked as "Đang phát triển"
@@ -111,4 +112,30 @@ export async function createDeal(payload: {
 /** DELETE /deals/{id} — soft-deletes a deal (UI coming soon). */
 export async function deleteDeal(id: string): Promise<void> {
   await axiosClient.delete(`/deals/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// AI
+// ---------------------------------------------------------------------------
+
+export type LeadQualificationResult = {
+  deal_id: string;
+  score: number;
+  recommendation: "qualify" | "pass";
+  reasoning: string;
+  generation_id: string;
+};
+
+/** POST /ai/leads/qualify — AI lead qualification for an existing deal. */
+export async function qualifyDeal(
+  dealId: string,
+  additionalContext?: string,
+): Promise<LeadQualificationResult> {
+  const body: Record<string, unknown> = { deal_id: dealId };
+  if (additionalContext) body.additional_context = additionalContext;
+  const { data } = await axiosClient.post<ApiResponse<LeadQualificationResult>>(
+    "/ai/leads/qualify",
+    body,
+  );
+  return data.data;
 }

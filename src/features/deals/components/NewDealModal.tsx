@@ -1,9 +1,11 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { X, Plus, Loader2, User, Briefcase, CheckCircle2, XCircle } from "lucide-react";
+import { X, Plus, Loader2, User, Briefcase, CheckCircle2, XCircle, Sparkles, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { getClients, createClient, type ClientRecord } from "@/services/clientsService";
-import { createDeal } from "@/services/dealsService";
+import { createDeal, qualifyDeal, type LeadQualificationResult } from "@/services/dealsService";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
+import type { Deal } from "@/features/deals/types";
 
 const SOURCE_OPTIONS = [
   { value: "inbound",  label: "Khách tự liên hệ" },
@@ -21,11 +23,12 @@ type Form = {
   estimated_value: string;
   source: string;
   notes: string;
+  requirements: string;
 };
 
 const INITIAL: Form = {
   client_name: "", client_phone: "", client_email: "",
-  title: "", estimated_value: "", source: "", notes: "",
+  title: "", estimated_value: "", source: "", notes: "", requirements: "",
 };
 
 function formReducer(state: Form, patch: Partial<Form>): Form {
@@ -36,6 +39,11 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
   const addDeal = useDealStore((s) => s.addDeal);
   const [form, dispatch] = useReducer(formReducer, INITIAL);
   const [submitting, setSubmitting] = useState(false);
+
+  // AI evaluation state
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<LeadQualificationResult | null>(null);
+  const [evaluatedDeal, setEvaluatedDeal] = useState<Deal | null>(null);
 
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<ClientRecord[]>([]);
@@ -52,12 +60,8 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
   // Search suggestions when typing client name
   useEffect(() => {
     const name = form.client_name.trim();
-
-    // Already selected a client — don't search again until user clears
     if (selectedClient) return;
-
     if (name.length < 1) { setSuggestions([]); setShowDropdown(false); return; }
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
@@ -69,12 +73,11 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
         setSuggestions(matched.slice(0, 6));
         setShowDropdown(matched.length > 0);
       } catch {
-        // silently ignore search errors
+        // silently ignore
       } finally {
         setSearching(false);
       }
     }, 250);
-
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [form.client_name, selectedClient]);
 
@@ -103,6 +106,9 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
   const clearSelectedClient = () => {
     setSelectedClient(null);
     dispatch({ client_name: "", client_phone: "", client_email: "" });
+    // Also clear AI state since client changed
+    setEvaluatedDeal(null);
+    setAiResult(null);
   };
 
   const handleClose = () => {
@@ -110,7 +116,69 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     setSelectedClient(null);
     setSuggestions([]);
     setShowDropdown(false);
+    setAiResult(null);
+    setAiLoading(false);
+    setEvaluatedDeal(null);
     onClose();
+  };
+
+  const handleAiEvaluate = async () => {
+    if (!form.client_name.trim()) { toast.error("Vui lòng nhập tên khách hàng."); return; }
+    if (!form.title.trim())       { toast.error("Vui lòng nhập tên dự án."); return; }
+
+    setAiLoading(true);
+    try {
+      let deal: typeof evaluatedDeal;
+
+      if (evaluatedDeal) {
+        deal = evaluatedDeal;
+      } else {
+        // Create client + deal first (needed for deal_id in AI call)
+        let clientId: string;
+        if (selectedClient) {
+          clientId = selectedClient.id;
+        } else {
+          const newClient = await createClient({
+            name:  form.client_name.trim(),
+            phone: form.client_phone.trim() || undefined,
+            email: form.client_email.trim() || undefined,
+          });
+          clientId = newClient.id;
+          selectExistingClient(newClient);
+        }
+
+        deal = await createDeal({
+          client_id:       clientId,
+          title:           form.title.trim(),
+          source:          (form.source as "inbound" | "referral" | "outreach" | "platform" | "other") || undefined,
+          estimated_value: form.estimated_value ? Number(form.estimated_value) : undefined,
+          notes:           form.notes.trim() || undefined,
+        });
+        // Always persist the created deal so user can commit via "Hoàn tất"
+        setEvaluatedDeal(deal);
+      }
+
+      // Attempt AI qualification — may not be available yet on backend
+      try {
+        const result = await qualifyDeal(deal!.id, form.requirements.trim() || undefined);
+        setAiResult(result);
+      } catch (aiErr: unknown) {
+        const status = (aiErr as { response?: { status?: number } })?.response?.status;
+        if (status === 404 || status === 405) {
+          toast.info("Tính năng đánh giá AI đang được phát triển. Dự án đã được tạo — nhấn Hoàn tất để lưu vào pipeline.", {
+            duration: 5000,
+          });
+        } else {
+          const msg = (aiErr as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          toast.warning(msg ?? "Đánh giá AI thất bại. Dự án đã được tạo — nhấn Hoàn tất để lưu vào pipeline.");
+        }
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(msg ?? "Không thể tạo dự án. Vui lòng thử lại.");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -118,17 +186,24 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     if (!form.client_name.trim()) { toast.error("Vui lòng nhập tên khách hàng."); return; }
     if (!form.title.trim())       { toast.error("Vui lòng nhập tên dự án."); return; }
 
+    if (evaluatedDeal) {
+      // Deal already created during AI evaluation — just add to store
+      addDeal(evaluatedDeal);
+      const action = selectedClient ? "Đã thêm dự án" : "Đã tạo khách hàng & dự án";
+      toast.success(`${action} "${evaluatedDeal.projectType}"!`);
+      handleClose();
+      return;
+    }
+
     setSubmitting(true);
     try {
       let clientId: string;
       let clientLabel: string;
 
       if (selectedClient) {
-        // Existing client — reuse, skip POST /clients
-        clientId = selectedClient.id;
+        clientId    = selectedClient.id;
         clientLabel = selectedClient.name;
       } else {
-        // New client — create first
         const newClient = await createClient({
           name:  form.client_name.trim(),
           phone: form.client_phone.trim() || undefined,
@@ -161,6 +236,7 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
   if (!open) return null;
 
   const contactLocked = !!selectedClient;
+  const dealLocked    = !!evaluatedDeal;
 
   return (
     <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
@@ -200,7 +276,6 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                     <input
                       value={form.client_name}
                       onChange={(e) => {
-                        // If user edits name after selection → clear selected client
                         if (selectedClient && e.target.value !== selectedClient.name) {
                           clearSelectedClient();
                         }
@@ -210,15 +285,18 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                       placeholder="VD: Nguyễn Văn A / Công ty XYZ"
                       maxLength={255}
                       autoComplete="off"
-                      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-8 ${
+                      disabled={dealLocked}
+                      className={cn(
+                        "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-8",
                         selectedClient
                           ? "border-success bg-success/5"
-                          : "border-input bg-background"
-                      }`}
+                          : "border-input bg-background",
+                        dealLocked && "opacity-60 cursor-not-allowed",
+                      )}
                     />
                     <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
                       {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                      {selectedClient && (
+                      {selectedClient && !dealLocked && (
                         <button type="button" onClick={clearSelectedClient} className="text-muted-foreground hover:text-foreground">
                           <XCircle className="h-3.5 w-3.5" />
                         </button>
@@ -239,7 +317,10 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                           onMouseDown={(e) => { e.preventDefault(); selectExistingClient(c); }}
                           className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-secondary transition-colors text-left"
                         >
-                          <div className={`h-7 w-7 rounded-full grid place-items-center shrink-0 text-xs font-bold text-white ${c.type === "company" ? "bg-violet-500" : "bg-primary"}`}>
+                          <div className={cn(
+                            "h-7 w-7 rounded-full grid place-items-center shrink-0 text-xs font-bold text-white",
+                            c.type === "company" ? "bg-violet-500" : "bg-primary",
+                          )}>
                             {c.name.trim().charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
@@ -255,7 +336,6 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                   )}
                 </div>
 
-                {/* Selected client banner */}
                 {selectedClient && (
                   <div className="mt-1.5 flex items-center gap-1.5 text-xs text-success">
                     <CheckCircle2 className="h-3 w-3" />
@@ -264,7 +344,7 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                 )}
               </div>
 
-              {/* Phone + Email — locked when existing client selected */}
+              {/* Phone + Email */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium block mb-1">
@@ -306,10 +386,16 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium block mb-1">Tên dự án <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium block mb-1">
+                  Tên dự án <span className="text-destructive">*</span>
+                </label>
                 <input
                   value={form.title}
-                  onChange={set("title")}
+                  onChange={(e) => {
+                    dispatch({ title: e.target.value });
+                    // If title changes after AI eval, invalidate result
+                    if (evaluatedDeal) { setEvaluatedDeal(null); setAiResult(null); }
+                  }}
                   placeholder="VD: Thiết kế website bán hàng..."
                   maxLength={500}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -346,11 +432,109 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                 <textarea
                   value={form.notes}
                   onChange={set("notes")}
-                  rows={3}
-                  placeholder="Mô tả yêu cầu, điều kiện đặc biệt..."
+                  rows={2}
+                  placeholder="Điều kiện đặc biệt, thời hạn, kênh liên lạc..."
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 />
               </div>
+
+              {/* Yêu cầu dự án — dùng cho đánh giá AI */}
+              <div>
+                <label className="text-sm font-medium block mb-1">
+                  Yêu cầu dự án
+                  <span className="ml-1.5 text-[10px] font-normal text-violet-500 bg-violet-50 dark:bg-violet-950/40 px-1.5 py-0.5 rounded-full border border-violet-200 dark:border-violet-800">
+                    Dùng cho AI
+                  </span>
+                </label>
+                <textarea
+                  value={form.requirements}
+                  onChange={set("requirements")}
+                  rows={3}
+                  placeholder="Mô tả chi tiết yêu cầu: tính năng, công nghệ, phong cách, đối tượng dùng..."
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                />
+              </div>
+
+              {/* Đánh giá thông minh button */}
+              <button
+                type="button"
+                onClick={handleAiEvaluate}
+                disabled={aiLoading || !form.client_name.trim() || !form.title.trim()}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
+                  "border border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300",
+                  "hover:bg-violet-100 dark:hover:bg-violet-900/40",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+              >
+                {aiLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                <span>{aiLoading ? "Đang đánh giá..." : evaluatedDeal ? "Đánh giá lại" : "Đánh giá thông minh"}</span>
+                {!aiLoading && evaluatedDeal && (
+                  <RotateCcw className="h-3 w-3 ml-auto opacity-60" />
+                )}
+                {!aiLoading && !evaluatedDeal && (
+                  <span className="ml-auto text-[10px] font-bold bg-violet-200 dark:bg-violet-800 text-violet-700 dark:text-violet-200 px-1.5 py-0.5 rounded">
+                    AI
+                  </span>
+                )}
+              </button>
+
+              {/* AI result card */}
+              {aiResult && (
+                <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-950/20 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
+                      <span className="text-sm font-semibold text-violet-900 dark:text-violet-100">Kết quả đánh giá AI</span>
+                    </div>
+                    <span className={cn(
+                      "shrink-0 text-xs font-bold px-2.5 py-1 rounded-full",
+                      aiResult.recommendation === "qualify"
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                    )}>
+                      {aiResult.recommendation === "qualify" ? "✓ Nên tiếp nhận" : "✗ Cân nhắc kỹ"}
+                    </span>
+                  </div>
+
+                  {/* Score bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Điểm tiềm năng</span>
+                      <span className={cn(
+                        "text-sm font-bold",
+                        aiResult.score >= 70 ? "text-green-600" : aiResult.score >= 40 ? "text-amber-600" : "text-red-600",
+                      )}>
+                        {aiResult.score}/100
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-700",
+                          aiResult.score >= 70 ? "bg-green-500" : aiResult.score >= 40 ? "bg-amber-500" : "bg-red-500",
+                        )}
+                        style={{ width: `${aiResult.score}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Reasoning */}
+                  <p className="text-xs text-muted-foreground leading-relaxed border-t border-violet-200 dark:border-violet-800 pt-3">
+                    {aiResult.reasoning}
+                  </p>
+
+                  {/* Confirm note */}
+                  <div className="flex items-start gap-2 text-xs text-violet-700 dark:text-violet-400 bg-violet-100/60 dark:bg-violet-900/20 rounded-lg px-3 py-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>Dự án đã được tạo. Nhấn <strong>Hoàn tất</strong> để thêm vào pipeline.</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -371,9 +555,11 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               {submitting
                 ? "Đang tạo..."
-                : selectedClient
-                  ? "Tạo dự án"
-                  : "Tạo khách hàng & dự án"}
+                : evaluatedDeal
+                  ? "Hoàn tất"
+                  : selectedClient
+                    ? "Tạo dự án"
+                    : "Tạo khách hàng & dự án"}
             </button>
           </div>
         </form>

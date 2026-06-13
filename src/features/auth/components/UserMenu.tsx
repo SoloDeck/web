@@ -34,7 +34,7 @@ export function UserMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
   const handleLogout = async () => {
     await logout();
     toast.success("Đã đăng xuất thành công.");
-    navigate({ to: "/login" });
+    navigate({ to: "/home" });
   };
 
   return (

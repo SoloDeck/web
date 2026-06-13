@@ -81,7 +81,10 @@ axiosClient.interceptors.response.use(
   async (error: { config: InternalAxiosRequestConfig & { _retry?: boolean }; response?: { status: number } }) => {
     const originalRequest = error.config;
 
-    if (error.response?.status !== 401 || originalRequest._retry) {
+    // Don't attempt refresh for auth endpoints — 401 there means credentials failed,
+    // not an expired session. Refreshing would wrongly clear a valid session.
+    const isAuthEndpoint = originalRequest.url?.includes("/auth/");
+    if (error.response?.status !== 401 || originalRequest._retry || isAuthEndpoint) {
       return Promise.reject(error);
     }
 

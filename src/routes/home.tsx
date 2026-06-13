@@ -59,12 +59,6 @@ function Navbar() {
         <nav className="flex items-center gap-2 sm:gap-3">
           <Link
             to="/login"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
-          >
-            Đăng nhập
-          </Link>
-          <Link
-            to="/login"
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 transition-all duration-200"
           >
             Bắt đầu miễn phí

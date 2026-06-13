@@ -24,6 +24,7 @@ export type Deal = {
   contact: string;
   channel: Channel;
   createdAt: string;
+  updatedAt: string;
   notes: string;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
