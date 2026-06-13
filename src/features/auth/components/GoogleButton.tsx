@@ -5,7 +5,7 @@ import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 /** Mock Google OAuth 2.0 entry point (real flow handled by the backend). */
 export function GoogleButton({ onDone }: { onDone: () => void }) {
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
-  const isSubmitting = useAuthStore((s) => s.isSubmitting);
+  const isGoogleSubmitting = useAuthStore((s) => s.isGoogleSubmitting);
 
   const onClick = async () => {
     try {
@@ -17,8 +17,8 @@ export function GoogleButton({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <Button type="button" variant="outline" className="w-full" disabled={isSubmitting} onClick={onClick}>
-      {isSubmitting ? (
+    <Button type="button" variant="outline" className="w-full" disabled={isGoogleSubmitting} onClick={onClick}>
+      {isGoogleSubmitting ? (
         <Loader2 className="animate-spin" />
       ) : (
         <svg viewBox="0 0 24 24" className="size-4" aria-hidden>

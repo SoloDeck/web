@@ -19,11 +19,16 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
+  // Button stays busy from submit through the post-success redirect delay.
+  const isBusy = isSubmitting || isRedirecting;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       await login({ email, password }, rememberMe);
+      setIsRedirecting(true);
       toast.success("Đăng nhập thành công!", {
         description: "Đang chuyển hướng vào SoloDesk...",
         duration: 2000,
@@ -117,8 +122,8 @@ export function LoginForm() {
       </div>
 
       {/* Submit */}
-      <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? (
+      <Button type="submit" className="w-full" disabled={isBusy}>
+        {isBusy ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <LogIn className="h-4 w-4" />
