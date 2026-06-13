@@ -11,7 +11,10 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  /** True while an email/password login or register is in flight. */
   isSubmitting: boolean;
+  /** True while the Google OAuth flow is in flight (separate button). */
+  isGoogleSubmitting: boolean;
   error: string | null;
   login: (creds: LoginCredentials, rememberMe?: boolean) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
@@ -28,9 +31,14 @@ interface AuthState {
 const initialSession = authService.getStoredSession();
 
 export const useAuthStore = create<AuthState>((set) => {
-  /** Run an async auth call, mirroring its result into the store. */
-  const run = async (fn: () => Promise<Awaited<ReturnType<typeof authService.login>>>) => {
-    set({ isSubmitting: true, error: null });
+  /** Run an async auth call, mirroring its result into the store.
+   *  `flag` selects which in-flight indicator to toggle so the email/password
+   *  and Google buttons spin independently. */
+  const run = async (
+    fn: () => Promise<Awaited<ReturnType<typeof authService.login>>>,
+    flag: "isSubmitting" | "isGoogleSubmitting" = "isSubmitting",
+  ) => {
+    set({ [flag]: true, error: null });
     try {
       const session = await fn();
       set({
@@ -38,10 +46,11 @@ export const useAuthStore = create<AuthState>((set) => {
         token: session.token,
         isAuthenticated: true,
         isSubmitting: false,
+        isGoogleSubmitting: false,
         error: null,
       });
     } catch (e) {
-      set({ isSubmitting: false, error: e instanceof Error ? e.message : "Đã có lỗi xảy ra." });
+      set({ [flag]: false, error: e instanceof Error ? e.message : "Đã có lỗi xảy ra." });
       throw e;
     }
   };
@@ -51,11 +60,12 @@ export const useAuthStore = create<AuthState>((set) => {
     token: initialSession?.token ?? null,
     isAuthenticated: Boolean(initialSession),
     isSubmitting: false,
+    isGoogleSubmitting: false,
     error: null,
 
     login: (creds, rememberMe = false) => run(() => authService.login(creds, rememberMe)),
     register: (payload) => run(() => authService.register(payload)),
-    loginWithGoogle: () => run(() => authService.loginWithGoogle()),
+    loginWithGoogle: () => run(() => authService.loginWithGoogle(), "isGoogleSubmitting"),
     handleGoogleCallback: (code, state) => run(() => authService.handleGoogleCallback(code, state)),
 
     logout: async () => {

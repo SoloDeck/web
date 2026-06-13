@@ -65,6 +65,15 @@ axiosClient.interceptors.request.use((config) => {
 
 type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => void };
 
+// Auth endpoints must never go through refresh-retry: a 401 here means bad
+// credentials / invalid refresh token, not an expired access token. Letting
+// them in causes /auth/refresh to re-enter this interceptor and deadlock.
+const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
+
+function isAuthPath(url?: string): boolean {
+  return !!url && AUTH_PATHS.some((p) => url.includes(p));
+}
+
 let isRefreshing = false;
 let failedQueue: QueueEntry[] = [];
 
@@ -81,7 +90,7 @@ axiosClient.interceptors.response.use(
   async (error: { config: InternalAxiosRequestConfig & { _retry?: boolean }; response?: { status: number } }) => {
     const originalRequest = error.config;
 
-    if (error.response?.status !== 401 || originalRequest._retry) {
+    if (error.response?.status !== 401 || originalRequest._retry || isAuthPath(originalRequest.url)) {
       return Promise.reject(error);
     }
 

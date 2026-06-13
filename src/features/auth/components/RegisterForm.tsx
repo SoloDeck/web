@@ -21,6 +21,10 @@ export function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
+  // Button stays busy from submit through the post-success redirect delay.
+  const isBusy = isSubmitting || isRedirecting;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,6 +39,7 @@ export function RegisterForm() {
     }
     try {
       await register({ fullName, email, password });
+      setIsRedirecting(true);
       toast.success("Tạo tài khoản thành công!", {
         description: "Chào mừng bạn đến với SoloDesk!",
         duration: 2000,
@@ -103,8 +108,8 @@ export function RegisterForm() {
         />
       </div>
 
-      <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? <Loader2 className="animate-spin" /> : <UserPlus />}
+      <Button type="submit" className="w-full" disabled={isBusy}>
+        {isBusy ? <Loader2 className="animate-spin" /> : <UserPlus />}
         Tạo tài khoản
       </Button>
 
