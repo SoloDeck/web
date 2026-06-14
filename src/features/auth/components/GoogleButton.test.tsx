@@ -3,9 +3,11 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
 import { GoogleButton } from "./GoogleButton";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("@/features/auth/hooks/useAuthStore", () => ({ useAuthStore: vi.fn() }));
+vi.mock("@/features/auth/hooks/useConfigStore", () => ({ useConfigStore: vi.fn() }));
 
 type GoogleCb = (r: { credential?: string }) => void;
 
@@ -14,11 +16,20 @@ interface StoreState {
   isGoogleSubmitting: boolean;
 }
 
-function mockStore(state: StoreState): void {
+function mockStore(
+  state: StoreState,
+  configState = {
+    config: { google_web_client_id: "test-client-id.apps.googleusercontent.com" },
+    isLoading: false,
+    error: null,
+  }
+): void {
   // The component only reads loginWithGoogle + isGoogleSubmitting; cast the
   // partial state to satisfy the real selector signature.
   vi.mocked(useAuthStore).mockImplementation((selector) => selector(state as never));
+  vi.mocked(useConfigStore).mockImplementation((selector) => selector(configState as never));
 }
+
 
 function installGoogle() {
   const initialize = vi.fn();

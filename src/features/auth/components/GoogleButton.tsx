@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
 
 /** Subset of the Google Identity Services API we rely on. */
 interface GoogleCredentialResponse {
@@ -36,6 +37,8 @@ const BUTTON_WIDTH = 320;
 export function GoogleButton({ onDone }: { onDone: () => void }) {
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
   const isGoogleSubmitting = useAuthStore((s) => s.isGoogleSubmitting);
+  const config = useConfigStore((s) => s.config);
+  const clientId = config?.google_web_client_id;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -53,9 +56,8 @@ export function GoogleButton({ onDone }: { onDone: () => void }) {
   });
 
   useEffect(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID as string | undefined;
     if (!clientId) {
-      console.error("VITE_GOOGLE_WEB_CLIENT_ID is not set — Google Sign-In disabled.");
+      console.warn("Google Client ID is not ready or set — Google Sign-In disabled.");
       return;
     }
 
@@ -116,7 +118,7 @@ export function GoogleButton({ onDone }: { onDone: () => void }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [clientId]);
 
   return (
     <div className="relative mx-auto h-11" style={{ width: BUTTON_WIDTH, maxWidth: "100%" }}>

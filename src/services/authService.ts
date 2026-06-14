@@ -168,3 +168,14 @@ export async function logout(): Promise<void> {
     }
   }
 }
+
+export interface ClientConfig {
+  app_env: string;
+  google_web_client_id: string;
+}
+
+export async function getClientConfig(): Promise<ClientConfig> {
+  const { data } = await axiosClient.get<ApiResponse<ClientConfig>>("/auth/config");
+  return data.data;
+}
+
