@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
 import axiosClient from "./axios";
 
