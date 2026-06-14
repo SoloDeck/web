@@ -18,8 +18,8 @@ interface AuthState {
   error: string | null;
   login: (creds: LoginCredentials, rememberMe?: boolean) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
-  handleGoogleCallback: (code: string, state: string) => Promise<void>;
+  /** Exchange a Google ID token (from GIS) for a SoloDesk session. */
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   /** Refresh user name/avatar from /users/me without a full re-auth. */
@@ -65,8 +65,8 @@ export const useAuthStore = create<AuthState>((set) => {
 
     login: (creds, rememberMe = false) => run(() => authService.login(creds, rememberMe)),
     register: (payload) => run(() => authService.register(payload)),
-    loginWithGoogle: () => run(() => authService.loginWithGoogle(), "isGoogleSubmitting"),
-    handleGoogleCallback: (code, state) => run(() => authService.handleGoogleCallback(code, state)),
+    loginWithGoogle: (credential) =>
+      run(() => authService.loginWithGoogleIdToken(credential), "isGoogleSubmitting"),
 
     logout: async () => {
       await authService.logout();

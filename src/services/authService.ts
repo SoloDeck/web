@@ -134,21 +134,14 @@ export async function register(payload: RegisterPayload): Promise<AuthSession> {
   }
 }
 
-/** Initiates the Google OAuth redirect flow.
- *  Navigates the browser to the backend's /auth/google endpoint.
- *  This function intentionally never resolves — the page navigates away. */
-export async function loginWithGoogle(): Promise<AuthSession> {
-  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000/api/v1";
-  window.location.href = `${base}/auth/google`;
-  return new Promise(() => {}); // browser navigates away; this never settles
-}
-
-/** Exchanges the Google authorization code for application tokens.
- *  Called by the /auth/google-callback route. Always persists to localStorage. */
-export async function handleGoogleCallback(code: string, state: string): Promise<AuthSession> {
+/** Exchanges a Google ID token (obtained from Google Identity Services on the
+ *  client) for application tokens. Maps to `POST /auth/google` with platform
+ *  "web". Always persists to localStorage. */
+export async function loginWithGoogleIdToken(idToken: string): Promise<AuthSession> {
   try {
-    const { data } = await axiosClient.get<ApiResponse<ApiAuthResponse>>("/auth/google/callback", {
-      params: { code, state },
+    const { data } = await axiosClient.post<ApiResponse<ApiAuthResponse>>("/auth/google", {
+      id_token: idToken,
+      platform: "web",
     });
     const session = toSession(data.data);
     persistSession(session, true, data.data.refresh_token);
