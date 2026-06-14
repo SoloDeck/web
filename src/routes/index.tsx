@@ -169,7 +169,7 @@ function Index() {
                 />
               )}
 
-              {nav === "revenue" && <RevenueDashboard deals={deals} />}
+              {nav === "revenue" && <RevenueDashboard />}
 
               {nav === "settings" && (
                 <ProfileSettings
