@@ -58,7 +58,7 @@ export function getBaseURL(): string {
 }
 
 const axiosClient = axios.create({
-  baseURL: getBaseURL(),
+  baseURL: "/api/v1",
   timeout: 15000,
 });
 

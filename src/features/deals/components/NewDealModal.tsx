@@ -56,6 +56,7 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     // Already selected a client — don't search again until user clears
     if (selectedClient) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (name.length < 1) { setSuggestions([]); setShowDropdown(false); return; }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
