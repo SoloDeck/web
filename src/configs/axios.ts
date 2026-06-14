@@ -48,8 +48,17 @@ function clearSession(): void {
 
 // ── Axios instance ─────────────────────────────────────────────────────────
 
+export function getBaseURL(): string {
+  const raw = (import.meta.env.VITE_API_URL || "http://localhost:8000").trim();
+  const cleanRaw = raw.replace(/\/+$/, "");
+  if (/\/api\/v\d+$/.test(cleanRaw)) {
+    return cleanRaw;
+  }
+  return `${cleanRaw}/api/v1`;
+}
+
 const axiosClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1",
+  baseURL: getBaseURL(),
   timeout: 15000,
 });
 

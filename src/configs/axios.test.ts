@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
-import axiosClient from "./axios";
+import axiosClient, { getBaseURL } from "./axios";
 
 const SESSION_KEY = "solodesk.auth.session.v1";
 const REFRESH_KEY = "solodesk.auth.refresh.v1";
@@ -103,5 +103,41 @@ describe("axios refresh interceptor — non-auth endpoints still refresh", () =>
     expect(calls.filter((u) => u === "/auth/refresh")).toHaveLength(1);
     expect(usersMeHits).toBe(2); // original 401 + one retry
     expect(localStorage.getItem(REFRESH_KEY)).toBe("new-refresh");
+  });
+});
+
+describe("getBaseURL helper", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults to localhost with /api/v1 if VITE_API_URL is empty or undefined", () => {
+    vi.stubEnv("VITE_API_URL", "");
+    expect(getBaseURL()).toBe("http://localhost:8000/api/v1");
+  });
+
+  it("appends /api/v1 if VITE_API_URL has no version suffix", () => {
+    vi.stubEnv("VITE_API_URL", "https://api.solodesk.space");
+    expect(getBaseURL()).toBe("https://api.solodesk.space/api/v1");
+  });
+
+  it("appends /api/v1 and handles trailing slash if VITE_API_URL has no version suffix", () => {
+    vi.stubEnv("VITE_API_URL", "https://api.solodesk.space/");
+    expect(getBaseURL()).toBe("https://api.solodesk.space/api/v1");
+  });
+
+  it("keeps /api/v1 if VITE_API_URL already contains it", () => {
+    vi.stubEnv("VITE_API_URL", "https://api.solodesk.space/api/v1");
+    expect(getBaseURL()).toBe("https://api.solodesk.space/api/v1");
+  });
+
+  it("keeps /api/v1 and removes trailing slash if VITE_API_URL contains it", () => {
+    vi.stubEnv("VITE_API_URL", "https://api.solodesk.space/api/v1///");
+    expect(getBaseURL()).toBe("https://api.solodesk.space/api/v1");
+  });
+
+  it("keeps other version suffixes like /api/v2 and handles trailing slashes", () => {
+    vi.stubEnv("VITE_API_URL", "https://api.solodesk.space/api/v2/");
+    expect(getBaseURL()).toBe("https://api.solodesk.space/api/v2");
   });
 });
