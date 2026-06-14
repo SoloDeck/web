@@ -1,46 +1,141 @@
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 
-/** Mock Google OAuth 2.0 entry point (real flow handled by the backend). */
+/** Subset of the Google Identity Services API we rely on. */
+interface GoogleCredentialResponse {
+  credential?: string;
+}
+interface GoogleIdApi {
+  initialize(config: {
+    client_id: string;
+    callback: (response: GoogleCredentialResponse) => void;
+    auto_select?: boolean;
+  }): void;
+  renderButton(parent: HTMLElement, options: Record<string, unknown>): void;
+  prompt(): void;
+}
+declare global {
+  interface Window {
+    google?: { accounts: { id: GoogleIdApi } };
+  }
+}
+
+// Official Google button dimensions — the skeleton matches these exactly to
+// prevent layout shift (CLS) while the gsi/client script loads.
+const BUTTON_WIDTH = 320;
+
+/**
+ * Google Identity Services sign-in button (Token Exchange Flow).
+ *
+ * Renders Google's official button, enables One Tap (`auto_select`), and on
+ * callback exchanges the returned ID token for a SoloDesk session via the
+ * store. A skeleton of identical size is shown until the SDK is ready.
+ */
 export function GoogleButton({ onDone }: { onDone: () => void }) {
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
   const isGoogleSubmitting = useAuthStore((s) => s.isGoogleSubmitting);
 
-  const onClick = async () => {
-    try {
-      await loginWithGoogle();
-      onDone();
-    } catch {
-      /* error surfaced via store */
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+
+  // Keep the latest callbacks in refs so the SDK init effect runs once on mount
+  // (onDone is a fresh closure each render).
+  const onDoneRef = useRef(onDone);
+  const loginRef = useRef(loginWithGoogle);
+  const inFlightRef = useRef(false);
+
+  // Sync the refs in an effect (not during render — react-hooks/refs).
+  useEffect(() => {
+    onDoneRef.current = onDone;
+    loginRef.current = loginWithGoogle;
+  });
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID as string | undefined;
+    if (!clientId) {
+      console.error("VITE_GOOGLE_WEB_CLIENT_ID is not set — Google Sign-In disabled.");
+      return;
     }
-  };
+
+    let cancelled = false;
+
+    const handleCredential = (response: GoogleCredentialResponse) => {
+      if (inFlightRef.current) return; // guard against double dispatch
+      if (!response.credential) {
+        toast.error("Đăng nhập Google thất bại. Vui lòng thử lại.");
+        return;
+      }
+      inFlightRef.current = true;
+      loginRef
+        .current(response.credential)
+        .then(() => onDoneRef.current())
+        .catch(() => {
+          toast.error("Không thể xác thực với Google. Vui lòng thử lại.");
+        })
+        .finally(() => {
+          inFlightRef.current = false;
+        });
+    };
+
+    const tryInit = (): boolean => {
+      const id = window.google?.accounts?.id;
+      if (!id || !containerRef.current) return false;
+      id.initialize({
+        client_id: clientId,
+        auto_select: true,
+        callback: handleCredential,
+      });
+      id.renderButton(containerRef.current, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        width: BUTTON_WIDTH,
+        locale: "vi",
+      });
+      id.prompt(); // silent One Tap prompt
+      return true;
+    };
+
+    if (tryInit()) {
+      setReady(true);
+      return;
+    }
+    // The gsi/client script may still be loading — poll until it is available.
+    const timer = setInterval(() => {
+      if (cancelled) return;
+      if (tryInit()) {
+        setReady(true);
+        clearInterval(timer);
+      }
+    }, 100);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
-    <Button type="button" variant="outline" className="w-full" disabled={isGoogleSubmitting} onClick={onClick}>
-      {isGoogleSubmitting ? (
-        <Loader2 className="animate-spin" />
-      ) : (
-        <svg viewBox="0 0 24 24" className="size-4" aria-hidden>
-          <path
-            fill="#4285F4"
-            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"
-          />
-          <path
-            fill="#34A853"
-            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
-          />
-          <path
-            fill="#FBBC05"
-            d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z"
-          />
-          <path
-            fill="#EA4335"
-            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.3 9.14 5.38 12 5.38Z"
-          />
-        </svg>
+    <div className="relative mx-auto h-11" style={{ width: BUTTON_WIDTH, maxWidth: "100%" }}>
+      <div ref={containerRef} aria-label="Tiếp tục với Google" />
+      {!ready && (
+        <div
+          data-testid="google-skeleton"
+          aria-hidden
+          className="absolute inset-0 h-11 animate-pulse rounded-md bg-muted"
+        />
       )}
-      Tiếp tục với Google
-    </Button>
+      {isGoogleSubmitting && (
+        <div
+          data-testid="google-submitting"
+          className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/70"
+        >
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        </div>
+      )}
+    </div>
   );
 }
