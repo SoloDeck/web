@@ -23,6 +23,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 ENV API_URL=http://api:8000
+ENV NGINX_ENVSUBST_FILTER=API_URL
 
 EXPOSE 80
 

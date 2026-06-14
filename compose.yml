@@ -10,7 +10,7 @@ services:
       - "${WEB_PORT:-5173}:80"
     environment:
       - API_URL=${API_URL:-http://api:8000}
-      - NGINX_ENVSUBST_FILTER=$$API_URL
+      - NGINX_ENVSUBST_FILTER=API_URL
     env_file:
       - path: .env
         required: false
