@@ -14,17 +14,8 @@ server {
     gzip_disable "MSIE [1-6]\.";
 
     location /api/ {
-        # Use Google's public DNS resolver to resolve public API domains at runtime
-        resolver 8.8.8.8 valid=30s;
-
-        # Read the target API URL from the environment variable (via envsubst)
-        set $target_api_url "${API_URL}";
-        proxy_pass $target_api_url;
-
-        # Support Server Name Indication (SNI) when proxying to HTTPS backends
+        proxy_pass ${API_URL};
         proxy_ssl_server_name on;
-
-        proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
