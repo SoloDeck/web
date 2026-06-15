@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Search, Phone, Mail, Globe, MapPin, Building2, User,
+  Search, Phone, Mail, Building2, User,
   Construction, Loader2, MessageCircle, LayoutList, LayoutGrid,
   ChevronLeft, ChevronRight,
 } from "lucide-react";
-import { toast } from "sonner";
 import { formatVND } from "@/utils/format";
-import { getClients, type ClientRecord, type ClientStatus } from "@/services/clientsService";
+import { type ClientRecord, type ClientStatus } from "@/services/clientsService";
+import { useClients } from "@/features/clients/hooks/useClients";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import type { Deal } from "@/features/deals/types";
 
@@ -100,9 +100,8 @@ function PaginationBar({ total, page, onPage }: { total: number; page: number; o
 
 function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; clientDeals: Deal[]; onOpenDeal: (d: Deal) => void }) {
   const totalValue = clientDeals.reduce((s, d) => s + d.value, 0);
-  const phone    = client.contact_info?.phone ?? null;
+  const phone    = client.phone ?? null;
   const firstDeal = clientDeals[0] ?? null;
-  const tags     = client.tags ?? [];
 
   return (
     <tr className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors group">
@@ -125,19 +124,11 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
           {!phone && !client.email && <span className="text-xs text-muted-foreground">—</span>}
         </div>
       </td>
-      <td className="px-3 py-3">
-        {tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {tags.slice(0, 3).map((t) => <span key={t} className="text-[10px] rounded-full bg-secondary text-secondary-foreground px-2 py-0.5">{t}</span>)}
-            {tags.length > 3 && <span className="text-[10px] text-muted-foreground">+{tags.length - 3}</span>}
-          </div>
-        ) : <span className="text-xs text-muted-foreground">—</span>}
-      </td>
       <td className="px-3 py-3 text-right">
-        {clientDeals.length > 0 ? (
+        {client.deal_count > 0 ? (
           <div>
-            <div className="text-xs font-semibold text-primary">{formatVND(totalValue)}</div>
-            <div className="text-[10px] text-muted-foreground">{clientDeals.length} dự án</div>
+            {totalValue > 0 && <div className="text-xs font-semibold text-primary">{formatVND(totalValue)}</div>}
+            <div className="text-[10px] text-muted-foreground">{client.deal_count} dự án</div>
           </div>
         ) : <span className="text-xs text-muted-foreground">—</span>}
       </td>
@@ -158,9 +149,8 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
 
 function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord; clientDeals: Deal[]; onOpenDeal: (d: Deal) => void }) {
   const totalValue = clientDeals.reduce((s, d) => s + d.value, 0);
-  const phone    = client.contact_info?.phone ?? null;
+  const phone    = client.phone ?? null;
   const firstDeal = clientDeals[0] ?? null;
-  const tags     = client.tags ?? [];
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -180,19 +170,12 @@ function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord;
       <div className="space-y-1">
         {phone && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="h-3 w-3 shrink-0" /><span className="truncate">{phone}</span></div>}
         {client.email && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="h-3 w-3 shrink-0" /><span className="truncate">{client.email}</span></div>}
-        {client.contact_info?.address_city && <div className="flex items-center gap-2 text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{client.contact_info.address_city}</span></div>}
-        {client.contact_info?.website && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Globe className="h-3 w-3 shrink-0" /><span className="truncate">{client.contact_info.website}</span></div>}
       </div>
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {tags.map((tag) => <span key={tag} className="text-[10px] rounded-full bg-secondary text-secondary-foreground px-2 py-0.5 font-medium">{tag}</span>)}
-        </div>
-      )}
       <div className="border-t border-dashed border-border" />
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs text-muted-foreground">
-          {clientDeals.length > 0
-            ? <span><span className="font-semibold text-foreground">{clientDeals.length}</span> dự án{totalValue > 0 && <> · <span className="font-semibold text-primary">{formatVND(totalValue)}</span></>}</span>
+          {client.deal_count > 0
+            ? <span><span className="font-semibold text-foreground">{client.deal_count}</span> dự án{totalValue > 0 && <> · <span className="font-semibold text-primary">{formatVND(totalValue)}</span></>}</span>
             : <span>Chưa có dự án</span>}
         </div>
         <DevBadge />
@@ -221,19 +204,13 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void }) {
   const deals = useDealStore((s) => s.deals);
-  const [allClients, setAllClients] = useState<ClientRecord[]>([]);
-  const [loading, setLoading]       = useState(true);
   const [q, setQ]                   = useState("");
   const [filter, setFilter]         = useState<Filter>("all");
   const [page, setPage]             = useState(1);
   const [view, setView]             = useState<ViewMode>("table");
 
-  useEffect(() => {
-    getClients()
-      .then(setAllClients)
-      .catch(() => toast.error("Không thể tải danh sách khách hàng."))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, isLoading: loading } = useClients();
+  const allClients: ClientRecord[] = data ?? [];
 
   const dealsByClientId = useMemo(() => {
     const map = new Map<string, Deal[]>();
@@ -252,7 +229,7 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
       const matchesQ = !q
         || c.name.toLowerCase().includes(lq)
         || (c.email ?? "").toLowerCase().includes(lq)
-        || (c.contact_info?.phone ?? "").includes(q);
+        || (c.phone ?? "").includes(q);
       const matchesF =
         filter === "all"      ? true :
         filter === "active"   ? c.status === "active" :
@@ -337,7 +314,6 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
                   <th className="text-left font-semibold px-4 py-2.5">Khách hàng</th>
                   <th className="text-left font-semibold px-3 py-2.5">Trạng thái</th>
                   <th className="text-left font-semibold px-3 py-2.5">Liên hệ</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Tags</th>
                   <th className="text-right font-semibold px-3 py-2.5">Dự án</th>
                   <th className="text-left font-semibold px-3 py-2.5">Lịch sử</th>
                   <th className="px-3 py-2.5 w-[140px]"></th>
