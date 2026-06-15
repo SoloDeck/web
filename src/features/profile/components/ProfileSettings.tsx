@@ -8,6 +8,7 @@ import {
   type ContractClause,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
+import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 
 const SERVICE_CATEGORIES: ServiceCategory[] = [
   "Brand & Content Designer",
@@ -109,6 +110,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             {tab === "profile" && (
               <div className="space-y-5">
+                <IntakeLinkCard />
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Họ tên">
                     <input

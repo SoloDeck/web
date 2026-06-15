@@ -1,168 +1,177 @@
-import { useMemo } from "react";
-import { TrendingUp, Wallet, Target, BarChart3, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Wallet, Target, BarChart3, Clock, AlertTriangle, Users, Loader2, Sparkles } from "lucide-react";
 import { formatVND } from "@/utils/format";
-import type { Deal } from "@/features/deals/types";
+import {
+  useDashboard,
+  useRevenue,
+  useWinRate,
+  useTopClients,
+} from "@/features/revenue/hooks/useAnalytics";
 
-export function RevenueDashboard({
-  deals,
-}: {
-  deals: Deal[];
-}) {
-  const stats = useMemo(() => {
-    const completed = deals.filter((d) => d.stage === "completed_and_billed");
-    const billed = completed.reduce((s, d) => s + d.value, 0);
-    const outstanding = deals
-      .filter((d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead")
-      .reduce((s, d) => s + d.value, 0);
-    const pipeline = deals
-      .filter((d) => d.stage !== "completed_and_billed")
-      .reduce((s, d) => s + d.value, 0);
-    const won = completed.length;
-    const lost = 2; // mock
-    const winRate = Math.round((won / Math.max(won + lost, 1)) * 100);
-    const avgDealSize = won > 0 ? Math.round(billed / won) : 0;
+export function RevenueDashboard() {
+  const dashboard = useDashboard();
+  const revenue = useRevenue();
+  const winRate = useWinRate();
+  const topClients = useTopClients({ limit: 5, metric: "total_collected" });
 
-    const byMethod = deals
-      .filter((d) => d.paymentMethod !== "—")
-      .reduce<Record<string, { count: number; total: number }>>((acc, d) => {
-        acc[d.paymentMethod] = acc[d.paymentMethod] || { count: 0, total: 0 };
-        acc[d.paymentMethod].count++;
-        acc[d.paymentMethod].total += d.value;
-        return acc;
-      }, {});
+  const isLoading =
+    dashboard.isLoading || revenue.isLoading || winRate.isLoading;
+  const isError = dashboard.isError || revenue.isError || winRate.isError;
 
-    return { billed, outstanding, pipeline, winRate, avgDealSize, won, lost, byMethod };
-  }, [deals]);
+  if (isLoading) {
+    return (
+      <div className="p-4 lg:p-6 h-full grid place-items-center text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> Đang tải dữ liệu doanh thu...
+        </div>
+      </div>
+    );
+  }
 
+  if (isError) {
+    return (
+      <div className="p-4 lg:p-6 h-full grid place-items-center text-sm text-muted-foreground">
+        Không thể tải dữ liệu doanh thu. Vui lòng thử lại.
+      </div>
+    );
+  }
 
-  const outstanding = deals.filter(
-    (d) => d.paymentStatus !== "Đã thanh toán" && d.stage !== "new_lead"
-  );
+  const collected = revenue.data?.total_collected ?? 0;
+  const outstanding = revenue.data?.total_outstanding ?? 0;
+  const invoiced = revenue.data?.total_invoiced ?? 0;
+
+  const won = winRate.data?.won ?? 0;
+  const lost = winRate.data?.lost ?? 0;
+  // win_rate is a 0..1 fraction from the API — render it as a percentage.
+  const winRatePct = Math.round((winRate.data?.win_rate ?? 0) * 100);
+
+  const avgDealSize = won > 0 ? Math.round(collected / won) : 0;
+  const clients = topClients.data ?? [];
+  const maxClientRevenue = clients.reduce((m, c) => Math.max(m, c.revenue), 0);
 
   return (
     <div className="p-4 lg:p-6 h-full overflow-y-auto">
       <div className="space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Metric
-              icon={Wallet}
-              label="Doanh thu tháng"
-              value={formatVND(stats.billed)}
-              hint={`${stats.won} dự án đã xuất hoá đơn`}
-              tone="primary"
-            />
-            <Metric
-              icon={Clock}
-              label="Còn phải thu"
-              value={formatVND(stats.outstanding)}
-              hint={`${outstanding.length} khoản chưa thu đủ`}
-              tone="warning"
-            />
-            <Metric
-              icon={Target}
-              label="Win rate"
-              value={`${stats.winRate}%`}
-              hint={`${stats.won} thắng · ${stats.lost} thua`}
-              tone="success"
-            />
-            <Metric
-              icon={BarChart3}
-              label="Giá trị TB / deal"
-              value={formatVND(stats.avgDealSize)}
-              hint={`Pipeline: ${formatVND(stats.pipeline)}`}
-              tone="default"
-            />
-          </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Metric
+            icon={Wallet}
+            label="Doanh thu đã thu"
+            value={formatVND(collected)}
+            hint={`${dashboard.data?.total_clients ?? 0} khách hàng`}
+            tone="primary"
+          />
+          <Metric
+            icon={Clock}
+            label="Còn phải thu"
+            value={formatVND(outstanding)}
+            hint={`${dashboard.data?.pending_invoices ?? 0} hoá đơn chờ thu`}
+            tone="warning"
+          />
+          <Metric
+            icon={Target}
+            label="Win rate"
+            value={`${winRatePct}%`}
+            hint={`${won} thắng · ${lost} thua`}
+            tone="success"
+          />
+          <Metric
+            icon={BarChart3}
+            label="Giá trị TB / deal"
+            value={formatVND(avgDealSize)}
+            hint={`${dashboard.data?.active_deals ?? 0} deal đang chạy`}
+            tone="default"
+          />
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 rounded-xl border border-border p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="font-semibold flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-warning" /> Khoản phải thu
-                </div>
-                <div className="text-xs text-muted-foreground">{outstanding.length} mục</div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 rounded-xl border border-border p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="font-semibold flex items-center gap-2">
+                <Users className="h-4 w-4 text-primary" /> Khách hàng doanh thu cao
               </div>
-              <div className="space-y-2">
-                {outstanding.length === 0 && (
-                  <div className="text-sm text-muted-foreground py-6 text-center">
-                    Tất cả khoản đã được thanh toán đủ 🎉
-                  </div>
-                )}
-                {outstanding.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5 hover:bg-secondary/30"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{d.client}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        {d.projectType} · {d.paymentStatus}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 ml-3">
-                      <div className="font-semibold text-sm text-primary">{formatVND(d.value)}</div>
-                      <div className="text-[10px] text-muted-foreground">{d.paymentMethod}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="text-xs text-muted-foreground">{clients.length} mục</div>
             </div>
-
-            <div className="rounded-xl border border-border p-5">
-              <div className="font-semibold flex items-center gap-2 mb-4">
-                <TrendingUp className="h-4 w-4 text-primary" /> Theo phương thức
-              </div>
-              <div className="space-y-3">
-                {Object.entries(stats.byMethod).map(([method, v]) => {
-                  const pct = stats.billed + stats.outstanding > 0
-                    ? Math.round((v.total / (stats.billed + stats.outstanding)) * 100)
-                    : 0;
-                  const color =
-                    method === "MoMo"
-                      ? "bg-pink-500"
-                      : method === "Vietcombank"
-                        ? "bg-emerald-500"
-                        : "bg-blue-500";
-                  return (
-                    <div key={method}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="font-medium">{method}</span>
-                        <span className="text-muted-foreground">{formatVND(v.total)} · {v.count}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-                      </div>
+            <div className="space-y-2">
+              {clients.length === 0 && (
+                <div className="text-sm text-muted-foreground py-6 text-center">
+                  Chưa có dữ liệu doanh thu theo khách hàng.
+                </div>
+              )}
+              {clients.map((c) => {
+                const pct = maxClientRevenue > 0 ? Math.round((c.revenue / maxClientRevenue) * 100) : 0;
+                return (
+                  <div
+                    key={c.client_id}
+                    className="rounded-lg border border-border px-3 py-2.5 hover:bg-secondary/30"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium text-sm truncate">{c.name}</div>
+                      <div className="font-semibold text-sm text-primary shrink-0">{formatVND(c.revenue)}</div>
                     </div>
-                  );
-                })}
-                {Object.keys(stats.byMethod).length === 0 && (
-                  <div className="text-xs text-muted-foreground">Chưa có dữ liệu thanh toán.</div>
-                )}
-              </div>
+                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden mt-1.5">
+                      <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           <div className="rounded-xl border border-border p-5">
-            <div className="font-semibold flex items-center gap-2 mb-3">
-              <CheckCircle2 className="h-4 w-4 text-success" /> Doanh thu đã ghi nhận
+            <div className="font-semibold flex items-center gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 text-warning" /> Tổng quan
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {deals
-                .filter((d) => d.stage === "completed_and_billed")
-                .map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between rounded-md bg-success/5 border border-success/15 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{d.client}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{d.paymentMethod}</div>
-                    </div>
-                    <div className="text-sm font-semibold text-success">{formatVND(d.value)}</div>
-                  </div>
-                ))}
+            <div className="space-y-3 text-sm">
+              <Row label="Đã xuất hoá đơn" value={formatVND(invoiced)} />
+              <Row label="Đã thu" value={formatVND(collected)} tone="success" />
+              <Row label="Còn phải thu" value={formatVND(outstanding)} tone="warning" />
+              <div className="border-t border-dashed border-border" />
+              <Row label="Tổng doanh thu" value={formatVND(dashboard.data?.total_revenue ?? 0)} tone="primary" />
             </div>
           </div>
+        </div>
+
+        <div className="rounded-xl border border-border p-5">
+          <div className="font-semibold flex items-center gap-2 mb-3">
+            <Sparkles className="h-4 w-4 text-primary" /> Tỷ lệ chốt deal
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-3xl font-bold tracking-tight">{winRatePct}%</div>
+            <div className="flex-1">
+              <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
+                <div className="h-full bg-success" style={{ width: `${winRatePct}%` }} />
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1.5">
+                {won} deal thắng · {lost} deal thua
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "primary" | "success" | "warning";
+}) {
+  const cls =
+    tone === "primary"
+      ? "text-primary"
+      : tone === "success"
+        ? "text-success"
+        : tone === "warning"
+          ? "text-warning-foreground"
+          : "text-foreground";
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-semibold ${cls}`}>{value}</span>
     </div>
   );
 }

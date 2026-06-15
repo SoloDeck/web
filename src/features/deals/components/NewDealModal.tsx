@@ -94,7 +94,7 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     setSelectedClient(c);
     dispatch({
       client_name:  c.name,
-      client_phone: c.contact_info?.phone ?? "",
+      client_phone: c.phone ?? "",
       client_email: c.email ?? "",
     });
     setShowDropdown(false);
@@ -246,7 +246,7 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-medium truncate">{c.name}</div>
                             <div className="text-[11px] text-muted-foreground truncate">
-                              {[c.contact_info?.phone, c.email].filter(Boolean).join(" · ") || "Chưa có liên hệ"}
+                              {[c.phone, c.email].filter(Boolean).join(" · ") || "Chưa có liên hệ"}
                             </div>
                           </div>
                           <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
