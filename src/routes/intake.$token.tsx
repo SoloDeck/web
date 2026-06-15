@@ -7,6 +7,7 @@ export const Route = createFileRoute("/intake/$token")({
   component: IntakePage,
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 function IntakePage() {
   const { token } = Route.useParams();
   return <IntakeForm shareToken={token} />;

@@ -210,7 +210,7 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
   const [view, setView]             = useState<ViewMode>("table");
 
   const { data, isLoading: loading } = useClients();
-  const allClients: ClientRecord[] = data ?? [];
+  const allClients = useMemo<ClientRecord[]>(() => data ?? [], [data]);
 
   const dealsByClientId = useMemo(() => {
     const map = new Map<string, Deal[]>();
