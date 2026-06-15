@@ -9,6 +9,7 @@ export type UserResponse = {
   status: string;
   phone: string | null;
   avatar_url: string | null;
+  intake_share_token: string | null;
   created_at: string;
 };
 
