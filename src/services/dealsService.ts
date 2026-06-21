@@ -66,6 +66,7 @@ function mapDeal(d: ApiDealResponse, clientMap: Map<string, ApiClientResponse>):
     paymentStatus,
     paymentMethod: "—", // not in API yet — tracked as "Đang phát triển"
     history: [],        // not in API yet — tracked as "Đang phát triển"
+    tasks: [],          // local-only until the backend exposes project tasks
   };
 }
 

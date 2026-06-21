@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as FindFreelancerRouteImport } from './routes/find-freelancer'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 
+const FindFreelancerRoute = FindFreelancerRouteImport.update({
+  id: '/find-freelancer',
+  path: '/find-freelancer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
@@ -49,6 +55,7 @@ const IntakeTokenRoute = IntakeTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
+  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/home': typeof HomeRoute
+  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/home': typeof HomeRoute
+  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -76,16 +85,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/home'
+    | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
     | '/intake/$token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/home' | '/' | '/login' | '/register' | '/forgot-password' | '/intake/$token'
+  to: '/home' | '/find-freelancer' | '/' | '/login' | '/register' | '/forgot-password' | '/intake/$token'
   id:
     | '__root__'
     | '/home'
+    | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
+  FindFreelancerRoute: typeof FindFreelancerRoute
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
@@ -109,6 +121,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/find-freelancer': {
+      id: '/find-freelancer'
+      path: '/find-freelancer'
+      fullPath: '/find-freelancer'
+      preLoaderRoute: typeof FindFreelancerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -151,6 +170,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
+  FindFreelancerRoute: FindFreelancerRoute,
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,

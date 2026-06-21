@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { arrayMove } from "@dnd-kit/sortable";
-import { STAGES, type Deal, type Stage } from "@/features/deals/types";
+import {
+  STAGES,
+  type Deal,
+  type ProjectTask,
+  type Stage,
+} from "@/features/deals/types";
 
 const STAGE_IDS = STAGES.map((s) => s.id) as string[];
 
@@ -13,6 +18,9 @@ interface DealState {
   addDeal: (deal: Deal) => void;
   /** Move a deal to a stage, appending it to the end of that column. */
   moveToStage: (dealId: string, stage: Stage) => void;
+  addTask: (dealId: string, task: ProjectTask) => void;
+  updateTask: (dealId: string, taskId: string, patch: Partial<ProjectTask>) => void;
+  deleteTask: (dealId: string, taskId: string) => void;
   /**
    * Resolve a dnd-kit drag end into the new ordering. `overId` is either a
    * stage column id (dropped on empty area) or another deal's id.
@@ -33,6 +41,36 @@ export const useDealStore = create<DealState>((set) => ({
   moveToStage: (dealId, stage) =>
     set((state) => ({
       deals: state.deals.map((d) => (d.id === dealId ? { ...d, stage } : d)),
+    })),
+
+  addTask: (dealId, task) =>
+    set((state) => ({
+      deals: state.deals.map((deal) =>
+        deal.id === dealId ? { ...deal, tasks: [...(deal.tasks ?? []), task] } : deal,
+      ),
+    })),
+
+  updateTask: (dealId, taskId, patch) =>
+    set((state) => ({
+      deals: state.deals.map((deal) =>
+        deal.id === dealId
+          ? {
+              ...deal,
+              tasks: (deal.tasks ?? []).map((task) =>
+                task.id === taskId ? { ...task, ...patch } : task,
+              ),
+            }
+          : deal,
+      ),
+    })),
+
+  deleteTask: (dealId, taskId) =>
+    set((state) => ({
+      deals: state.deals.map((deal) =>
+        deal.id === dealId
+          ? { ...deal, tasks: (deal.tasks ?? []).filter((task) => task.id !== taskId) }
+          : deal,
+      ),
     })),
 
   handleDragEnd: (activeId, overId) =>

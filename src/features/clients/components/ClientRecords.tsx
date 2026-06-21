@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Building2, User,
-  Construction, Loader2, MessageCircle, LayoutList, LayoutGrid,
-  ChevronLeft, ChevronRight,
+  Construction, Loader2, LayoutList, LayoutGrid,
+  ChevronLeft, ChevronRight, Clock,
 } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import { type ClientRecord, type ClientStatus } from "@/services/clientsService";
@@ -48,11 +48,10 @@ function Avatar({ name, type, size = "md" }: { name: string; type: ClientRecord[
 
 // ── Pagination bar ────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function PaginationBar({ total, page, onPage }: { total: number; page: number; onPage: (p: number) => void }) {
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  if (totalPages <= 1) return null;
 
   const from = (page - 1) * PAGE_SIZE + 1;
   const to   = Math.min(page * PAGE_SIZE, total);
@@ -72,74 +71,131 @@ function PaginationBar({ total, page, onPage }: { total: number; page: number; o
       <span className="text-xs text-muted-foreground">
         Hiển thị <span className="font-medium text-foreground">{from}–{to}</span> / {total} khách hàng
       </span>
-      <div className="flex items-center gap-1">
-        <button onClick={() => onPage(page - 1)} disabled={page <= 1}
-          className="p-1.5 rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed">
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        {withGaps.map((p, i) =>
-          p === "…" ? (
-            <span key={`g${i}`} className="px-1.5 text-xs text-muted-foreground">…</span>
-          ) : (
-            <button key={p} onClick={() => onPage(p as number)}
-              className={`min-w-[32px] h-8 rounded-md text-xs font-medium transition-colors ${p === page ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>
-              {p}
-            </button>
-          )
-        )}
-        <button onClick={() => onPage(page + 1)} disabled={page >= totalPages}
-          className="p-1.5 rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed">
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button onClick={() => onPage(page - 1)} disabled={page <= 1}
+            className="p-1.5 rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          {withGaps.map((p, i) =>
+            p === "…" ? (
+              <span key={`g${i}`} className="px-1.5 text-xs text-muted-foreground">…</span>
+            ) : (
+              <button key={p} onClick={() => onPage(p as number)}
+                className={`min-w-[32px] h-8 rounded-md text-xs font-medium transition-colors ${p === page ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>
+                {p}
+              </button>
+            )
+          )}
+          <button onClick={() => onPage(page + 1)} disabled={page >= totalPages}
+            className="p-1.5 rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────────
 
+const STAGE_LABEL: Record<string, string> = {
+  new_lead:             "Yêu Cầu Mới",
+  qualified:            "Đã Sàng Lọc",
+  proposal_sent:        "Đã Gửi Báo Giá",
+  in_negotiation:       "Đang Đàm Phán",
+  active:               "Đang Triển Khai",
+  completed_and_billed: "Hoàn Thành",
+  lost:                 "Không Chốt",
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins  = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 1)   return "Vừa xong";
+  if (mins < 60)  return `${mins} phút trước`;
+  if (hours < 24) return `${hours} giờ trước`;
+  if (days < 30)  return `${days} ngày trước`;
+  return new Date(dateStr).toLocaleDateString("vi-VN");
+}
+
 function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; clientDeals: Deal[]; onOpenDeal: (d: Deal) => void }) {
-  const totalValue = clientDeals.reduce((s, d) => s + d.value, 0);
-  const phone    = client.phone ?? null;
-  const firstDeal = clientDeals[0] ?? null;
+  const totalValue  = clientDeals.reduce((s, d) => s + d.value, 0);
+  const phone       = client.phone ?? null;
+  const recentDeal  = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+
+  const lastInteraction = clientDeals
+    .flatMap((d) => d.history.map((h) => h.date))
+    .sort((a, b) => b.localeCompare(a))[0] ?? recentDeal?.createdAt ?? null;
 
   return (
-    <tr className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors group">
+    <tr className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
+      {/* Khách hàng */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           <Avatar name={client.name} type={client.type} size="sm" />
           <div className="min-w-0">
-            <div className="font-medium text-sm truncate max-w-[180px]">{client.name}</div>
+            <div className="font-medium text-sm truncate max-w-[160px]">{client.name}</div>
             <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
               {client.type === "company" ? <><Building2 className="h-2.5 w-2.5" />Công ty</> : <><User className="h-2.5 w-2.5" />Cá nhân</>}
             </div>
           </div>
         </div>
       </td>
-      <td className="px-3 py-3"><StatusBadge status={client.status} /></td>
+
+      {/* Liên hệ */}
       <td className="px-3 py-3">
         <div className="space-y-0.5">
           {phone && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone className="h-3 w-3 shrink-0" />{phone}</div>}
-          {client.email && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Mail className="h-3 w-3 shrink-0" /><span className="truncate max-w-[160px]">{client.email}</span></div>}
+          {client.email && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Mail className="h-3 w-3 shrink-0" /><span className="truncate max-w-[150px]">{client.email}</span></div>}
           {!phone && !client.email && <span className="text-xs text-muted-foreground">—</span>}
         </div>
       </td>
+
+      {/* Hợp tác */}
+      <td className="px-3 py-3 text-center">
+        {client.deal_count > 0
+          ? <span className="text-sm font-semibold">{client.deal_count} <span className="text-xs font-normal text-muted-foreground">dự án</span></span>
+          : <span className="text-xs text-muted-foreground">—</span>}
+      </td>
+
+      {/* Doanh thu */}
       <td className="px-3 py-3 text-right">
-        {client.deal_count > 0 ? (
-          <div>
-            {totalValue > 0 && <div className="text-xs font-semibold text-primary">{formatVND(totalValue)}</div>}
-            <div className="text-[10px] text-muted-foreground">{client.deal_count} dự án</div>
+        {totalValue > 0
+          ? <span className="text-xs font-semibold text-primary">{formatVND(totalValue)}</span>
+          : <span className="text-xs text-muted-foreground">—</span>}
+      </td>
+
+      {/* Dự án gần nhất */}
+      <td className="px-3 py-3">
+        {recentDeal ? (
+          <div className="min-w-0">
+            <div className="text-xs font-medium truncate max-w-[140px]">{recentDeal.projectType}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">{STAGE_LABEL[recentDeal.stage] ?? recentDeal.stage}</div>
           </div>
         ) : <span className="text-xs text-muted-foreground">—</span>}
       </td>
-      <td className="px-3 py-3"><DevBadge /></td>
+
+      {/* Trạng thái */}
+      <td className="px-3 py-3"><StatusBadge status={client.status} /></td>
+
+      {/* Tương tác */}
       <td className="px-3 py-3">
-        <div className="flex items-center gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-          {firstDeal && <button onClick={() => onOpenDeal(firstDeal)} className="rounded-md bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold hover:bg-primary/20">Xem dự án</button>}
-          <button className="rounded-md bg-success/10 text-success px-2.5 py-1 text-xs font-semibold hover:bg-success/20 inline-flex items-center gap-1">
-            <MessageCircle className="h-3 w-3" /> Zalo
-          </button>
-        </div>
+        {lastInteraction ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3 shrink-0" />
+            {timeAgo(lastInteraction)}
+          </div>
+        ) : <span className="text-xs text-muted-foreground">—</span>}
+      </td>
+
+      {/* Xem chi tiết */}
+      <td className="px-3 py-3">
+        {recentDeal
+          ? <button onClick={() => onOpenDeal(recentDeal)} className="rounded-md bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold hover:bg-primary/20 whitespace-nowrap">Xem chi tiết</button>
+          : <span className="text-xs text-muted-foreground">—</span>}
       </td>
     </tr>
   );
@@ -193,21 +249,16 @@ function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord;
 // ── Main component ────────────────────────────────────────────────────────────
 
 type Filter = "all" | "active" | "prospect" | "inactive";
+type SortKey = "newest" | "revenue_high" | "revenue_low" | "most_deals";
 type ViewMode = "table" | "card";
-
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all",      label: "Tất cả" },
-  { id: "active",   label: "Đang hoạt động" },
-  { id: "prospect", label: "Tiềm năng" },
-  { id: "inactive", label: "Không hoạt động" },
-];
 
 export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void }) {
   const deals = useDealStore((s) => s.deals);
-  const [q, setQ]                   = useState("");
-  const [filter, setFilter]         = useState<Filter>("all");
-  const [page, setPage]             = useState(1);
-  const [view, setView]             = useState<ViewMode>("table");
+  const [q, setQ]           = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort]     = useState<SortKey>("newest");
+  const [page, setPage]     = useState(1);
+  const [view, setView]     = useState<ViewMode>("table");
 
   const { data, isLoading: loading } = useClients();
   const allClients = useMemo<ClientRecord[]>(() => data ?? [], [data]);
@@ -222,7 +273,6 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
     return map;
   }, [deals]);
 
-  // Client-side filter (until BE adds search/status params)
   const filtered = useMemo(() => {
     const lq = q.toLowerCase();
     return allClients.filter((c) => {
@@ -239,15 +289,37 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
     });
   }, [allClients, q, filter]);
 
-  // Reset page when filter/search changes
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    if (sort === "newest") {
+      return list.sort((a, b) => {
+        const da = dealsByClientId.get(a.id)?.[0]?.createdAt ?? "";
+        const db = dealsByClientId.get(b.id)?.[0]?.createdAt ?? "";
+        return db.localeCompare(da);
+      });
+    }
+    if (sort === "revenue_high" || sort === "revenue_low") {
+      const dir = sort === "revenue_high" ? -1 : 1;
+      return list.sort((a, b) => {
+        const va = (dealsByClientId.get(a.id) ?? []).reduce((s, d) => s + d.value, 0);
+        const vb = (dealsByClientId.get(b.id) ?? []).reduce((s, d) => s + d.value, 0);
+        return dir * (vb - va);
+      });
+    }
+    if (sort === "most_deals") {
+      return list.sort((a, b) => b.deal_count - a.deal_count);
+    }
+    return list;
+  }, [filtered, sort, dealsByClientId]);
+
   const handleQ      = (v: string) => { setQ(v);      setPage(1); };
   const handleFilter = (v: Filter) => { setFilter(v); setPage(1); };
+  const handleSort   = (v: SortKey) => { setSort(v);  setPage(1); };
 
-  // Client-side pagination
   const paginated = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
+    return sorted.slice(start, start + PAGE_SIZE);
+  }, [sorted, page]);
 
   const stats = useMemo(() => ({
     total:    allClients.length,
@@ -274,14 +346,26 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
             placeholder="Tìm tên, email, số điện thoại..."
             className="bg-transparent text-sm flex-1 outline-none" />
         </div>
-        <div className="flex items-center gap-1 flex-wrap text-xs">
-          {FILTERS.map((f) => (
-            <button key={f.id} onClick={() => handleFilter(f.id)}
-              className={`px-3 py-1.5 rounded-md transition-colors ${filter === f.id ? "bg-primary text-primary-foreground font-semibold" : "border border-border hover:bg-secondary"}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <select
+          value={filter}
+          onChange={(e) => handleFilter(e.target.value as Filter)}
+          className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
+        >
+          <option value="all">Trạng thái: Tất cả</option>
+          <option value="active">Đang hoạt động</option>
+          <option value="prospect">Tiềm năng</option>
+          <option value="inactive">Không hoạt động</option>
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => handleSort(e.target.value as SortKey)}
+          className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
+        >
+          <option value="newest">Sắp xếp: Mới nhất</option>
+          <option value="revenue_high">Doanh thu cao nhất</option>
+          <option value="revenue_low">Doanh thu thấp nhất</option>
+          <option value="most_deals">Hợp tác nhiều lần nhất</option>
+        </select>
         <div className="flex items-center rounded-lg border border-border overflow-hidden">
           <button onClick={() => setView("table")} title="Dạng bảng"
             className={`p-2 transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
@@ -312,11 +396,13 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
               <thead className="sticky top-0 bg-card/95 backdrop-blur border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="text-left font-semibold px-4 py-2.5">Khách hàng</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Trạng thái</th>
                   <th className="text-left font-semibold px-3 py-2.5">Liên hệ</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Dự án</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Lịch sử</th>
-                  <th className="px-3 py-2.5 w-[140px]"></th>
+                  <th className="text-center font-semibold px-3 py-2.5">Hợp tác</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Doanh thu</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Dự án gần nhất</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Trạng thái</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Tương tác</th>
+                  <th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
@@ -328,7 +414,7 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
               </tbody>
             </table>
           </div>
-          <PaginationBar total={filtered.length} page={page} onPage={setPage} />
+          <PaginationBar total={sorted.length} page={page} onPage={setPage} />
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-h-0 gap-3">
@@ -341,7 +427,7 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
               ))}
             </div>
           </div>
-          <PaginationBar total={filtered.length} page={page} onPage={setPage} />
+          <PaginationBar total={sorted.length} page={page} onPage={setPage} />
         </div>
       )}
     </div>

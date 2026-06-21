@@ -75,7 +75,6 @@ function Index() {
       )}
 
       <AppSidebar
-        deals={deals}
         onOpenAI={() => setNewDealOpen(true)}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

@@ -8,7 +8,14 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { GoogleButton } from "./GoogleButton";
 
-const MIN_PASSWORD = 6;
+const MIN_PASSWORD = 8;
+const EMAIL_EXISTS_MSG = "Email này đã được đăng ký.";
+
+type FieldErrors = {
+  email?: string;
+  password?: string;
+  confirm?: string;
+};
 
 export function RegisterForm() {
   const navigate = useNavigate();
@@ -20,23 +27,36 @@ export function RegisterForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Button stays busy from submit through the post-success redirect delay.
   const isBusy = isSubmitting || isRedirecting;
 
+  // 409 → show inline under email; everything else → global banner
+  const emailFieldError = fieldErrors.email ?? (error === EMAIL_EXISTS_MSG ? error : undefined);
+  const globalError = error && error !== EMAIL_EXISTS_MSG ? error : null;
+
+  const clearField = (field: keyof FieldErrors) =>
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setLocalError(null);
+
+    const errors: FieldErrors = {};
     if (password.length < MIN_PASSWORD) {
-      setLocalError(`Mật khẩu cần tối thiểu ${MIN_PASSWORD} ký tự.`);
-      return;
+      errors.password = `Mật khẩu cần tối thiểu ${MIN_PASSWORD} ký tự.`;
     }
     if (password !== confirm) {
-      setLocalError("Mật khẩu xác nhận không khớp.");
+      errors.confirm = "Mật khẩu xác nhận không khớp.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
+
+    setFieldErrors({});
     try {
       await register({ fullName, email, password });
       setIsRedirecting(true);
@@ -52,12 +72,15 @@ export function RegisterForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {(localError || error) && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {localError ?? error}
+      {/* API error banner (non-email errors) */}
+      {globalError && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 px-3.5 py-3 text-sm text-destructive">
+          <span className="mt-px select-none">⚠</span>
+          <span>{globalError}</span>
         </div>
       )}
 
+      {/* Họ và tên */}
       <div className="space-y-1.5">
         <Label htmlFor="fullName">Họ và tên</Label>
         <Input
@@ -69,6 +92,7 @@ export function RegisterForm() {
         />
       </div>
 
+      {/* Email */}
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
@@ -77,11 +101,16 @@ export function RegisterForm() {
           autoComplete="email"
           required
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => { setEmail(e.target.value); clearField("email"); }}
           placeholder="ban@email.com"
+          aria-invalid={!!emailFieldError}
         />
+        {emailFieldError && (
+          <p className="text-xs text-destructive">{emailFieldError}</p>
+        )}
       </div>
 
+      {/* Mật khẩu */}
       <div className="space-y-1.5">
         <Label htmlFor="password">Mật khẩu</Label>
         <Input
@@ -90,11 +119,16 @@ export function RegisterForm() {
           autoComplete="new-password"
           required
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Tối thiểu 6 ký tự"
+          onChange={(e) => { setPassword(e.target.value); clearField("password"); }}
+          placeholder={`Tối thiểu ${MIN_PASSWORD} ký tự`}
+          aria-invalid={!!fieldErrors.password}
         />
+        {fieldErrors.password && (
+          <p className="text-xs text-destructive">{fieldErrors.password}</p>
+        )}
       </div>
 
+      {/* Xác nhận mật khẩu */}
       <div className="space-y-1.5">
         <Label htmlFor="confirm">Xác nhận mật khẩu</Label>
         <Input
@@ -103,9 +137,13 @@ export function RegisterForm() {
           autoComplete="new-password"
           required
           value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
+          onChange={(e) => { setConfirm(e.target.value); clearField("confirm"); }}
           placeholder="••••••••"
+          aria-invalid={!!fieldErrors.confirm}
         />
+        {fieldErrors.confirm && (
+          <p className="text-xs text-destructive">{fieldErrors.confirm}</p>
+        )}
       </div>
 
       <Button type="submit" className="w-full" disabled={isBusy}>
