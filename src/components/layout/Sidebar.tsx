@@ -1,7 +1,7 @@
-import { Briefcase, LayoutDashboard, MessageSquareHeart, Plus, Settings, Wallet, X } from "lucide-react";
+import { Briefcase, ClipboardList, LayoutDashboard, MessageSquareHeart, Plus, Settings, Wallet, X } from "lucide-react";
 import { UserMenu } from "@/features/auth/components/UserMenu";
 
-type NavKey = "pipeline" | "clients" | "revenue" | "settings";
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
 
 export function AppSidebar({
   onOpenAI,
@@ -51,6 +51,7 @@ export function AppSidebar({
           { key: "pipeline" as const, icon: LayoutDashboard, label: "Dự án" },
           { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
           { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
+          { key: "intake-form" as const, icon: ClipboardList, label: "Biểu mẫu tiếp nhận" },
           { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
         ].map((it) => (
           <button

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Building2, User,
   Construction, Loader2, LayoutList, LayoutGrid,
-  ChevronLeft, ChevronRight, Clock,
+  ChevronLeft, ChevronRight, Clock, MessageCircle,
 } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import { type ClientRecord, type ClientStatus } from "@/services/clientsService";
@@ -157,7 +157,7 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
       {/* Hợp tác */}
       <td className="px-3 py-3 text-center">
         {client.deal_count > 0
-          ? <span className="text-sm font-semibold">{client.deal_count} <span className="text-xs font-normal text-muted-foreground">dự án</span></span>
+          ? <span className="text-sm font-semibold">{`${client.deal_count} dự án`}</span>
           : <span className="text-xs text-muted-foreground">—</span>}
       </td>
 
