@@ -24,7 +24,7 @@ services:
       target: builder # Re-use the builder stage which has dependencies
     restart: "no"
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
     volumes:
       - ./src:/app/src
       - ./e2e:/app/e2e

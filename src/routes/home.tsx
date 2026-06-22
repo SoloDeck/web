@@ -59,12 +59,6 @@ function Navbar() {
         <nav className="flex items-center gap-2 sm:gap-3">
           <Link
             to="/login"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
-          >
-            Đăng nhập
-          </Link>
-          <Link
-            to="/login"
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 transition-all duration-200"
           >
             Bắt đầu miễn phí
@@ -155,13 +149,13 @@ function HeroSection() {
           >
             Bắt đầu miễn phí <ArrowRight className="h-4 w-4" />
           </Link>
-          <a
-            href="#"
+          <Link
+            to="/find-freelancer"
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold hover:bg-secondary hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0 transition-all duration-200 w-full sm:w-auto justify-center"
           >
             <Search className="h-4 w-4" />
             Tìm Freelancer
-          </a>
+          </Link>
         </div>
 
         {/* Hero image */}
@@ -446,12 +440,12 @@ function UserGroupsSection() {
                     </li>
                   ))}
                 </ul>
-                <a
-                  href="#"
+                <Link
+                  to="/find-freelancer"
                   className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-5 py-2.5 text-sm font-semibold hover:bg-secondary hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0 transition-all duration-200"
                 >
                   Tìm Freelancer <ArrowRight className="h-4 w-4" />
-                </a>
+                </Link>
               </div>
             </div>
           </RevealOnScroll>

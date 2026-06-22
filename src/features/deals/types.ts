@@ -13,6 +13,19 @@ export type PaymentStatus = "Chưa thanh toán" | "Đã đặt cọc" | "Đã th
 export type PaymentMethod = "MoMo" | "Vietcombank" | "Techcombank" | "—";
 export type Channel = "Zalo" | "Email" | "Facebook";
 
+export type TaskStatus = "todo" | "done";
+
+export type ProjectTask = {
+  id: string;
+  title: string;
+  note: string;
+  status: TaskStatus;
+  dueDate: string | null;
+  completed: boolean;
+  createdAt: string;
+  completedAt: string | null;
+};
+
 export type Deal = {
   id: string;
   clientId: string;
@@ -28,6 +41,7 @@ export type Deal = {
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
   history: { date: string; text: string }[];
+  tasks: ProjectTask[];
 };
 
 export const STAGES: { id: Stage; title: string; hint: string }[] = [

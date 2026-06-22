@@ -1,31 +1,21 @@
-import { Briefcase, LayoutDashboard, MessageSquareHeart, Settings, Sparkles, TrendingUp, Wallet, X } from "lucide-react";
-import { formatVND } from "@/utils/format";
-import type { Deal } from "@/features/deals/types";
+import { Briefcase, ClipboardList, LayoutDashboard, MessageSquareHeart, Plus, Settings, Wallet, X } from "lucide-react";
 import { UserMenu } from "@/features/auth/components/UserMenu";
 
-type NavKey = "pipeline" | "clients" | "revenue" | "settings";
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
 
-export function AppSidebar({ 
-  deals, 
+export function AppSidebar({
   onOpenAI,
   open,
   onClose,
   active,
   onNavigate,
-}: { 
-  deals: Deal[]; 
+}: {
   onOpenAI: () => void;
   open: boolean;
   onClose: () => void;
   active: NavKey;
   onNavigate: (nav: NavKey) => void;
 }) {
-  const billed = deals.filter((d) => d.stage === "completed_and_billed").reduce((s, d) => s + d.value, 0);
-  const won = deals.filter((d) => d.stage === "completed_and_billed").length;
-  const lost = 2;
-  const winRate = Math.round((won / (won + lost)) * 100);
-  const pipeline = deals.filter((d) => !["completed_and_billed"].includes(d.stage)).reduce((s, d) => s + d.value, 0);
-
   return (
     <aside 
       className={`
@@ -61,6 +51,7 @@ export function AppSidebar({
           { key: "pipeline" as const, icon: LayoutDashboard, label: "Dự án" },
           { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
           { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
+          { key: "intake-form" as const, icon: ClipboardList, label: "Biểu mẫu tiếp nhận" },
           { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
         ].map((it) => (
           <button
@@ -83,30 +74,11 @@ export function AppSidebar({
           onClick={onOpenAI}
           className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-3 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 hover:opacity-95 transition"
         >
-          <Sparkles className="h-4 w-4" />
-          Tác vụ Nhanh AI
+          <Plus className="h-4 w-4" />
+          Thêm dự án mới
         </button>
       </div>
 
-      <div className="p-4 mt-4">
-        <div className="text-[11px] uppercase tracking-wider text-sidebar-foreground/50 mb-2 flex items-center gap-1.5">
-          <TrendingUp className="h-3 w-3" /> Doanh thu tháng này
-        </div>
-        <div className="rounded-xl bg-gradient-to-br from-sidebar-accent to-sidebar-accent/40 border border-sidebar-border p-4">
-          <div className="text-2xl font-bold tracking-tight">{formatVND(billed)}</div>
-          <div className="text-xs text-sidebar-foreground/60 mt-0.5">Đã xuất hoá đơn</div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-            <div>
-              <div className="text-sidebar-foreground/60">Tỉ lệ thắng</div>
-              <div className="font-semibold text-success">{winRate}%</div>
-            </div>
-            <div>
-              <div className="text-sidebar-foreground/60">Tổng dự kiến</div>
-              <div className="font-semibold">{formatVND(pipeline)}</div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div className="mt-auto p-4 border-t border-sidebar-border space-y-3">
         <UserMenu onOpenSettings={() => onNavigate("settings")} />

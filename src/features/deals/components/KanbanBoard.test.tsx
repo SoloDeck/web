@@ -42,6 +42,7 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     paymentStatus: "Chưa thanh toán",
     paymentMethod: "—",
     history: [],
+    tasks: [],
     ...overrides,
   };
 }

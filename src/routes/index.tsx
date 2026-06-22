@@ -11,6 +11,7 @@ import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
+import { IntakeFormConfig } from "@/features/intake/components/IntakeFormConfig";
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type NavKey = "pipeline" | "clients" | "revenue" | "settings";
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
 
 // eslint-disable-next-line react-refresh/only-export-components
 function Index() {
@@ -65,7 +66,7 @@ function Index() {
   );
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
@@ -75,15 +76,17 @@ function Index() {
       )}
 
       <AppSidebar
-        deals={deals}
         onOpenAI={() => setNewDealOpen(true)}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         active={nav}
-        onNavigate={setNav}
+        onNavigate={(nextNav) => {
+          setNav(nextNav);
+          if (window.innerWidth < 1024) setSidebarOpen(false);
+        }}
       />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-20">
           <div className="px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -99,12 +102,14 @@ function Index() {
                   {nav === "pipeline" && "Quy Trình Dự Án"}
                   {nav === "clients" && "Hồ Sơ Khách Hàng"}
                   {nav === "revenue" && "Thanh Toán & Hợp Đồng"}
+                  {nav === "intake-form" && "Biểu Mẫu Tiếp Nhận Yêu Cầu"}
                   {nav === "settings" && "Cài Đặt Hồ Sơ"}
                 </h1>
                 <p className="text-xs text-muted-foreground truncate">
                   {nav === "pipeline" && `Quản lý ${deals.length} dự án · Kéo thả để cập nhật tiến độ`}
                   {nav === "clients" && "Quản lý thông tin khách hàng"}
                   {nav === "revenue" && "Bảng điều khiển tài chính"}
+                  {nav === "intake-form" && "Tạo biểu mẫu · Chia sẻ đường dẫn cho khách hàng"}
                   {nav === "settings" && "Cấu hình workspace của bạn"}
                 </p>
               </div>
@@ -147,8 +152,10 @@ function Index() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          {isLoading ? (
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+          {nav === "intake-form" ? (
+            <IntakeFormConfig />
+          ) : isLoading ? (
             <div className="h-full grid place-items-center text-muted-foreground">
               <div className="flex items-center gap-2 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" /> Đang tải dữ liệu...

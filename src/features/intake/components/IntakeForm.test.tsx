@@ -19,9 +19,11 @@ afterEach(() => {
 describe("<IntakeForm />", () => {
   it("renders the public form without any auth/router context", () => {
     render(<IntakeForm shareToken="tok123" />);
-    expect(screen.getByText("Gửi yêu cầu tư vấn")).toBeInTheDocument();
-    expect(screen.getByLabelText("Họ và tên")).toBeInTheDocument();
-    expect(screen.getByLabelText("Nội dung yêu cầu")).toBeInTheDocument();
+    expect(screen.getByText("Gửi yêu cầu dự án")).toBeInTheDocument();
+    expect(screen.getByLabelText("Họ tên khách hàng")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mô tả nhu cầu")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loại dịch vụ")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Zalo")).not.toBeInTheDocument();
   });
 
   it("submits the correct body and shows the success state", async () => {
@@ -29,16 +31,26 @@ describe("<IntakeForm />", () => {
     const user = userEvent.setup();
     render(<IntakeForm shareToken="tok123" />);
 
-    await user.type(screen.getByLabelText("Họ và tên"), "Nguyễn Văn A");
+    await user.type(screen.getByLabelText("Họ tên khách hàng"), "Nguyễn Văn A");
+    await user.type(screen.getByLabelText("Số điện thoại"), "0901234567");
     await user.type(screen.getByLabelText("Email"), "a@example.com");
-    await user.type(screen.getByLabelText("Nội dung yêu cầu"), "Cần làm website");
+    await user.type(screen.getByLabelText("Tên dự án"), "Website bán hàng");
+    await user.selectOptions(screen.getByLabelText("Loại dịch vụ"), "Thiết kế website");
+    await user.type(screen.getByLabelText("Mô tả nhu cầu"), "Cần làm website");
+    await user.type(screen.getByLabelText("Ghi chú thêm"), "Ưu tiên giao diện tối giản");
     await user.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
 
     await waitFor(() => expect(submitIntake).toHaveBeenCalledTimes(1));
     expect(submitIntake).toHaveBeenCalledWith("tok123", {
       name: "Nguyễn Văn A",
+      phone: "0901234567",
       email: "a@example.com",
-      inquiry_text: "Cần làm website",
+      inquiry_text: [
+        "Tên dự án: Website bán hàng",
+        "Loại dịch vụ: Thiết kế website",
+        "Mô tả nhu cầu: Cần làm website",
+        "Ghi chú thêm: Ưu tiên giao diện tối giản",
+      ].join("\n"),
     });
     await waitFor(() => expect(screen.getByText("Đã nhận yêu cầu của bạn")).toBeInTheDocument());
   });
@@ -48,13 +60,15 @@ describe("<IntakeForm />", () => {
     const user = userEvent.setup();
     render(<IntakeForm shareToken="tok123" />);
 
-    await user.type(screen.getByLabelText("Họ và tên"), "Lê Văn B");
-    await user.type(screen.getByLabelText("Nội dung yêu cầu"), "Tư vấn dự án");
+    await user.type(screen.getByLabelText("Họ tên khách hàng"), "Lê Văn B");
+    await user.type(screen.getByLabelText("Số điện thoại"), "0901234567");
+    await user.type(screen.getByLabelText("Tên dự án"), "Ứng dụng nội bộ");
+    await user.type(screen.getByLabelText("Mô tả nhu cầu"), "Tư vấn dự án");
     await user.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     // Form is still mounted (no crash, no success screen).
-    expect(screen.getByText("Gửi yêu cầu tư vấn")).toBeInTheDocument();
+    expect(screen.getByText("Gửi yêu cầu dự án")).toBeInTheDocument();
   });
 
   it("does not submit when required fields are empty", async () => {
