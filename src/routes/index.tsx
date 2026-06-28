@@ -1,12 +1,21 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
-import { Bell, Filter, Loader2, Menu, Plus, Search, Sparkles } from "lucide-react";
+import {
+  Bell,
+  Columns3,
+  Filter,
+  List,
+  Loader2,
+  Menu,
+  Plus,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
-import { DealDetailModal } from "@/features/deals/components/DealDetailModal";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
@@ -16,8 +25,10 @@ import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { updateMe } from "@/services/usersService";
-import type { Deal } from "@/features/deals/types";
+import { STAGE_BY_ID, type Deal } from "@/features/deals/types";
+import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
+import type { ClientRecord } from "@/services/clientsService";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
@@ -29,9 +40,11 @@ export const Route = createFileRoute("/")({
 });
 
 type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
+type PipelineView = "kanban" | "list";
 
 // eslint-disable-next-line react-refresh/only-export-components
 function Index() {
+  const navigate = useNavigate();
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
   const { clauses, setClauses } = useClauses();
@@ -49,28 +62,46 @@ function Index() {
 
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
-  const [detail, setDetail] = useState<Deal | null>(null);
   const [proposal, setProposal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
   const [nav, setNav] = useState<NavKey>("pipeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [pipelineView, setPipelineView] = useState<PipelineView>("kanban");
 
-  const filtered = useMemo(
-    () =>
-      deals.filter(
-        (d) =>
-          d.client.toLowerCase().includes(query.toLowerCase()) ||
-          d.projectType.toLowerCase().includes(query.toLowerCase())
-      ),
-    [deals, query]
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return deals;
+    return deals.filter(
+      (deal) =>
+        deal.client.toLowerCase().includes(term) ||
+        deal.projectType.toLowerCase().includes(term)
+    );
+  }, [deals, query]);
+
+  const totalValue = useMemo(
+    () => filtered.reduce((sum, deal) => sum + deal.value, 0),
+    [filtered]
+  );
+
+  const openDeal = useCallback(
+    (deal: Deal) => {
+      navigate({ to: "/deals/$dealId", params: { dealId: deal.id } });
+    },
+    [navigate]
+  );
+
+  const openClient = useCallback(
+    (client: ClientRecord) => {
+      navigate({ to: "/clients/$clientId", params: { clientId: client.id } });
+    },
+    [navigate]
   );
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity"
+          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -87,64 +118,48 @@ function Index() {
       />
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-20">
-          <div className="px-4 lg:px-6 h-16 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+        <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
+          <div className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
+            <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 rounded-md hover:bg-secondary text-foreground"
-                title={sidebarOpen ? "Đóng sidebar" : "Mở sidebar"}
+                className="rounded-md p-2 text-foreground hover:bg-secondary"
+                title={sidebarOpen ? "Đóng menu" : "Mở menu"}
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <div className="min-w-0">
-                <h1 className="text-lg font-bold tracking-tight truncate">
-                  {nav === "pipeline" && "Quy Trình Dự Án"}
-                  {nav === "clients" && "Hồ Sơ Khách Hàng"}
-                  {nav === "revenue" && "Thanh Toán & Hợp Đồng"}
-                  {nav === "intake-form" && "Biểu Mẫu Tiếp Nhận Yêu Cầu"}
-                  {nav === "settings" && "Cài Đặt Hồ Sơ"}
-                </h1>
-                <p className="text-xs text-muted-foreground truncate">
-                  {nav === "pipeline" && `Quản lý ${deals.length} dự án · Kéo thả để cập nhật tiến độ`}
-                  {nav === "clients" && "Quản lý thông tin khách hàng"}
-                  {nav === "revenue" && "Bảng điều khiển tài chính"}
-                  {nav === "intake-form" && "Tạo biểu mẫu · Chia sẻ đường dẫn cho khách hàng"}
-                  {nav === "settings" && "Cấu hình workspace của bạn"}
-                </p>
-              </div>
+              {nav === "pipeline" && (
+                <div className="hidden items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 md:flex md:w-72">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Tìm khách hàng, dự án..."
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
               {nav === "pipeline" && (
-                <>
-                  <div className="hidden md:flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 w-72">
-                    <Search className="h-4 w-4 text-muted-foreground" />
-                    <input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Tìm khách hàng, dự án..."
-                      className="bg-transparent text-sm flex-1 outline-none"
-                    />
-                  </div>
-                  <button className="p-2 rounded-md border border-border hover:bg-secondary">
-                    <Filter className="h-4 w-4" />
-                  </button>
-                </>
+                <button className="rounded-md border border-border p-2 hover:bg-secondary" title="Bộ lọc">
+                  <Filter className="h-4 w-4" />
+                </button>
               )}
-              <button className="p-2 rounded-md border border-border hover:bg-secondary relative">
+              <button className="relative rounded-md border border-border p-2 hover:bg-secondary" title="Thông báo">
                 <Bell className="h-4 w-4" />
-                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
+                <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
               </button>
               <button
                 onClick={() => setReminderOpen(true)}
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary sm:inline-flex"
               >
                 <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
               </button>
               <button
                 onClick={() => setNewDealOpen(true)}
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90"
+                className="hidden items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90 sm:inline-flex"
               >
                 <Plus className="h-4 w-4" /> Thêm dự án mới
               </button>
@@ -152,11 +167,11 @@ function Index() {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {nav === "intake-form" ? (
             <IntakeFormConfig />
           ) : isLoading ? (
-            <div className="h-full grid place-items-center text-muted-foreground">
+            <div className="grid h-full place-items-center text-muted-foreground">
               <div className="flex items-center gap-2 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" /> Đang tải dữ liệu...
               </div>
@@ -164,16 +179,67 @@ function Index() {
           ) : (
             <>
               {nav === "pipeline" && (
-                <KanbanBoard deals={filtered} onCardClick={setDetail} onDraft={setProposal} />
+                <section className="flex h-full flex-col overflow-hidden">
+                  <div className="border-b border-border bg-background px-4 py-4 lg:px-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h1 className="text-xl font-bold tracking-tight">Quy Trình Dự Án</h1>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {filtered.length} dự án · Tổng: {formatVND(totalValue)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="inline-flex rounded-lg border border-border bg-card p-1">
+                          <button
+                            type="button"
+                            onClick={() => setPipelineView("kanban")}
+                            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
+                              pipelineView === "kanban"
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <Columns3 className="h-4 w-4" /> Bảng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPipelineView("list")}
+                            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
+                              pipelineView === "list"
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <List className="h-4 w-4" /> Danh sách
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => setNewDealOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 sm:hidden"
+                        >
+                          <Plus className="h-4 w-4" /> Thêm
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {pipelineView === "kanban" ? (
+                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+                      <KanbanBoard
+                        deals={filtered}
+                        onCardClick={openDeal}
+                        onDraft={setProposal}
+                        onAddDeal={() => setNewDealOpen(true)}
+                      />
+                    </div>
+                  ) : (
+                    <PipelineList deals={filtered} onOpenDeal={openDeal} />
+                  )}
+                </section>
               )}
 
               {nav === "clients" && (
-                <ClientRecords
-                  onOpenDeal={(d) => {
-                    setNav("pipeline");
-                    setDetail(d);
-                  }}
-                />
+                <ClientRecords onOpenClient={openClient} />
               )}
 
               {nav === "revenue" && <RevenueDashboard />}
@@ -193,8 +259,46 @@ function Index() {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
-      <DealDetailModal deal={detail} onClose={() => setDetail(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
+    </div>
+  );
+}
+
+function PipelineList({ deals, onOpenDeal }: { deals: Deal[]; onOpenDeal: (deal: Deal) => void }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-4 lg:p-6">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="grid grid-cols-[1.4fr_1fr_140px_150px] border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div>Dự án</div>
+          <div>Khách hàng</div>
+          <div>Giai đoạn</div>
+          <div className="text-right">Giá trị</div>
+        </div>
+        {deals.map((deal) => (
+          <button
+            key={deal.id}
+            type="button"
+            onClick={() => onOpenDeal(deal)}
+            className="grid w-full grid-cols-[1.4fr_1fr_140px_150px] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-secondary/60"
+          >
+            <div className="min-w-0">
+              <div className="truncate font-semibold">{deal.projectType}</div>
+              <div className="truncate text-xs text-muted-foreground">{deal.notes || "Chưa có ghi chú"}</div>
+            </div>
+            <div className="truncate text-muted-foreground">{deal.client}</div>
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-secondary px-2 py-1 text-xs font-medium">
+              <span className={`h-2 w-2 rounded-full ${STAGE_BY_ID[deal.stage].dotClass}`} />
+              {STAGE_BY_ID[deal.stage].shortTitle}
+            </div>
+            <div className="text-right font-mono font-semibold text-primary">{formatVND(deal.value)}</div>
+          </button>
+        ))}
+        {deals.length === 0 && (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            Không tìm thấy dự án phù hợp.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

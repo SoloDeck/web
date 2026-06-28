@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { getFreelancers } from "@/features/freelancers/services/mockFreelancersApi";
+import { listFreelancers } from "@/services/freelancersService";
 import type { GetFreelancersParams } from "@/features/freelancers/types";
 
 export function useFreelancers(params: GetFreelancersParams = {}) {
@@ -8,7 +8,7 @@ export function useFreelancers(params: GetFreelancersParams = {}) {
 
   return useQuery({
     queryKey: ["freelancers", { categoryIds, search }],
-    queryFn: () => getFreelancers({ categoryIds, search }),
+    queryFn: () => listFreelancers({ categoryIds, search }),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });

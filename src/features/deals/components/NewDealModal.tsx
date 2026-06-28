@@ -1,22 +1,33 @@
-import { useEffect, useReducer, useRef, useState } from "react";
-import { X, Plus, Loader2, User, Briefcase, CheckCircle2, XCircle } from "lucide-react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { CheckCircle2, Loader2, Plus, Save, Search, User, XCircle } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getClients, createClient, type ClientRecord } from "@/services/clientsService";
-import { createDeal } from "@/services/dealsService";
+import { createDeal, updateDeal, type DealPayload } from "@/services/dealsService";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
+import { dealKeys } from "@/features/deals/hooks/useDeals";
+import { DEAL_SOURCE_LABELS, type Deal } from "@/features/deals/types";
 
 const SOURCE_OPTIONS = [
-  { value: "inbound",  label: "Khách tự liên hệ" },
-  { value: "referral", label: "Giới thiệu" },
-  { value: "outreach", label: "Tôi chủ động tìm" },
-  { value: "platform", label: "Sàn / Nền tảng" },
-  { value: "other",    label: "Khác" },
+  { value: "inbound", label: DEAL_SOURCE_LABELS.inbound },
+  { value: "referral", label: DEAL_SOURCE_LABELS.referral },
+  { value: "outreach", label: DEAL_SOURCE_LABELS.outreach },
+  { value: "platform", label: DEAL_SOURCE_LABELS.platform },
+  { value: "other", label: DEAL_SOURCE_LABELS.other },
 ] as const;
 
 type Form = {
   client_name: string;
   client_phone: string;
   client_email: string;
+  client_notes: string;
   title: string;
   estimated_value: string;
   source: string;
@@ -24,65 +35,143 @@ type Form = {
 };
 
 const INITIAL: Form = {
-  client_name: "", client_phone: "", client_email: "",
-  title: "", estimated_value: "", source: "", notes: "",
+  client_name: "",
+  client_phone: "",
+  client_email: "",
+  client_notes: "",
+  title: "",
+  estimated_value: "",
+  source: "",
+  notes: "",
 };
 
 function formReducer(state: Form, patch: Partial<Form>): Form {
   return { ...state, ...patch };
 }
 
-export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function normalizeMoneyInput(value: string): string {
+  return value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+}
+
+function formatMoneyInput(value: string): string {
+  if (!value) return "";
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function caretPositionFromDigitCount(formattedValue: string, digitCount: number): number {
+  if (digitCount <= 0) return 0;
+  let seenDigits = 0;
+  for (let index = 0; index < formattedValue.length; index += 1) {
+    if (/\d/.test(formattedValue[index])) {
+      seenDigits += 1;
+      if (seenDigits === digitCount) return index + 1;
+    }
+  }
+  return formattedValue.length;
+}
+
+export function NewDealModal({
+  open,
+  onClose,
+  deal,
+}: {
+  open: boolean;
+  onClose: () => void;
+  deal?: Deal | null;
+}) {
+  const isEditing = Boolean(deal);
   const addDeal = useDealStore((s) => s.addDeal);
+  const updateStoredDeal = useDealStore((s) => s.updateDeal);
+  const queryClient = useQueryClient();
   const [form, dispatch] = useReducer(formReducer, INITIAL);
   const [submitting, setSubmitting] = useState(false);
 
-  // Autocomplete state
   const [suggestions, setSuggestions] = useState<ClientRecord[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const estimatedValueRef = useRef<HTMLInputElement>(null);
+
+  const contactLocked = !!selectedClient || isEditing;
+  const canSubmit = form.client_name.trim() && form.title.trim();
+
+  useEffect(() => {
+    if (!open) return;
+    if (deal) {
+      dispatch({
+        client_name: deal.client,
+        client_phone: deal.clientPhone ?? "",
+        client_email: deal.clientEmail ?? "",
+        client_notes: "",
+        title: deal.projectType,
+        estimated_value: deal.value ? String(deal.value) : "",
+        source: deal.source ?? "",
+        notes: deal.notes ?? "",
+      });
+      setSelectedClient(null);
+      return;
+    }
+    dispatch(INITIAL);
+    setSelectedClient(null);
+  }, [deal, open]);
 
   const set = (field: keyof Form) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-      dispatch({ [field]: e.target.value });
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      dispatch({ [field]: event.target.value });
 
-  // Search suggestions when typing client name
+  const setEstimatedValue = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const caret = input.selectionStart ?? input.value.length;
+    const digitsBeforeCaret = input.value.slice(0, caret).replace(/\D/g, "").length;
+    const rawValue = normalizeMoneyInput(input.value);
+
+    dispatch({ estimated_value: rawValue });
+
+    // Format tiền làm React re-render value, nên cần đặt lại caret theo số chữ số đã gõ.
+    window.requestAnimationFrame(() => {
+      const node = estimatedValueRef.current;
+      if (!node || document.activeElement !== node) return;
+      const nextCaret = caretPositionFromDigitCount(
+        formatMoneyInput(rawValue),
+        Math.min(digitsBeforeCaret, rawValue.length)
+      );
+      node.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
   useEffect(() => {
     const name = form.client_name.trim();
-
-    // Already selected a client — don't search again until user clears
-    if (selectedClient) return;
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (name.length < 1) { setSuggestions([]); setShowDropdown(false); return; }
+    if (!open || isEditing || selectedClient) return;
+    if (name.length < 1) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      return;
+    }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const all = await getClients();
-        const matched = all.filter((c) =>
-          c.name.toLowerCase().includes(name.toLowerCase())
-        );
-        setSuggestions(matched.slice(0, 6));
+        const matched = (await getClients({ name })).slice(0, 6);
+        setSuggestions(matched);
         setShowDropdown(matched.length > 0);
       } catch {
-        // silently ignore search errors
+        setSuggestions([]);
       } finally {
         setSearching(false);
       }
     }, 250);
 
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [form.client_name, selectedClient]);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [form.client_name, isEditing, open, selectedClient]);
 
-  // Close dropdown on outside click
   useEffect(() => {
-    function onOutside(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+    function onOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
       }
     }
@@ -90,12 +179,24 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     return () => document.removeEventListener("mousedown", onOutside);
   }, []);
 
-  const selectExistingClient = (c: ClientRecord) => {
-    setSelectedClient(c);
+  const modalCopy = useMemo(
+    () => ({
+      title: isEditing ? "Sửa dự án" : "Thêm dự án mới",
+      description: isEditing
+        ? "Cập nhật thông tin dự án và đồng bộ lại dữ liệu."
+        : "Tạo khách hàng nếu chưa có, sau đó tạo dự án mới.",
+      submit: isEditing ? "Lưu thay đổi" : selectedClient ? "Tạo dự án" : "Tạo khách hàng & dự án",
+    }),
+    [isEditing, selectedClient]
+  );
+
+  const selectExistingClient = (client: ClientRecord) => {
+    setSelectedClient(client);
     dispatch({
-      client_name:  c.name,
-      client_phone: c.phone ?? "",
-      client_email: c.email ?? "",
+      client_name: client.name,
+      client_phone: client.phone ?? "",
+      client_email: client.email ?? "",
+      client_notes: client.notes ?? "",
     });
     setShowDropdown(false);
     setSuggestions([]);
@@ -103,10 +204,11 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const clearSelectedClient = () => {
     setSelectedClient(null);
-    dispatch({ client_name: "", client_phone: "", client_email: "" });
+    dispatch({ client_name: "", client_phone: "", client_email: "", client_notes: "" });
   };
 
   const handleClose = () => {
+    if (submitting) return;
     dispatch(INITIAL);
     setSelectedClient(null);
     setSuggestions([]);
@@ -114,111 +216,110 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
     onClose();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.client_name.trim()) { toast.error("Vui lòng nhập tên khách hàng."); return; }
-    if (!form.title.trim())       { toast.error("Vui lòng nhập tên dự án."); return; }
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) {
+      toast.error("Vui lòng nhập đủ tên khách hàng và tên dự án.");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      let clientId: string;
-      let clientLabel: string;
-
-      if (selectedClient) {
-        // Existing client — reuse, skip POST /clients
-        clientId = selectedClient.id;
-        clientLabel = selectedClient.name;
+      if (deal) {
+        const payload: DealPayload = {
+          client_id: deal.clientId,
+          title: form.title.trim(),
+          stage: deal.stage,
+          estimated_value: form.estimated_value ? Number(form.estimated_value) : undefined,
+          notes: form.notes.trim() || undefined,
+          source: form.source || undefined,
+        };
+        const updated = await updateDeal(deal.id, payload);
+        updateStoredDeal({ ...updated, client: deal.client, clientEmail: deal.clientEmail, clientPhone: deal.clientPhone });
+        toast.success("Đã cập nhật dự án.");
       } else {
-        // New client — create first
-        const newClient = await createClient({
-          name:  form.client_name.trim(),
-          phone: form.client_phone.trim() || undefined,
-          email: form.client_email.trim() || undefined,
-        });
-        clientId    = newClient.id;
-        clientLabel = newClient.name;
+        let client = selectedClient;
+        if (!client) {
+          client = await createClient({
+            name: form.client_name.trim(),
+            phone: form.client_phone.trim() || undefined,
+            email: form.client_email.trim() || undefined,
+            notes: form.client_notes.trim() || undefined,
+          });
+        }
+
+        const created = await createDeal(
+          {
+            client_id: client.id,
+            title: form.title.trim(),
+            source: form.source || undefined,
+            estimated_value: form.estimated_value ? Number(form.estimated_value) : undefined,
+            notes: form.notes.trim() || undefined,
+          },
+          client
+        );
+        addDeal(created);
+        toast.success(`Đã tạo dự án "${created.projectType}" cho ${created.client}.`);
       }
 
-      const deal = await createDeal({
-        client_id:       clientId,
-        title:           form.title.trim(),
-        source:          (form.source as "inbound" | "referral" | "outreach" | "platform" | "other") || undefined,
-        estimated_value: form.estimated_value ? Number(form.estimated_value) : undefined,
-        notes:           form.notes.trim() || undefined,
-      });
-
-      addDeal(deal);
-      const action = selectedClient ? "Đã thêm dự án" : "Đã tạo khách hàng & dự án";
-      toast.success(`${action} "${deal.projectType}" cho ${clientLabel}!`);
+      queryClient.invalidateQueries({ queryKey: dealKeys.all });
       handleClose();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Không thể tạo. Vui lòng thử lại.");
+      toast.error(msg ?? "Không thể lưu dự án. Vui lòng thử lại.");
     } finally {
       setSubmitting(false);
     }
-  };
-
-  if (!open) return null;
-
-  const contactLocked = !!selectedClient;
+  }
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-lg bg-card rounded-2xl shadow-2xl border border-border max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4 sticky top-0 bg-card/95 backdrop-blur">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary grid place-items-center">
-              <Plus className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <div>
-              <div className="font-semibold">Thêm dự án mới</div>
-              <div className="text-xs text-muted-foreground">
-                {selectedClient ? "Khách hàng có sẵn · tạo dự án mới" : "Tạo khách hàng + dự án cùng lúc"}
-              </div>
-            </div>
-          </div>
-          <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) handleClose();
+      }}
+    >
+      <DialogContent className="max-h-[90vh] overflow-y-auto p-0 sm:max-w-2xl" showCloseButton>
+        <DialogHeader className="border-b border-border px-6 py-5">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+              {isEditing ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            </span>
+            {modalCopy.title}
+          </DialogTitle>
+          <DialogDescription>{modalCopy.description}</DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* ── Section 1: Khách hàng ── */}
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              <User className="h-3 w-3" /> Thông tin khách hàng
+        <form onSubmit={handleSubmit} className="space-y-6 px-6 py-5">
+          <section>
+            <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <User className="h-3.5 w-3.5" /> Thông tin khách hàng
             </div>
             <div className="space-y-3">
-              {/* Client name with autocomplete */}
               <div>
-                <label className="text-sm font-medium block mb-1">
+                <label className="mb-1 block text-sm font-medium">
                   Tên khách hàng <span className="text-destructive">*</span>
                 </label>
                 <div ref={wrapperRef} className="relative">
                   <div className="relative">
                     <input
                       value={form.client_name}
-                      onChange={(e) => {
-                        // If user edits name after selection → clear selected client
-                        if (selectedClient && e.target.value !== selectedClient.name) {
+                      onChange={(event) => {
+                        if (selectedClient && event.target.value !== selectedClient.name) {
                           clearSelectedClient();
                         }
-                        dispatch({ client_name: e.target.value });
+                        dispatch({ client_name: event.target.value });
                       }}
+                      disabled={isEditing}
                       onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
                       placeholder="VD: Nguyễn Văn A / Công ty XYZ"
-                      maxLength={255}
-                      autoComplete="off"
-                      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-8 ${
-                        selectedClient
-                          ? "border-success bg-success/5"
-                          : "border-input bg-background"
-                      }`}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65"
                     />
                     <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
                       {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      {!searching && !selectedClient && !isEditing && (
+                        <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
                       {selectedClient && (
                         <button type="button" onClick={clearSelectedClient} className="text-muted-foreground hover:text-foreground">
                           <XCircle className="h-3.5 w-3.5" />
@@ -227,158 +328,152 @@ export function NewDealModal({ open, onClose }: { open: boolean; onClose: () => 
                     </div>
                   </div>
 
-                  {/* Dropdown suggestions */}
                   {showDropdown && suggestions.length > 0 && (
-                    <div className="absolute z-20 mt-1 w-full bg-card border border-border rounded-lg shadow-lg overflow-hidden">
-                      <div className="px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border bg-muted/40">
-                        Khách hàng có sẵn — chọn để dùng lại
-                      </div>
-                      {suggestions.map((c) => (
+                    <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                      {suggestions.map((client) => (
                         <button
-                          key={c.id}
+                          key={client.id}
                           type="button"
-                          onMouseDown={(e) => { e.preventDefault(); selectExistingClient(c); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-secondary transition-colors text-left"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            selectExistingClient(client);
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-secondary"
                         >
-                          <div className={`h-7 w-7 rounded-full grid place-items-center shrink-0 text-xs font-bold text-white ${c.type === "company" ? "bg-violet-500" : "bg-primary"}`}>
-                            {c.name.trim().charAt(0).toUpperCase()}
+                          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                            {client.name.trim().charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate">{c.name}</div>
-                            <div className="text-[11px] text-muted-foreground truncate">
-                              {[c.phone, c.email].filter(Boolean).join(" · ") || "Chưa có liên hệ"}
+                            <div className="truncate text-sm font-medium">{client.name}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {[client.phone, client.email].filter(Boolean).join(" · ") || "Chưa có liên hệ"}
                             </div>
                           </div>
-                          <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground/50" />
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-
-                {/* Selected client banner */}
-                {selectedClient && (
-                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-success">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Khách hàng có sẵn — sẽ không tạo mới
-                  </div>
-                )}
               </div>
 
-              {/* Phone + Email — locked when existing client selected */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm font-medium block mb-1">
-                    Số điện thoại
-                    {contactLocked && <span className="text-[10px] text-muted-foreground ml-1">(từ hồ sơ)</span>}
-                  </label>
+                  <label className="mb-1 block text-sm font-medium">Số điện thoại</label>
                   <input
                     value={form.client_phone}
                     onChange={set("client_phone")}
                     disabled={contactLocked}
                     placeholder="0912 345 678"
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65"
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium block mb-1">
-                    Email
-                    {contactLocked && <span className="text-[10px] text-muted-foreground ml-1">(từ hồ sơ)</span>}
-                  </label>
+                  <label className="mb-1 block text-sm font-medium">Email</label>
                   <input
                     type="email"
                     value={form.client_email}
                     onChange={set("client_email")}
                     disabled={contactLocked}
-                    placeholder="example@gmail.com"
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                    placeholder="client@gmail.com"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65"
                   />
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="border-t border-dashed border-border" />
-
-          {/* ── Section 2: Dự án ── */}
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              <Briefcase className="h-3 w-3" /> Thông tin dự án
-            </div>
-            <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium block mb-1">Tên dự án <span className="text-destructive">*</span></label>
-                <input
-                  value={form.title}
-                  onChange={set("title")}
-                  placeholder="VD: Thiết kế website bán hàng..."
-                  maxLength={500}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium block mb-1">Giá trị ước tính (VND)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.estimated_value}
-                    onChange={set("estimated_value")}
-                    placeholder="VD: 15000000"
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium block mb-1">Nguồn</label>
-                  <select
-                    value={form.source}
-                    onChange={set("source")}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">— Chọn nguồn —</option>
-                    {SOURCE_OPTIONS.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Ghi chú</label>
+                <label className="mb-1 block text-sm font-medium">Ghi chú khách hàng</label>
                 <textarea
-                  value={form.notes}
-                  onChange={set("notes")}
+                  value={form.client_notes}
+                  onChange={set("client_notes")}
+                  disabled={contactLocked}
                   rows={3}
-                  placeholder="Mô tả yêu cầu, điều kiện đặc biệt..."
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  placeholder="Thông tin thêm về khách hàng, cách xưng hô, lưu ý khi liên hệ..."
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65"
                 />
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Actions */}
-          <div className="flex gap-2 pt-1">
+          <section className="space-y-3 border-t border-dashed border-border pt-5">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Yêu cầu dự án
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Tên dự án <span className="text-destructive">*</span>
+              </label>
+              <input
+                value={form.title}
+                onChange={set("title")}
+                placeholder="VD: Thiết kế website bán hàng..."
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Giá trị ước tính</label>
+                <div className="relative">
+                  <input
+                    ref={estimatedValueRef}
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInput(form.estimated_value)}
+                    onChange={setEstimatedValue}
+                    placeholder="15.000.000"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-12 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                    VNĐ
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Nguồn</label>
+                <select
+                  value={form.source}
+                  onChange={set("source")}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">— Chọn nguồn —</option>
+                  {SOURCE_OPTIONS.map((source) => (
+                    <option key={source.value} value={source.value}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Yêu cầu dự án</label>
+              <textarea
+                value={form.notes}
+                onChange={set("notes")}
+                rows={4}
+                placeholder="Mô tả yêu cầu, phạm vi, điều kiện bàn giao..."
+                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </section>
+
+          <div className="flex gap-2 border-t border-border pt-4">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-lg border border-border bg-secondary text-secondary-foreground px-4 py-2.5 text-sm font-medium hover:bg-secondary/70"
+              className="flex-1 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium hover:bg-secondary"
             >
-              Huỷ
+              Hủy
             </button>
             <button
               type="submit"
-              disabled={submitting}
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+              disabled={submitting || !canSubmit}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              {submitting
-                ? "Đang tạo..."
-                : selectedClient
-                  ? "Tạo dự án"
-                  : "Tạo khách hàng & dự án"}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {submitting ? "Đang lưu..." : modalCopy.submit}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

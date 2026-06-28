@@ -1,8 +1,15 @@
-import { X, Phone, MessageCircle, FileText, CreditCard, Clock, Construction } from "lucide-react";
+import { X, Mail, CreditCard, Clock, Construction } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import type { Deal, ProjectTask } from "@/features/deals/types";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
+import {
+  useProjectTasks,
+  useAddTask,
+  useToggleTask,
+  useUpdateTask,
+  useDeleteTask,
+} from "@/features/deals/hooks/useProjectTasks";
 
 const paymentColor = {
   "Chưa thanh toán": "bg-destructive/15 text-destructive",
@@ -22,41 +29,34 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
   const storedDeal = useDealStore((state) =>
     deal ? state.deals.find((item) => item.id === deal.id) : undefined,
   );
-  const addTask = useDealStore((state) => state.addTask);
-  const updateTask = useDealStore((state) => state.updateTask);
-  const deleteTask = useDealStore((state) => state.deleteTask);
   const selectedDeal = storedDeal ?? deal;
 
+  const { data: taskData } = useProjectTasks(selectedDeal?.id);
+  const projectId = taskData?.projectId ?? "";
+
+  const addTaskMutation = useAddTask(selectedDeal?.id ?? "", projectId);
+  const toggleTaskMutation = useToggleTask(selectedDeal?.id ?? "", projectId);
+  const updateTaskMutation = useUpdateTask(selectedDeal?.id ?? "", projectId);
+  const deleteTaskMutation = useDeleteTask(selectedDeal?.id ?? "", projectId);
+
   if (!selectedDeal) return null;
-  const selectedDealId = selectedDeal.id;
 
   function handleAddTask(title: string, note: string) {
-    addTask(selectedDealId, {
-      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      note,
-      status: "todo",
-      dueDate: null,
-      completed: false,
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-    });
+    addTaskMutation.mutate({ title, note });
   }
 
   function handleUpdateTask(taskId: string, patch: Partial<ProjectTask>) {
-    updateTask(selectedDealId, taskId, patch);
+    if (patch.title !== undefined || patch.note !== undefined) {
+      updateTaskMutation.mutate({ taskId, title: patch.title, note: patch.note });
+    }
   }
 
   function handleDeleteTask(taskId: string) {
-    deleteTask(selectedDealId, taskId);
+    deleteTaskMutation.mutate(taskId);
   }
 
   function handleToggleTask(taskId: string, completed: boolean) {
-    updateTask(selectedDealId, taskId, {
-      completed,
-      status: completed ? "done" : "todo",
-      completedAt: completed ? new Date().toISOString() : null,
-    });
+    toggleTaskMutation.mutate({ taskId, is_done: completed });
   }
 
   return (
@@ -88,14 +88,10 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
           {/* Stats row — all from API */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-border p-3">
               <div className="text-xs text-muted-foreground">Giá trị dự kiến</div>
               <div className="font-bold text-primary">{formatVND(selectedDeal.value)}</div>
-            </div>
-            <div className="rounded-lg border border-border p-3">
-              <div className="text-xs text-muted-foreground">Nguồn</div>
-              <div className="font-semibold">{selectedDeal.channel}</div>
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-xs text-muted-foreground">Liên hệ</div>
@@ -151,31 +147,24 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
             )}
           </div>
 
-          {/* Documents — not in API yet */}
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
-              <FileText className="h-3 w-3" /> Tài liệu liên kết
-              <DevBadge />
-            </div>
-            <div className="text-xs text-muted-foreground rounded-lg border border-dashed border-border p-3 text-center">
-              Đính kèm hợp đồng, báo giá sẽ được hỗ trợ trong phiên bản tiếp theo.
-            </div>
-          </div>
 
         </div>
 
         <div className="flex shrink-0 gap-2 border-t border-border bg-card/95 px-6 py-4 backdrop-blur">
-          <button className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-success text-success-foreground px-4 py-2.5 text-sm font-semibold hover:opacity-95">
-            <MessageCircle className="h-4 w-4" /> Nhắn Zalo
+          <button className="flex-1 inline-flex items-center justify-center rounded-lg bg-success text-success-foreground px-4 py-2.5 text-sm font-semibold hover:opacity-95">
+            Nhắn Zalo
           </button>
-          <button className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-secondary text-secondary-foreground px-4 py-2.5 text-sm font-semibold hover:bg-secondary/70">
-            <Phone className="h-4 w-4" /> Gọi điện
+          <button
+            disabled={!selectedDeal.clientEmail}
+            className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-secondary text-secondary-foreground px-4 py-2.5 text-sm font-semibold hover:bg-secondary/70 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Mail className="h-4 w-4" /> Email
           </button>
         </div>
         </div>
 
         <ProjectTaskPanel
-          tasks={selectedDeal.tasks ?? []}
+          tasks={taskData?.tasks ?? []}
           onAddTask={handleAddTask}
           onUpdateTask={handleUpdateTask}
           onDeleteTask={handleDeleteTask}

@@ -3,8 +3,6 @@ import axiosClient from "@/configs/axios";
 export type ClientType = "individual" | "company";
 export type ClientStatus = "prospect" | "active" | "inactive" | "archived";
 
-// Flat shape returned by GET /clients (matches backend ClientResponse).
-// There is NO nested contact_info object and NO tags field.
 export type ClientRecord = {
   id: string;
   owner_user_id: string;
@@ -13,6 +11,10 @@ export type ClientRecord = {
   phone: string | null;
   type: ClientType;
   status: ClientStatus;
+  website: string | null;
+  linkedin_url: string | null;
+  address_city: string | null;
+  address_country: string | null;
   notes: string | null;
   description: string | null;
   deal_count: number;
@@ -20,32 +22,73 @@ export type ClientRecord = {
   updated_at: string;
 };
 
+export type ClientCommLog = {
+  id: string;
+  client_id: string;
+  channel: string;
+  summary: string;
+  communicated_at: string;
+  created_at: string;
+};
+
+export type ClientPayload = {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  type?: ClientType;
+  status?: ClientStatus;
+  website?: string | null;
+  linkedin_url?: string | null;
+  address_city?: string | null;
+  address_country?: string | null;
+  notes?: string | null;
+  description?: string | null;
+};
+
 export type GetClientsParams = {
   status?: ClientStatus;
   name?: string;
   email?: string;
+  page?: number;
+  page_size?: number;
 };
 
-// Backend returns a plain list (NO server-side pagination). Filtering by
-// ?status=, ?name=, ?email= is supported; pagination is done client-side.
+type PaginatedEnvelope<T> = {
+  data: T[];
+  pagination: { total: number; page: number; page_size: number; total_pages: number };
+};
+
+type ApiEnvelope<T> = { data: T };
+
 export async function getClients(params: GetClientsParams = {}): Promise<ClientRecord[]> {
-  const { data } = await axiosClient.get<{ data: ClientRecord[] }>("/clients", { params });
+  const { data } = await axiosClient.get<PaginatedEnvelope<ClientRecord>>("/clients", {
+    params: { page_size: 100, ...params },
+  });
   return data.data ?? [];
 }
 
-/** POST /clients — creates a new client with flat fields. */
-export async function createClient(payload: {
-  name: string;
-  email?: string;
-  phone?: string;
-  type?: ClientType;
-  notes?: string;
-}): Promise<ClientRecord> {
-  const body: Record<string, unknown> = { name: payload.name };
-  if (payload.email) body.email = payload.email;
-  if (payload.phone) body.phone = payload.phone;
-  if (payload.type) body.type = payload.type;
-  if (payload.notes) body.notes = payload.notes;
-  const { data } = await axiosClient.post<{ data: ClientRecord }>("/clients", body);
+export async function getClient(id: string): Promise<ClientRecord> {
+  const { data } = await axiosClient.get<ApiEnvelope<ClientRecord>>(`/clients/${id}`);
   return data.data;
+}
+
+export async function createClient(payload: ClientPayload): Promise<ClientRecord> {
+  const { data } = await axiosClient.post<ApiEnvelope<ClientRecord>>("/clients", payload);
+  return data.data;
+}
+
+export async function updateClient(id: string, payload: ClientPayload): Promise<ClientRecord> {
+  const { data } = await axiosClient.patch<ApiEnvelope<ClientRecord>>(`/clients/${id}`, payload);
+  return data.data;
+}
+
+export async function deleteClient(id: string): Promise<void> {
+  await axiosClient.delete(`/clients/${id}`);
+}
+
+export async function listClientCommLogs(clientId: string): Promise<ClientCommLog[]> {
+  const { data } = await axiosClient.get<ApiEnvelope<ClientCommLog[]>>(
+    `/clients/${clientId}/comm-logs`
+  );
+  return data.data ?? [];
 }

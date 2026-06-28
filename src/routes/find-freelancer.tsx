@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from "react";
+import { toast } from "sonner";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -118,7 +119,7 @@ function FindFreelancerPage() {
         <FreelancerListStep
           selected={selected}
           onBack={() => setStep("skills")}
-          onRemove={(id) => setSelected((prev) => prev.filter((s) => s !== id))}
+          onToggle={toggle}
         />
       )}
     </div>
@@ -252,11 +253,11 @@ function CategorySelectStep({
 function FreelancerListStep({
   selected,
   onBack,
-  onRemove,
+  onToggle,
 }: {
   selected: string[];
   onBack: () => void;
-  onRemove: (id: string) => void;
+  onToggle: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const { data, isError, isFetching, isPending, refetch } = useFreelancers({
@@ -288,27 +289,27 @@ function FreelancerListStep({
         </div>
       </div>
 
-      {/* Active filters */}
-      {selected.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-6">
-          <span className="text-xs text-muted-foreground">Lĩnh vực:</span>
-          {selected.map((id) => (
-            <span
-              key={id}
-              className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-medium text-primary"
+      {/* Category filter pills */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <span className="text-xs text-muted-foreground">Lĩnh vực:</span>
+        {CATEGORIES.map((cat) => {
+          const active = selected.includes(cat.id);
+          return (
+            <button
+              key={cat.id}
+              onClick={() => onToggle(cat.id)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "bg-card border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+              }`}
             >
-              {CATEGORY_LABEL[id]}
-              <button
-                onClick={() => onRemove(id)}
-                className="hover:opacity-70 transition-opacity"
-                aria-label={`Bỏ lọc ${CATEGORY_LABEL[id]}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
+              {CATEGORY_LABEL[cat.id]}
+              {active && <X className="h-3 w-3" />}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="mb-6 flex min-h-5 items-center gap-2 text-sm text-muted-foreground">
         {!isPending && (
@@ -473,7 +474,10 @@ function FreelancerCard({
             {f.projects}
           </span>
         </div>
-        <button className="inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline transition-colors">
+        <button
+          onClick={() => toast.info("Tính năng xem hồ sơ đang được phát triển.")}
+          className="inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline transition-colors"
+        >
           Xem hồ sơ
           <ChevronRight className="h-3.5 w-3.5" />
         </button>

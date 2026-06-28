@@ -15,6 +15,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
+import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 
 const FindFreelancerRoute = FindFreelancerRouteImport.update({
@@ -47,6 +49,16 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
+  id: '/clients/$clientId',
+  path: '/clients/$clientId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealsDealIdRoute = DealsDealIdRouteImport.update({
+  id: '/deals/$dealId',
+  path: '/deals/$dealId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IntakeTokenRoute = IntakeTokenRouteImport.update({
   id: '/intake/$token',
   path: '/intake/$token',
@@ -60,6 +72,8 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesByTo {
@@ -69,6 +83,8 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesById {
@@ -79,6 +95,8 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRouteTypes {
@@ -90,9 +108,20 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/clients/$clientId'
+    | '/deals/$dealId'
     | '/intake/$token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/home' | '/find-freelancer' | '/' | '/login' | '/register' | '/forgot-password' | '/intake/$token'
+  to:
+    | '/home'
+    | '/find-freelancer'
+    | '/'
+    | '/login'
+    | '/register'
+    | '/forgot-password'
+    | '/clients/$clientId'
+    | '/deals/$dealId'
+    | '/intake/$token'
   id:
     | '__root__'
     | '/home'
@@ -101,6 +130,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/clients/$clientId'
+    | '/deals/$dealId'
     | '/intake/$token'
   fileRoutesById: FileRoutesById
 }
@@ -111,6 +142,8 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  ClientsClientIdRoute: typeof ClientsClientIdRoute
+  DealsDealIdRoute: typeof DealsDealIdRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
 }
 
@@ -158,6 +191,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/clients/$clientId': {
+      id: '/clients/$clientId'
+      path: '/clients/$clientId'
+      fullPath: '/clients/$clientId'
+      preLoaderRoute: typeof ClientsClientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deals/$dealId': {
+      id: '/deals/$dealId'
+      path: '/deals/$dealId'
+      fullPath: '/deals/$dealId'
+      preLoaderRoute: typeof DealsDealIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/intake/$token': {
       id: '/intake/$token'
       path: '/intake/$token'
@@ -175,6 +222,8 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  ClientsClientIdRoute: ClientsClientIdRoute,
+  DealsDealIdRoute: DealsDealIdRoute,
   IntakeTokenRoute: IntakeTokenRoute,
 }
 export const routeTree = rootRouteImport

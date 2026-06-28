@@ -16,6 +16,10 @@ interface DealState {
   hydrate: (deals: Deal[]) => void;
   /** Append a newly-created deal to the board (optimistic after POST /deals). */
   addDeal: (deal: Deal) => void;
+  /** Replace a deal after PATCH/GET detail so list and detail stay in sync. */
+  updateDeal: (deal: Deal) => void;
+  /** Remove a deal after DELETE /deals/{id}. */
+  removeDeal: (dealId: string) => void;
   /** Move a deal to a stage, appending it to the end of that column. */
   moveToStage: (dealId: string, stage: Stage) => void;
   addTask: (dealId: string, task: ProjectTask) => void;
@@ -32,11 +36,22 @@ export const useDealStore = create<DealState>((set) => ({
   deals: [],
   hydrated: false,
 
-  hydrate: (deals) =>
-    set((state) => (state.hydrated ? state : { deals, hydrated: true })),
+  hydrate: (deals) => set({ deals, hydrated: true }),
 
   addDeal: (deal) =>
     set((state) => ({ deals: [deal, ...state.deals] })),
+
+  updateDeal: (deal) =>
+    set((state) => ({
+      deals: state.deals.some((item) => item.id === deal.id)
+        ? state.deals.map((item) => (item.id === deal.id ? deal : item))
+        : [deal, ...state.deals],
+    })),
+
+  removeDeal: (dealId) =>
+    set((state) => ({
+      deals: state.deals.filter((deal) => deal.id !== dealId),
+    })),
 
   moveToStage: (dealId, stage) =>
     set((state) => ({
