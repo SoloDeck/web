@@ -62,7 +62,7 @@ export async function addChecklistItem(
   body: CreateChecklistItemRequest
 ): Promise<ChecklistItemResponse> {
   const { data } = await axiosClient.post<{ data: ChecklistItemResponse }>(
-    `/tasks/${taskId}/checklist-items`,
+    `/tasks/${taskId}/checklist`,
     body
   )
   return data.data
@@ -74,12 +74,12 @@ export async function updateChecklistItem(
   body: UpdateChecklistItemRequest
 ): Promise<ChecklistItemResponse> {
   const { data } = await axiosClient.patch<{ data: ChecklistItemResponse }>(
-    `/tasks/${taskId}/checklist-items/${itemId}`,
+    `/tasks/${taskId}/checklist/${itemId}`,
     body
   )
   return data.data
 }
 
 export async function deleteChecklistItem(taskId: string, itemId: string): Promise<void> {
-  await axiosClient.delete(`/tasks/${taskId}/checklist-items/${itemId}`)
+  await axiosClient.delete(`/tasks/${taskId}/checklist/${itemId}`)
 }
