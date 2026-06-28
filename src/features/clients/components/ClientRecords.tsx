@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Building2, User,
-  Construction, Loader2, LayoutList, LayoutGrid,
+  Loader2, LayoutList, LayoutGrid,
   ChevronLeft, ChevronRight, Clock, MessageCircle,
+  Eye, Trash2,
 } from "lucide-react";
-import { formatVND } from "@/utils/format";
 import { type ClientRecord, type ClientStatus } from "@/services/clientsService";
-import { useClients } from "@/features/clients/hooks/useClients";
+import { useClients, useUpdateClient } from "@/features/clients/hooks/useClients";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import type { Deal } from "@/features/deals/types";
 
@@ -28,20 +28,56 @@ function StatusBadge({ status }: { status: ClientStatus }) {
   );
 }
 
-function DevBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-      <Construction className="h-2.5 w-2.5" /> Đang phát triển
-    </span>
-  );
-}
-
 function Avatar({ name, type, size = "md" }: { name: string; type: ClientRecord["type"]; size?: "sm" | "md" }) {
   const initial = name.trim().charAt(0).toUpperCase();
   const sz = size === "sm" ? "h-7 w-7 text-xs" : "h-10 w-10 text-sm";
   return (
     <div className={`${sz} rounded-full grid place-items-center shrink-0 font-bold text-white ${type === "company" ? "bg-violet-500" : "bg-primary"}`}>
       {initial}
+    </div>
+  );
+}
+
+// ── Delete Confirm Dialog ─────────────────────────────────────────────────────
+
+function DeleteConfirmDialog({
+  clientName,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  clientName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-base">Lưu trữ khách hàng</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Bạn có chắc muốn lưu trữ <span className="font-medium text-foreground">{clientName}</span>?
+            Khách hàng sẽ chuyển sang trạng thái Lưu trữ và bị ẩn khỏi danh sách.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-secondary transition-colors"
+          >
+            Hủy
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="rounded-lg bg-destructive text-destructive-foreground px-4 py-2 text-sm font-medium hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+          >
+            {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Lưu trữ
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -121,10 +157,19 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("vi-VN");
 }
 
-function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; clientDeals: Deal[]; onOpenDeal: (d: Deal) => void }) {
-  const totalValue  = clientDeals.reduce((s, d) => s + d.value, 0);
-  const phone       = client.phone ?? null;
-  const recentDeal  = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+function TableRow({
+  client,
+  clientDeals,
+  onOpenClient,
+  onDelete,
+}: {
+  client: ClientRecord;
+  clientDeals: Deal[];
+  onOpenClient: (c: ClientRecord) => void;
+  onDelete: (c: ClientRecord) => void;
+}) {
+  const phone      = client.phone ?? null;
+  const recentDeal = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   const lastInteraction = clientDeals
     .flatMap((d) => d.history.map((h) => h.date))
@@ -161,13 +206,6 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
           : <span className="text-xs text-muted-foreground">—</span>}
       </td>
 
-      {/* Doanh thu */}
-      <td className="px-3 py-3 text-right">
-        {totalValue > 0
-          ? <span className="text-xs font-semibold text-primary">{formatVND(totalValue)}</span>
-          : <span className="text-xs text-muted-foreground">—</span>}
-      </td>
-
       {/* Dự án gần nhất */}
       <td className="px-3 py-3">
         {recentDeal ? (
@@ -191,11 +229,23 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
         ) : <span className="text-xs text-muted-foreground">—</span>}
       </td>
 
-      {/* Xem chi tiết */}
+      {/* Actions */}
       <td className="px-3 py-3">
-        {recentDeal
-          ? <button onClick={() => onOpenDeal(recentDeal)} className="rounded-md bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold hover:bg-primary/20 whitespace-nowrap">Xem chi tiết</button>
-          : <span className="text-xs text-muted-foreground">—</span>}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onOpenClient(client)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20 whitespace-nowrap"
+          >
+            <Eye className="h-3.5 w-3.5" /> Xem chi tiết
+          </button>
+          <button
+            onClick={() => onDelete(client)}
+            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            title="Xóa"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -203,10 +253,19 @@ function TableRow({ client, clientDeals, onOpenDeal }: { client: ClientRecord; c
 
 // ── Card ──────────────────────────────────────────────────────────────────────
 
-function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord; clientDeals: Deal[]; onOpenDeal: (d: Deal) => void }) {
-  const totalValue = clientDeals.reduce((s, d) => s + d.value, 0);
-  const phone    = client.phone ?? null;
-  const firstDeal = clientDeals[0] ?? null;
+function ClientCard({
+  client,
+  clientDeals,
+  onOpenClient,
+  onDelete,
+}: {
+  client: ClientRecord;
+  clientDeals: Deal[];
+  onOpenClient: (c: ClientRecord) => void;
+  onDelete: (c: ClientRecord) => void;
+}) {
+  const phone     = client.phone ?? null;
+  const recentDeal = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -222,22 +281,39 @@ function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord;
             <StatusBadge status={client.status} />
           </div>
         </div>
+        {/* Quick action buttons */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onDelete(client)}
+            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            title="Xóa"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <div className="space-y-1">
         {phone && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="h-3 w-3 shrink-0" /><span className="truncate">{phone}</span></div>}
         {client.email && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="h-3 w-3 shrink-0" /><span className="truncate">{client.email}</span></div>}
       </div>
       <div className="border-t border-dashed border-border" />
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs text-muted-foreground">
-          {client.deal_count > 0
-            ? <span><span className="font-semibold text-foreground">{client.deal_count}</span> dự án{totalValue > 0 && <> · <span className="font-semibold text-primary">{formatVND(totalValue)}</span></>}</span>
-            : <span>Chưa có dự án</span>}
-        </div>
-        <DevBadge />
+      <div className="text-xs text-muted-foreground">
+        {client.deal_count > 0
+          ? <span><span className="font-semibold text-foreground">{client.deal_count}</span> dự án</span>
+          : <span>Chưa có dự án</span>}
+        {recentDeal && (
+          <div className="mt-1 truncate">
+            Gần nhất: <span className="font-medium text-foreground">{recentDeal.projectType}</span>
+          </div>
+        )}
       </div>
       <div className="flex gap-2">
-        {firstDeal && <button onClick={() => onOpenDeal(firstDeal)} className="flex-1 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-semibold hover:bg-primary/20 transition-colors">Xem dự án</button>}
+        <button
+          onClick={() => onOpenClient(client)}
+          className="flex-1 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-semibold hover:bg-primary/20 transition-colors"
+        >
+          Xem chi tiết
+        </button>
         <button className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-success/10 text-success px-3 py-1.5 text-xs font-semibold hover:bg-success/20 transition-colors">
           <MessageCircle className="h-3.5 w-3.5" /> Nhắn Zalo
         </button>
@@ -248,11 +324,15 @@ function ClientCard({ client, clientDeals, onOpenDeal }: { client: ClientRecord;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type Filter = "all" | "active" | "prospect" | "inactive";
-type SortKey = "newest" | "revenue_high" | "revenue_low" | "most_deals";
+type Filter = "all" | "prospect" | "active" | "inactive" | "archived";
+type SortKey = "newest" | "most_deals";
 type ViewMode = "table" | "card";
 
-export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void }) {
+export function ClientRecords({
+  onOpenClient,
+}: {
+  onOpenClient: (client: ClientRecord) => void;
+}) {
   const deals = useDealStore((s) => s.deals);
   const [q, setQ]           = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -260,7 +340,11 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
   const [page, setPage]     = useState(1);
   const [view, setView]     = useState<ViewMode>("table");
 
+  const [deleteTarget, setDeleteTarget] = useState<ClientRecord | null>(null);
+
   const { data, isLoading: loading } = useClients();
+  const { mutate: archiveClient, isPending: archiving } = useUpdateClient();
+
   const allClients = useMemo<ClientRecord[]>(() => data ?? [], [data]);
 
   const dealsByClientId = useMemo(() => {
@@ -280,11 +364,7 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
         || c.name.toLowerCase().includes(lq)
         || (c.email ?? "").toLowerCase().includes(lq)
         || (c.phone ?? "").includes(q);
-      const matchesF =
-        filter === "all"      ? true :
-        filter === "active"   ? c.status === "active" :
-        filter === "prospect" ? c.status === "prospect" :
-                                c.status === "inactive";
+      const matchesF = filter === "all" ? c.status !== "archived" : c.status === filter;
       return matchesQ && matchesF;
     });
   }, [allClients, q, filter]);
@@ -292,25 +372,13 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
   const sorted = useMemo(() => {
     const list = [...filtered];
     if (sort === "newest") {
-      return list.sort((a, b) => {
-        const da = dealsByClientId.get(a.id)?.[0]?.createdAt ?? "";
-        const db = dealsByClientId.get(b.id)?.[0]?.createdAt ?? "";
-        return db.localeCompare(da);
-      });
-    }
-    if (sort === "revenue_high" || sort === "revenue_low") {
-      const dir = sort === "revenue_high" ? -1 : 1;
-      return list.sort((a, b) => {
-        const va = (dealsByClientId.get(a.id) ?? []).reduce((s, d) => s + d.value, 0);
-        const vb = (dealsByClientId.get(b.id) ?? []).reduce((s, d) => s + d.value, 0);
-        return dir * (vb - va);
-      });
+      return list.sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
     if (sort === "most_deals") {
       return list.sort((a, b) => b.deal_count - a.deal_count);
     }
     return list;
-  }, [filtered, sort, dealsByClientId]);
+  }, [filtered, sort]);
 
   const handleQ      = (v: string) => { setQ(v);      setPage(1); };
   const handleFilter = (v: Filter) => { setFilter(v); setPage(1); };
@@ -327,109 +395,134 @@ export function ClientRecords({ onOpenDeal }: { onOpenDeal: (d: Deal) => void })
     prospect: allClients.filter((c) => c.status === "prospect").length,
   }), [allClients]);
 
+  function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    archiveClient(
+      { id: deleteTarget.id, payload: { name: deleteTarget.name, status: "archived" } },
+      { onSuccess: () => setDeleteTarget(null) },
+    );
+  }
+
   return (
-    <div className="p-4 lg:p-6 h-full flex flex-col gap-4">
-      {/* Stats */}
-      <div className="flex items-center gap-4 text-sm flex-wrap">
-        <span className="font-semibold">{stats.total} khách hàng</span>
-        <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">{stats.active} đang hoạt động</span>
-        <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">{stats.prospect} tiềm năng</span>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 flex-1 min-w-[220px]">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-          <input value={q} onChange={(e) => handleQ(e.target.value)}
-            placeholder="Tìm tên, email, số điện thoại..."
-            className="bg-transparent text-sm flex-1 outline-none" />
-        </div>
-        <select
-          value={filter}
-          onChange={(e) => handleFilter(e.target.value as Filter)}
-          className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
-        >
-          <option value="all">Trạng thái: Tất cả</option>
-          <option value="active">Đang hoạt động</option>
-          <option value="prospect">Tiềm năng</option>
-          <option value="inactive">Không hoạt động</option>
-        </select>
-        <select
-          value={sort}
-          onChange={(e) => handleSort(e.target.value as SortKey)}
-          className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
-        >
-          <option value="newest">Sắp xếp: Mới nhất</option>
-          <option value="revenue_high">Doanh thu cao nhất</option>
-          <option value="revenue_low">Doanh thu thấp nhất</option>
-          <option value="most_deals">Hợp tác nhiều lần nhất</option>
-        </select>
-        <div className="flex items-center rounded-lg border border-border overflow-hidden">
-          <button onClick={() => setView("table")} title="Dạng bảng"
-            className={`p-2 transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
-            <LayoutList className="h-4 w-4" />
-          </button>
-          <button onClick={() => setView("card")} title="Dạng thẻ"
-            className={`p-2 transition-colors ${view === "card" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex-1 grid place-items-center text-muted-foreground">
-          <div className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải...</div>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
-          {allClients.length === 0
-            ? 'Chưa có khách hàng nào. Nhấn "Thêm dự án mới" để tạo.'
-            : "Không tìm thấy khách hàng phù hợp."}
-        </div>
-      ) : view === "table" ? (
-        <div className="flex-1 flex flex-col min-h-0 gap-3">
-          <div className="flex-1 overflow-auto rounded-xl border border-border bg-card">
-            <table className="w-full text-sm min-w-[700px]">
-              <thead className="sticky top-0 bg-card/95 backdrop-blur border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="text-left font-semibold px-4 py-2.5">Khách hàng</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Liên hệ</th>
-                  <th className="text-center font-semibold px-3 py-2.5">Hợp tác</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Doanh thu</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Dự án gần nhất</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Trạng thái</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Tương tác</th>
-                  <th className="px-3 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map((client) => (
-                  <TableRow key={client.id} client={client}
-                    clientDeals={dealsByClientId.get(client.id) ?? []}
-                    onOpenDeal={onOpenDeal} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <PaginationBar total={sorted.length} page={page} onPage={setPage} />
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col min-h-0 gap-3">
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {paginated.map((client) => (
-                <ClientCard key={client.id} client={client}
-                  clientDeals={dealsByClientId.get(client.id) ?? []}
-                  onOpenDeal={onOpenDeal} />
-              ))}
-            </div>
-          </div>
-          <PaginationBar total={sorted.length} page={page} onPage={setPage} />
-        </div>
+    <>
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          clientName={deleteTarget.name}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+          isPending={archiving}
+        />
       )}
-    </div>
+
+      <div className="p-4 lg:p-6 h-full flex flex-col gap-4">
+        {/* Stats */}
+        <div className="flex items-center gap-4 text-sm flex-wrap">
+          <span className="font-semibold">{stats.total} khách hàng</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">{stats.active} đang hoạt động</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">{stats.prospect} tiềm năng</span>
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 flex-1 min-w-[220px]">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input value={q} onChange={(e) => handleQ(e.target.value)}
+              placeholder="Tìm tên, email, số điện thoại..."
+              className="bg-transparent text-sm flex-1 outline-none" />
+          </div>
+          <select
+            value={filter}
+            onChange={(e) => handleFilter(e.target.value as Filter)}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
+          >
+            <option value="all">Trạng thái: Tất cả</option>
+            <option value="prospect">Tiềm năng</option>
+            <option value="active">Đang hoạt động</option>
+            <option value="inactive">Không hoạt động</option>
+            <option value="archived">Lưu trữ</option>
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => handleSort(e.target.value as SortKey)}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
+          >
+            <option value="newest">Sắp xếp: Mới nhất</option>
+            <option value="most_deals">Hợp tác nhiều lần nhất</option>
+          </select>
+          <div className="flex items-center rounded-lg border border-border overflow-hidden">
+            <button onClick={() => setView("table")} title="Dạng bảng"
+              className={`p-2 transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
+              <LayoutList className="h-4 w-4" />
+            </button>
+            <button onClick={() => setView("card")} title="Dạng thẻ"
+              className={`p-2 transition-colors ${view === "card" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        {loading ? (
+          <div className="flex-1 grid place-items-center text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải...</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
+            {allClients.length === 0
+              ? 'Chưa có khách hàng nào. Nhấn "Thêm dự án mới" để tạo.'
+              : "Không tìm thấy khách hàng phù hợp."}
+          </div>
+        ) : view === "table" ? (
+          <div className="flex-1 flex flex-col min-h-0 gap-3">
+            <div className="flex-1 overflow-auto rounded-xl border border-border bg-card">
+              <table className="w-full text-sm min-w-[700px]">
+                <thead className="sticky top-0 bg-card/95 backdrop-blur border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="text-left font-semibold px-4 py-2.5">Khách hàng</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Liên hệ</th>
+                    <th className="text-center font-semibold px-3 py-2.5">Hợp tác</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Dự án gần nhất</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Trạng thái</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Tương tác</th>
+                    <th className="px-3 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map((client) => (
+                    <TableRow
+                      key={client.id}
+                      client={client}
+                      clientDeals={dealsByClientId.get(client.id) ?? []}
+                      onOpenClient={onOpenClient}
+                      onDelete={setDeleteTarget}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <PaginationBar total={sorted.length} page={page} onPage={setPage} />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0 gap-3">
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {paginated.map((client) => (
+                  <ClientCard
+                    key={client.id}
+                    client={client}
+                    clientDeals={dealsByClientId.get(client.id) ?? []}
+                    onOpenClient={onOpenClient}
+                    onDelete={setDeleteTarget}
+                  />
+                ))}
+              </div>
+            </div>
+            <PaginationBar total={sorted.length} page={page} onPage={setPage} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }

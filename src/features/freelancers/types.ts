@@ -13,6 +13,7 @@ export type Freelancer = {
   bio: string;
   verified: boolean;
   badge: FreelancerBadge | null;
+  portfolioUrl?: string;
 };
 
 export type GetFreelancersParams = {

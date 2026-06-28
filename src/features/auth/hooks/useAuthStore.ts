@@ -6,6 +6,7 @@ import type {
 } from "@/features/auth/types";
 import * as authService from "@/services/authService";
 import { getMe } from "@/services/usersService";
+import { queryClient } from "@/configs/query-client";
 
 interface AuthState {
   user: User | null;
@@ -70,6 +71,7 @@ export const useAuthStore = create<AuthState>((set) => {
 
     logout: async () => {
       await authService.logout();
+      queryClient.clear();
       set({ user: null, token: null, isAuthenticated: false, error: null });
     },
 

@@ -69,7 +69,7 @@ afterEach(() => {
 
 describe("<KanbanBoard /> stage transition", () => {
   it("dispatches POST /deals/{id}/stage with the new stage on a valid drag", async () => {
-    vi.mocked(updateDealStage).mockResolvedValue(undefined);
+    vi.mocked(updateDealStage).mockResolvedValue(makeDeal({ stage: "qualified" }));
     renderBoard([makeDeal({ stage: "new_lead" })]);
 
     await dragTo("qualified");

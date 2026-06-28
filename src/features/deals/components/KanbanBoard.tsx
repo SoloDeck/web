@@ -13,20 +13,23 @@ import { toast } from "sonner";
 import { KanbanColumn } from "./KanbanColumn";
 import { DealCard } from "./DealCard";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
-import { STAGES, VALID_TRANSITIONS, type Deal, type Stage } from "@/features/deals/types";
+import { STAGES, STAGE_BY_ID, VALID_TRANSITIONS, type Deal, type Stage } from "@/features/deals/types";
 import { updateDealStage } from "@/services/dealsService";
 
-const STAGE_IDS = STAGES.map((s) => s.id) as string[];
-const STAGE_LABEL = Object.fromEntries(STAGES.map((s) => [s.id, s.title])) as Record<Stage, string>;
+// Kanban chỉ hiển thị các bước freelancer đang xử lý; stage lost vẫn giữ trong type/API nhưng ẩn khỏi UI.
+const VISIBLE_STAGES = STAGES.filter((stage) => stage.id !== "lost");
+const STAGE_IDS = VISIBLE_STAGES.map((stage) => stage.id) as string[];
 
 export function KanbanBoard({
   deals,
   onCardClick,
   onDraft,
+  onAddDeal,
 }: {
   deals: Deal[];
   onCardClick: (d: Deal) => void;
   onDraft: (d: Deal) => void;
+  onAddDeal?: () => void;
 }) {
   const handleDragEnd = useDealStore((s) => s.handleDragEnd);
   const moveToStage = useDealStore((s) => s.moveToStage);
@@ -36,51 +39,46 @@ export function KanbanBoard({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const byStage = (stage: Stage) => deals.filter((d) => d.stage === stage);
-  const activeDeal = activeId ? deals.find((d) => d.id === activeId) ?? null : null;
+  const byStage = (stage: Stage) => deals.filter((deal) => deal.stage === stage);
+  const activeDeal = activeId ? deals.find((deal) => deal.id === activeId) ?? null : null;
 
-  const onDragEnd = async (e: DragEndEvent) => {
-    const draggedId = String(e.active.id);
-    const overId = e.over ? String(e.over.id) : null;
+  const onDragEnd = async (event: DragEndEvent) => {
+    const draggedId = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
     setActiveId(null);
 
     if (!overId) return;
 
-    const draggedDeal = deals.find((d) => d.id === draggedId);
+    const draggedDeal = deals.find((deal) => deal.id === draggedId);
     if (!draggedDeal) return;
     const oldStage = draggedDeal.stage;
 
-    // Determine new stage from drop target
     let newStage: Stage | undefined;
     if (STAGE_IDS.includes(overId)) {
       newStage = overId as Stage;
     } else {
-      newStage = deals.find((d) => d.id === overId)?.stage;
+      newStage = deals.find((deal) => deal.id === overId)?.stage;
     }
 
-    // Same stage → just reorder locally, no API needed
     if (!newStage || newStage === oldStage) {
       handleDragEnd(draggedId, overId);
       return;
     }
 
-    // Validate against backend transition rules
     const allowed = VALID_TRANSITIONS[oldStage] ?? [];
     if (!allowed.includes(newStage)) {
       toast.error(
-        `Không thể chuyển từ "${STAGE_LABEL[oldStage]}" sang "${STAGE_LABEL[newStage]}". Vui lòng di chuyển từng bước.`
+        `Không thể chuyển từ "${STAGE_BY_ID[oldStage].title}" sang "${STAGE_BY_ID[newStage].title}". Vui lòng đi từng bước.`
       );
       return;
     }
 
-    // Optimistic update
     handleDragEnd(draggedId, overId);
 
-    // Persist to server
     try {
       await updateDealStage(draggedId, newStage);
+      toast.success(`Đã chuyển sang ${STAGE_BY_ID[newStage].title}.`);
     } catch {
-      // Revert optimistic update
       moveToStage(draggedId, oldStage);
       toast.error("Không thể cập nhật trạng thái dự án. Đã hoàn tác.");
     }
@@ -90,19 +88,20 @@ export function KanbanBoard({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
-      onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+      onDragStart={(event: DragStartEvent) => setActiveId(String(event.active.id))}
       onDragEnd={onDragEnd}
     >
-      <div className="flex gap-4 p-4 lg:p-6 h-full min-w-max">
-        {STAGES.map((s) => (
+      <div className="grid h-full min-w-0 grid-cols-6 gap-3 p-4 lg:gap-4 lg:p-6">
+        {VISIBLE_STAGES.map((stage) => (
           <KanbanColumn
-            key={s.id}
-            stage={s.id}
-            title={s.title}
-            hint={s.hint}
-            deals={byStage(s.id)}
+            key={stage.id}
+            stage={stage.id}
+            title={stage.title}
+            hint={stage.hint}
+            deals={byStage(stage.id)}
             onCardClick={onCardClick}
             onDraft={onDraft}
+            onAddDeal={onAddDeal}
           />
         ))}
       </div>
