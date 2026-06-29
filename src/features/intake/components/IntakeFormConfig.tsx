@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -9,11 +9,15 @@ import {
   FileText,
   Info,
   Link2,
+  Loader2,
   Pencil,
   Plus,
+  RefreshCw,
+  Save,
   Trash2,
   X,
 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -33,6 +37,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { cn } from "@/lib/utils";
+import {
+  getIntakeFormConfig,
+  updateIntakeFormConfig,
+  type IntakeFormConfigResponse,
+  type IntakeFormFieldPayload,
+  type IntakeFormFieldResponse,
+} from "@/services/intakeService";
 
 type FieldType = "text" | "email" | "tel" | "textarea" | "select";
 
@@ -54,11 +65,9 @@ const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
   { value: "select", label: "Danh sách lựa chọn" },
 ];
 
-const MOCK_SHARE_URL = "https://solodesk.vn/bieu-mau/yeu-cau-du-an";
-
 const DEFAULT_FIELDS: FieldConfig[] = [
   {
-    key: "fullName",
+    key: "name",
     label: "Họ tên khách hàng",
     type: "text",
     required: true,
@@ -82,7 +91,7 @@ const DEFAULT_FIELDS: FieldConfig[] = [
     placeholder: "email@vidu.vn",
   },
   {
-    key: "projectName",
+    key: "project_name",
     label: "Tên dự án",
     type: "text",
     required: true,
@@ -90,7 +99,7 @@ const DEFAULT_FIELDS: FieldConfig[] = [
     placeholder: "Ví dụ: Thiết kế trang bán hàng",
   },
   {
-    key: "description",
+    key: "inquiry_text",
     label: "Mô tả nhu cầu",
     type: "textarea",
     required: true,
@@ -98,7 +107,7 @@ const DEFAULT_FIELDS: FieldConfig[] = [
     placeholder: "Mô tả mục tiêu và yêu cầu chính của dự án...",
   },
   {
-    key: "budget",
+    key: "estimated_budget",
     label: "Ngân sách dự kiến",
     type: "text",
     required: false,
@@ -106,48 +115,96 @@ const DEFAULT_FIELDS: FieldConfig[] = [
     placeholder: "Ví dụ: 5.000.000 - 10.000.000 VNĐ",
   },
   {
-    key: "deadline",
+    key: "desired_timeline",
     label: "Thời gian mong muốn",
     type: "text",
     required: false,
     visible: true,
     placeholder: "Ví dụ: Trong 2 tuần",
   },
-  {
-    key: "serviceType",
-    label: "Loại dịch vụ",
-    type: "select",
-    required: false,
-    visible: true,
-    placeholder: "Chọn loại dịch vụ",
-    options: [
-      "Thiết kế website",
-      "Phát triển ứng dụng",
-      "Thiết kế thương hiệu",
-      "Tiếp thị số",
-      "Tư vấn",
-      "Dịch vụ khác",
-    ],
-  },
-  {
-    key: "notes",
-    label: "Ghi chú thêm",
-    type: "textarea",
-    required: false,
-    visible: true,
-    placeholder: "Thông tin khác bạn muốn chia sẻ...",
-  },
 ];
+
+const INTAKE_FORM_QUERY_KEY = ["intake-form-config"] as const;
+
+function apiFieldTypeToUi(type: string): FieldType {
+  if (type === "phone") return "tel";
+  if (["text", "email", "tel", "textarea", "select"].includes(type)) return type as FieldType;
+  return "text";
+}
+
+function uiFieldTypeToApi(type: FieldType): string {
+  // Backend đang dùng field_type = "phone", còn UI dùng "tel" để rõ kiểu input.
+  return type === "tel" ? "phone" : type;
+}
+
+function fieldFromApi(field: IntakeFormFieldResponse): FieldConfig {
+  const type = apiFieldTypeToUi(field.field_type);
+
+  return {
+    key: field.field_key,
+    label: field.label,
+    type,
+    required: field.is_required,
+    visible: field.is_visible,
+    placeholder: field.placeholder ?? defaultPlaceholder(type),
+  };
+}
+
+function fieldsFromConfig(config: IntakeFormConfigResponse | undefined): FieldConfig[] {
+  if (!config?.fields?.length) return DEFAULT_FIELDS;
+
+  return [...config.fields]
+    .sort((current, next) => current.sort_order - next.sort_order)
+    .map(fieldFromApi);
+}
+
+function fieldToPayload(field: FieldConfig, index: number): IntakeFormFieldPayload {
+  return {
+    field_key: field.key.slice(0, 100),
+    label: field.label.trim(),
+    placeholder: field.placeholder.trim() || null,
+    field_type: uiFieldTypeToApi(field.type),
+    is_required: field.required,
+    is_visible: field.visible,
+    sort_order: index + 1,
+  };
+}
 
 export function IntakeFormConfig() {
   const accountName = useAuthStore((state) => state.user?.fullName);
+  const queryClient = useQueryClient();
+  const intakeFormQuery = useQuery({
+    queryKey: INTAKE_FORM_QUERY_KEY,
+    queryFn: getIntakeFormConfig,
+  });
   const [formTitle, setFormTitle] = useState("Gửi yêu cầu dự án");
   const [formDescription, setFormDescription] = useState(
     "Hãy chia sẻ một vài thông tin để tôi hiểu rõ nhu cầu và chuẩn bị tư vấn phù hợp cho bạn.",
   );
+  const [isActive, setIsActive] = useState(true);
   const [fields, setFields] = useState<FieldConfig[]>(DEFAULT_FIELDS);
   const [showAddField, setShowAddField] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState<FieldConfig | null>(null);
+
+  useEffect(() => {
+    if (!intakeFormQuery.data) return;
+
+    setFormTitle(intakeFormQuery.data.title);
+    setFormDescription(intakeFormQuery.data.description ?? "");
+    setIsActive(intakeFormQuery.data.is_active);
+    setFields(fieldsFromConfig(intakeFormQuery.data));
+  }, [intakeFormQuery.data]);
+
+  const saveConfigMutation = useMutation({
+    mutationFn: updateIntakeFormConfig,
+    onSuccess: (savedConfig) => {
+      queryClient.setQueryData(INTAKE_FORM_QUERY_KEY, savedConfig);
+      toast.success("Đã lưu cấu hình biểu mẫu tiếp nhận.");
+    },
+    onError: () => {
+      toast.error("Không thể lưu cấu hình biểu mẫu. Vui lòng thử lại.");
+    },
+  });
 
   const updateField = (key: string, changes: Partial<FieldConfig>) => {
     setFields((current) =>
@@ -156,6 +213,25 @@ export function IntakeFormConfig() {
   };
 
   const visibleFields = fields.filter((field) => field.visible);
+
+  const saveFormConfig = () => {
+    if (!formTitle.trim()) {
+      toast.error("Tiêu đề biểu mẫu không được để trống.");
+      return;
+    }
+
+    if (fields.length === 0) {
+      toast.error("Biểu mẫu cần ít nhất một trường thông tin.");
+      return;
+    }
+
+    saveConfigMutation.mutate({
+      title: formTitle.trim(),
+      description: formDescription.trim() || null,
+      is_active: isActive,
+      fields: fields.map(fieldToPayload),
+    });
+  };
 
   const addField = (field: Omit<FieldConfig, "key">) => {
     setFields((current) => [
@@ -184,8 +260,58 @@ export function IntakeFormConfig() {
                 title="Thông tin biểu mẫu"
                 description="Nội dung giới thiệu khách hàng sẽ nhìn thấy đầu tiên."
                 step="01"
+                action={
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                        intakeFormQuery.isError
+                          ? "bg-destructive/10 text-destructive"
+                          : "bg-emerald-50 text-emerald-700",
+                      )}
+                    >
+                      {intakeFormQuery.isLoading
+                        ? "Đang tải cấu hình"
+                        : intakeFormQuery.isError
+                          ? "Lỗi tải API"
+                          : "Đã nối API"}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => intakeFormQuery.refetch()}
+                      disabled={intakeFormQuery.isFetching || saveConfigMutation.isPending}
+                    >
+                      <RefreshCw
+                        className={cn("size-3.5", intakeFormQuery.isFetching && "animate-spin")}
+                      />
+                      Tải lại
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={saveFormConfig}
+                      disabled={intakeFormQuery.isLoading || saveConfigMutation.isPending}
+                    >
+                      {saveConfigMutation.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Save className="size-3.5" />
+                      )}
+                      {saveConfigMutation.isPending ? "Đang lưu" : "Lưu cấu hình"}
+                    </Button>
+                  </div>
+                }
               />
               <div className="grid gap-4 p-4 sm:p-5">
+                {intakeFormQuery.isError && (
+                  <div className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+                    Chưa tải được cấu hình từ backend. Bạn vẫn có thể chỉnh trước trên UI,
+                    rồi bấm tải lại khi API sẵn sàng.
+                  </div>
+                )}
+
                 <FormField label="Tiêu đề biểu mẫu" htmlFor="form-title">
                   <Input
                     id="form-title"
@@ -205,6 +331,17 @@ export function IntakeFormConfig() {
                     placeholder="Giới thiệu ngắn về mục đích của biểu mẫu"
                   />
                 </FormField>
+
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <ControlSwitch
+                    label="Biểu mẫu đang hoạt động"
+                    checked={isActive}
+                    onCheckedChange={setIsActive}
+                  />
+                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                    Khi tắt, khách hàng không nên gửi yêu cầu mới qua đường dẫn chia sẻ.
+                  </p>
+                </div>
 
               </div>
             </section>
@@ -278,7 +415,10 @@ export function IntakeFormConfig() {
           </div>
 
           <aside className="space-y-5 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:space-y-0 xl:gap-5">
-            <ShareLinkCard />
+            <ShareLinkCard
+              shareUrl={intakeFormQuery.data?.share_url ?? null}
+              loading={intakeFormQuery.isLoading}
+            />
 
             <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3.5">
@@ -748,12 +888,23 @@ function PreviewField({ field }: { field: FieldConfig }) {
   );
 }
 
-function ShareLinkCard() {
+type ShareLinkCardProps = {
+  shareUrl: string | null;
+  loading: boolean;
+};
+
+function ShareLinkCard({ shareUrl, loading }: ShareLinkCardProps) {
   const [copied, setCopied] = useState(false);
+  const displayUrl = loading ? "Đang lấy đường dẫn từ backend..." : shareUrl ?? "Chưa có đường dẫn chia sẻ";
 
   const copyLink = async () => {
+    if (!shareUrl) {
+      toast.error("Backend chưa trả đường dẫn chia sẻ cho biểu mẫu này.");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(MOCK_SHARE_URL);
+      await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       toast.success("Đã sao chép đường dẫn biểu mẫu.");
       window.setTimeout(() => setCopied(false), 2000);
@@ -770,25 +921,32 @@ function ShareLinkCard() {
         </div>
         <div>
           <h3 className="text-sm font-semibold">Chia sẻ biểu mẫu</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Gửi đường dẫn mẫu này cho khách hàng.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Gửi đường dẫn công khai cho khách hàng.</p>
         </div>
       </div>
       <div className="space-y-3 p-4">
         <div className="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
           <Input
             readOnly
-            value={MOCK_SHARE_URL}
+            value={displayUrl}
             aria-label="Đường dẫn chia sẻ biểu mẫu"
             className="min-w-0 flex-1 bg-muted/30 text-xs"
           />
-          <Button type="button" onClick={copyLink} className="shrink-0">
+          <Button
+            type="button"
+            onClick={copyLink}
+            className="shrink-0"
+            disabled={!shareUrl || loading}
+          >
             {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             {copied ? "Đã sao chép" : "Sao chép link"}
           </Button>
         </div>
         <p className="flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" />
-          Đây là đường dẫn mẫu để xem trước giao diện chia sẻ, chưa mở biểu mẫu công khai.
+          {shareUrl
+            ? "Đường dẫn này lấy trực tiếp từ backend và có thể gửi cho khách hàng."
+            : "Backend chưa cấp share_url. Hãy tải lại hoặc lưu cấu hình để backend tạo đường dẫn."}
         </p>
       </div>
     </section>

@@ -3,6 +3,7 @@ import axios, { type InternalAxiosRequestConfig } from "axios";
 const SESSION_KEY = "solodesk.auth.session.v1";
 const REFRESH_KEY = "solodesk.auth.refresh.v1";
 
+// Ưu tiên localStorage để các tab trong cùng browser gọi API bằng cùng một tài khoản.
 const STORAGES = [localStorage, sessionStorage];
 
 function getStoredToken(): string | null {

@@ -2,7 +2,9 @@ import { useState } from "react";
 import {
   DndContext,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
+  type DragCancelEvent,
   DragOverlay,
   PointerSensor,
   useSensor,
@@ -34,6 +36,7 @@ export function KanbanBoard({
   const handleDragEnd = useDealStore((s) => s.handleDragEnd);
   const moveToStage = useDealStore((s) => s.moveToStage);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overStage, setOverStage] = useState<Stage | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -42,10 +45,22 @@ export function KanbanBoard({
   const byStage = (stage: Stage) => deals.filter((deal) => deal.stage === stage);
   const activeDeal = activeId ? deals.find((deal) => deal.id === activeId) ?? null : null;
 
+  function resolveOverStage(overId: string | null): Stage | null {
+    if (!overId) return null;
+    if (STAGE_IDS.includes(overId)) return overId as Stage;
+    return deals.find((deal) => deal.id === overId)?.stage ?? null;
+  }
+
+  const onDragOver = (event: DragOverEvent) => {
+    // Khi hover lên card con, vẫn suy ra stage của card để làm sáng cả cột nhận drop.
+    setOverStage(resolveOverStage(event.over ? String(event.over.id) : null));
+  };
+
   const onDragEnd = async (event: DragEndEvent) => {
     const draggedId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : null;
     setActiveId(null);
+    setOverStage(null);
 
     if (!overId) return;
 
@@ -84,12 +99,22 @@ export function KanbanBoard({
     }
   };
 
+  const onDragCancel = (_event: DragCancelEvent) => {
+    setActiveId(null);
+    setOverStage(null);
+  };
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
-      onDragStart={(event: DragStartEvent) => setActiveId(String(event.active.id))}
+      onDragStart={(event: DragStartEvent) => {
+        setActiveId(String(event.active.id));
+        setOverStage(null);
+      }}
+      onDragOver={onDragOver}
       onDragEnd={onDragEnd}
+      onDragCancel={onDragCancel}
     >
       <div className="grid h-full min-w-0 grid-cols-6 gap-3 p-4 lg:gap-4 lg:p-6">
         {VISIBLE_STAGES.map((stage) => (
@@ -102,6 +127,7 @@ export function KanbanBoard({
             onCardClick={onCardClick}
             onDraft={onDraft}
             onAddDeal={onAddDeal}
+            isDropTarget={overStage === stage.id}
           />
         ))}
       </div>

@@ -13,8 +13,9 @@ import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 
 export const Route = createFileRoute("/login")({
   beforeLoad: () => {
-    if (useAuthStore.getState().isAuthenticated) {
-      throw redirect({ to: "/" });
+    const { isAuthenticated, user } = useAuthStore.getState();
+    if (isAuthenticated) {
+      throw redirect({ to: user?.role === "admin" ? "/admin" : "/", replace: true });
     }
   },
   component: LoginPage,

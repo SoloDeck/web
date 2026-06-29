@@ -7,6 +7,7 @@ import type {
 import * as authService from "@/services/authService";
 import { getMe } from "@/services/usersService";
 import { queryClient } from "@/configs/query-client";
+import { useDealStore } from "@/features/deals/hooks/useDealStore";
 
 interface AuthState {
   user: User | null;
@@ -23,6 +24,8 @@ interface AuthState {
   loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  /** Đồng bộ auth khi tab khác login/logout và localStorage thay đổi. */
+  syncFromStorage: () => void;
   /** Refresh user name/avatar from /users/me without a full re-auth. */
   hydrate: () => Promise<void>;
   /** Patch the in-store user object (e.g. after a profile update). */
@@ -42,6 +45,9 @@ export const useAuthStore = create<AuthState>((set) => {
     set({ [flag]: true, error: null });
     try {
       const session = await fn();
+      // Đổi tài khoản cần dọn cache FE trước khi render lại dữ liệu theo token mới.
+      queryClient.clear();
+      useDealStore.getState().reset();
       set({
         user: session.user,
         token: session.token,
@@ -72,17 +78,52 @@ export const useAuthStore = create<AuthState>((set) => {
     logout: async () => {
       await authService.logout();
       queryClient.clear();
+      useDealStore.getState().reset();
       set({ user: null, token: null, isAuthenticated: false, error: null });
     },
 
     clearError: () => set({ error: null }),
+
+    syncFromStorage: () => {
+      const session = authService.getStoredSession();
+      set((state) => {
+        if (state.token === (session?.token ?? null)) return {};
+
+        // Khi tab khác đổi phiên đăng nhập, phải dọn dữ liệu account cũ trong FE.
+        queryClient.clear();
+        useDealStore.getState().reset();
+
+        return session
+          ? {
+              user: session.user,
+              token: session.token,
+              isAuthenticated: true,
+              isSubmitting: false,
+              isGoogleSubmitting: false,
+              error: null,
+            }
+          : {
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              isSubmitting: false,
+              isGoogleSubmitting: false,
+              error: null,
+            };
+      });
+    },
 
     hydrate: async () => {
       try {
         const me = await getMe();
         set((state) => ({
           user: state.user
-            ? { ...state.user, fullName: me.full_name, avatarUrl: me.avatar_url ?? undefined }
+            ? {
+                ...state.user,
+                fullName: me.full_name,
+                role: me.role,
+                avatarUrl: me.avatar_url ?? undefined,
+              }
             : null,
         }));
       } catch {

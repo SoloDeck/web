@@ -11,6 +11,7 @@ import { getMe } from "@/services/usersService";
 
 const SESSION_KEY = "solodesk.auth.session.v1";
 const REFRESH_KEY = "solodesk.auth.refresh.v1";
+const SESSION_STORAGES = [localStorage, sessionStorage];
 
 // ── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -29,19 +30,27 @@ function toSession(res: ApiAuthResponse): AuthSession {
     id: claims.sub,
     fullName: claims.email,
     email: claims.email,
+    role: claims.role,
   };
   return { token: res.access_token, user };
 }
 
-function persistSession(session: AuthSession, rememberMe: boolean, refreshToken: string): void {
-  const storage = rememberMe ? localStorage : sessionStorage;
+function persistSession(session: AuthSession, _rememberMe: boolean, refreshToken: string): void {
+  const storage = localStorage;
+  const staleStorage = sessionStorage;
+
+  // Một browser chỉ có một phiên đăng nhập: dùng localStorage để tab mới tự nhận cùng tài khoản.
+  staleStorage.removeItem(SESSION_KEY);
+  staleStorage.removeItem(REFRESH_KEY);
+
   storage.setItem(SESSION_KEY, JSON.stringify(session));
   storage.setItem(REFRESH_KEY, refreshToken);
 }
 
 /** Reads session from either storage, skipping expired access tokens. */
 export function getStoredSession(): AuthSession | null {
-  for (const storage of [localStorage, sessionStorage]) {
+  // Ưu tiên localStorage để các tab trong cùng browser dùng chung một phiên đăng nhập.
+  for (const storage of SESSION_STORAGES) {
     try {
       const raw = storage.getItem(SESSION_KEY);
       if (!raw) continue;
@@ -55,10 +64,20 @@ export function getStoredSession(): AuthSession | null {
           // don't clear here so the refresh token is still available.
           continue;
         }
+        session.user.role = claims.role;
       } catch {
         storage.removeItem(SESSION_KEY);
         storage.removeItem(REFRESH_KEY);
         continue;
+      }
+
+      if (storage === sessionStorage) {
+        // Migration cho phiên cũ từng lưu ở sessionStorage: đưa lên localStorage để tab mới nhận cùng tài khoản.
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        const refreshToken = sessionStorage.getItem(REFRESH_KEY);
+        if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+        sessionStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(REFRESH_KEY);
       }
 
       return session;
@@ -96,6 +115,7 @@ async function enrichSession(session: AuthSession, rememberMe: boolean, refreshT
   try {
     const me = await getMe();
     session.user.fullName = me.full_name;
+    session.user.role = me.role;
     if (me.avatar_url) session.user.avatarUrl = me.avatar_url;
     persistSession(session, rememberMe, refreshToken);
   } catch {
@@ -162,7 +182,7 @@ export async function logout(): Promise<void> {
   } catch {
     /* best-effort */
   } finally {
-    for (const storage of [localStorage, sessionStorage]) {
+    for (const storage of SESSION_STORAGES) {
       storage.removeItem(SESSION_KEY);
       storage.removeItem(REFRESH_KEY);
     }

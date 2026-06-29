@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import {
   ArrowRight,
   BarChart2,
@@ -17,9 +17,17 @@ import {
   Users,
 } from "lucide-react";
 import { RevealOnScroll } from "@/components/solodesk/RevealOnScroll";
+import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/home")({
+  beforeLoad: () => {
+    const { isAuthenticated, user } = useAuthStore.getState();
+    if (isAuthenticated) {
+      // User đã đăng nhập thì /home không nên mở lại flow login/landing.
+      throw redirect({ to: user?.role === "admin" ? "/admin" : "/", replace: true });
+    }
+  },
   component: HomePage,
 });
 

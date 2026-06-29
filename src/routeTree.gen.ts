@@ -9,12 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AdminPlansRouteImport } from './routes/admin.plans'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as FindFreelancerRouteImport } from './routes/find-freelancer'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
@@ -22,6 +26,21 @@ import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 const FindFreelancerRoute = FindFreelancerRouteImport.update({
   id: '/find-freelancer',
   path: '/find-freelancer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPlansRoute = AdminPlansRouteImport.update({
+  id: '/admin/plans',
+  path: '/admin/plans',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeRoute = HomeRouteImport.update({
@@ -49,6 +68,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BieuMauTokenRoute = BieuMauTokenRouteImport.update({
+  id: '/bieu-mau/$token',
+  path: '/bieu-mau/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   id: '/clients/$clientId',
   path: '/clients/$clientId',
@@ -66,35 +90,47 @@ const IntakeTokenRoute = IntakeTokenRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
+  '/admin': typeof AdminRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesByTo {
+  '/admin': typeof AdminRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/admin': typeof AdminRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -102,46 +138,62 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/admin'
+    | '/admin/plans'
+    | '/admin/users'
     | '/home'
     | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/admin'
+    | '/admin/plans'
+    | '/admin/users'
     | '/home'
     | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
   id:
     | '__root__'
+    | '/admin'
+    | '/admin/plans'
+    | '/admin/users'
     | '/home'
     | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  AdminRoute: typeof AdminRoute
+  AdminPlansRoute: typeof AdminPlansRoute
+  AdminUsersRoute: typeof AdminUsersRoute
   HomeRoute: typeof HomeRoute
   FindFreelancerRoute: typeof FindFreelancerRoute
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  BieuMauTokenRoute: typeof BieuMauTokenRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
@@ -149,6 +201,27 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/plans': {
+      id: '/admin/plans'
+      path: '/admin/plans'
+      fullPath: '/admin/plans'
+      preLoaderRoute: typeof AdminPlansRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/home': {
       id: '/home'
       path: '/home'
@@ -191,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bieu-mau/$token': {
+      id: '/bieu-mau/$token'
+      path: '/bieu-mau/$token'
+      fullPath: '/bieu-mau/$token'
+      preLoaderRoute: typeof BieuMauTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/clients/$clientId': {
       id: '/clients/$clientId'
       path: '/clients/$clientId'
@@ -216,12 +296,16 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  AdminRoute: AdminRoute,
+  AdminPlansRoute: AdminPlansRoute,
+  AdminUsersRoute: AdminUsersRoute,
   HomeRoute: HomeRoute,
   FindFreelancerRoute: FindFreelancerRoute,
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  BieuMauTokenRoute: BieuMauTokenRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,
   IntakeTokenRoute: IntakeTokenRoute,

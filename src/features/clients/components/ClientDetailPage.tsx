@@ -95,7 +95,7 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
         onClose={() => setSidebarOpen(false)}
         active="clients"
         onOpenAI={() => setNewDealOpen(true)}
-        onNavigate={() => navigate({ to: "/" })}
+        onNavigate={(nav) => navigate({ to: nav === "admin" ? "/admin" : "/" })}
       />
 
       <main className="min-w-0 flex-1 overflow-auto">

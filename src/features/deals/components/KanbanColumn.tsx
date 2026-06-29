@@ -12,6 +12,7 @@ export function KanbanColumn({
   deals,
   onCardClick,
   onDraft,
+  isDropTarget = false,
 }: {
   stage: Stage;
   title: string;
@@ -20,10 +21,12 @@ export function KanbanColumn({
   onCardClick: (d: Deal) => void;
   onDraft: (d: Deal) => void;
   onAddDeal?: () => void;
+  isDropTarget?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const total = deals.reduce((sum, deal) => sum + deal.value, 0);
   const meta = STAGE_BY_ID[stage];
+  const highlighted = isOver || isDropTarget;
 
   return (
     <section className="flex min-w-0 flex-col" aria-labelledby={`stage-${stage}`}>
@@ -52,8 +55,10 @@ export function KanbanColumn({
         role="list"
         aria-label={title}
         className={cn(
-          "min-h-[440px] min-w-0 flex-1 space-y-2 rounded-xl border border-dashed p-2 transition-colors",
-          isOver ? "border-primary bg-primary/5" : "border-border bg-background"
+          "min-h-[440px] min-w-0 flex-1 space-y-2 rounded-xl border border-dashed p-2 transition-all duration-150",
+          highlighted
+            ? "border-primary bg-primary/5 shadow-[0_0_0_2px_hsl(var(--primary)/0.12)]"
+            : "border-border bg-background"
         )}
       >
         <SortableContext items={deals.map((deal) => deal.id)} strategy={verticalListSortingStrategy}>

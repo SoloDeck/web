@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
@@ -73,6 +74,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [proposalDeal, setProposalDeal] = useState<Deal | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [overviewEditing, setOverviewEditing] = useState(false);
   const [draft, setDraft] = useState<DealDetailDraft>({
     title: "",
@@ -162,10 +164,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   function handleArchive() {
     if (!deal) return;
-    const confirmed = window.confirm(`Loại bỏ dự án "${deal.projectType}"?`);
-    if (!confirmed) return;
+    setRemoveDialogOpen(true);
+  }
+
+  function confirmRemoveDeal() {
+    if (!deal) return;
+    // DELETE /deals/{id} là soft-delete bên backend, UI gọi là "Loại bỏ dự án" theo đúng nghiệp vụ.
     deleteDeal.mutate(deal.id, {
-      onSuccess: () => navigate({ to: "/" }),
+      onSuccess: () => {
+        setRemoveDialogOpen(false);
+        navigate({ to: "/" });
+      },
     });
   }
 
@@ -244,7 +253,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         onClose={() => setSidebarOpen(false)}
         active="pipeline"
         onOpenAI={() => setNewDealOpen(true)}
-        onNavigate={() => navigate({ to: "/" })}
+        onNavigate={(nav) => navigate({ to: nav === "admin" ? "/admin" : "/" })}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -434,6 +443,21 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposalDeal} onClose={() => setProposalDeal(null)} />
+      <ConfirmDialog
+        open={removeDialogOpen}
+        onOpenChange={setRemoveDialogOpen}
+        title="Loại bỏ dự án?"
+        description={
+          deal
+            ? `Dự án "${deal.projectType}" sẽ được loại khỏi quy trình và không còn hiển thị trong bảng dự án.`
+            : undefined
+        }
+        confirmLabel="Loại bỏ dự án"
+        cancelLabel="Giữ lại"
+        tone="danger"
+        isLoading={deleteDeal.isPending}
+        onConfirm={confirmRemoveDeal}
+      />
     </div>
   );
 }

@@ -28,12 +28,17 @@ export function LoginForm() {
     e.preventDefault();
     try {
       await login({ email, password }, rememberMe);
+      const targetRoute = useAuthStore.getState().user?.role === "admin" ? "/admin" : "/";
       setIsRedirecting(true);
       toast.success("Đăng nhập thành công!", {
-        description: "Đang chuyển hướng vào SoloDesk...",
+        description:
+          targetRoute === "/admin"
+            ? "Đang chuyển hướng vào Admin Console..."
+            : "Đang chuyển hướng vào SoloDesk...",
         duration: 2000,
       });
-      setTimeout(() => navigate({ to: "/" }), 2000);
+      // Điều hướng theo role để admin không đi nhầm vào workspace Freelancer.
+      setTimeout(() => navigate({ to: targetRoute }), 2000);
     } catch {
       /* error surfaced via store */
     }

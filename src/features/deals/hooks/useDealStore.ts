@@ -14,6 +14,8 @@ interface DealState {
   hydrated: boolean;
   /** Seed the board from the server payload (runs once). */
   hydrate: (deals: Deal[]) => void;
+  /** Xóa dữ liệu pipeline cũ khi đổi tài khoản để không lộ deal giữa các user. */
+  reset: () => void;
   /** Append a newly-created deal to the board (optimistic after POST /deals). */
   addDeal: (deal: Deal) => void;
   /** Replace a deal after PATCH/GET detail so list and detail stay in sync. */
@@ -37,6 +39,8 @@ export const useDealStore = create<DealState>((set) => ({
   hydrated: false,
 
   hydrate: (deals) => set({ deals, hydrated: true }),
+
+  reset: () => set({ deals: [], hydrated: false }),
 
   addDeal: (deal) =>
     set((state) => ({ deals: [deal, ...state.deals] })),
