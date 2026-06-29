@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import type React from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   GripVertical,
   Pencil,
@@ -18,6 +20,40 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { ProjectTask } from "@/features/deals/types";
+
+const PHASE_RULES: { label: string; keywords: string[] }[] = [
+  { label: "GIAI ĐOẠN 1: THIẾT KẾ", keywords: ["thiết kế", "wireframe", "mockup", "figma"] },
+  { label: "GIAI ĐOẠN 2: PHÁT TRIỂN", keywords: ["phát triển", "cài đặt", "backend", "frontend", "api"] },
+  { label: "GIAI ĐOẠN 3: KIỂM THỬ", keywords: ["kiểm thử", "test", "qa"] },
+  { label: "GIAI ĐOẠN 4: TRIỂN KHAI", keywords: ["triển khai", "deploy", "release"] },
+];
+
+function detectPhase(title: string): string | null {
+  const lower = title.toLowerCase();
+  for (const rule of PHASE_RULES) {
+    if (rule.keywords.some((kw) => lower.includes(kw))) return rule.label;
+  }
+  return null;
+}
+
+type TaskGroup = { phaseLabel: string | null; tasks: ProjectTask[] };
+
+function groupTasks(tasks: ProjectTask[]): TaskGroup[] {
+  const map = new Map<string | null, ProjectTask[]>();
+  for (const task of tasks) {
+    const phase = detectPhase(task.title);
+    if (!map.has(phase)) map.set(phase, []);
+    map.get(phase)!.push(task);
+  }
+  const result: TaskGroup[] = [];
+  for (const rule of PHASE_RULES) {
+    const grouped = map.get(rule.label);
+    if (grouped) result.push({ phaseLabel: rule.label, tasks: grouped });
+  }
+  const ungrouped = map.get(null);
+  if (ungrouped?.length) result.push({ phaseLabel: null, tasks: ungrouped });
+  return result;
+}
 
 type ProjectTaskPanelProps = {
   tasks: ProjectTask[];
@@ -42,6 +78,16 @@ export function ProjectTaskPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [editingNote, setEditingNote] = useState("");
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
+
+  function togglePhase(label: string) {
+    setCollapsedPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
 
   const completedCount = tasks.filter((task) => task.completed).length;
   const progress = tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
@@ -148,26 +194,79 @@ export function ProjectTaskPanel({
               </button>
             </div>
           </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {tasks.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                editing={editingId === task.id}
-                editingTitle={editingTitle}
-                editingNote={editingNote}
-                onEditingTitleChange={setEditingTitle}
-                onEditingNoteChange={setEditingNote}
-                onStartEdit={() => startEditing(task)}
-                onCancelEdit={() => setEditingId(null)}
-                onSaveEdit={() => saveEditing(task.id)}
-                onToggle={(completed) => onToggleTask(task.id, completed)}
-                onDelete={() => confirmDelete(task)}
-              />
-            ))}
-          </div>
-        )}
+        ) : (() => {
+            const groups = groupTasks(tasks);
+            const isGrouped = groups.some((g) => g.phaseLabel !== null);
+            if (!isGrouped) {
+              return (
+                <div className="divide-y divide-border">
+                  {tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      editing={editingId === task.id}
+                      editingTitle={editingTitle}
+                      editingNote={editingNote}
+                      onEditingTitleChange={setEditingTitle}
+                      onEditingNoteChange={setEditingNote}
+                      onStartEdit={() => startEditing(task)}
+                      onCancelEdit={() => setEditingId(null)}
+                      onSaveEdit={() => saveEditing(task.id)}
+                      onToggle={(completed) => onToggleTask(task.id, completed)}
+                      onDelete={() => confirmDelete(task)}
+                    />
+                  ))}
+                </div>
+              );
+            }
+            return (
+              <div>
+                {groups.map((group) => {
+                  const label = group.phaseLabel;
+                  const isCollapsed = label !== null && collapsedPhases.has(label);
+                  return (
+                    <div key={label ?? "__ungrouped__"}>
+                      {label !== null && (
+                        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-2">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {label}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={isCollapsed ? `Mở ${label}` : `Đóng ${label}`}
+                            onClick={() => togglePhase(label)}
+                            className="rounded p-1 text-muted-foreground hover:bg-secondary"
+                          >
+                            {isCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                      )}
+                      {!isCollapsed && (
+                        <div className="divide-y divide-border">
+                          {group.tasks.map((task) => (
+                            <TaskRow
+                              key={task.id}
+                              task={task}
+                              editing={editingId === task.id}
+                              editingTitle={editingTitle}
+                              editingNote={editingNote}
+                              onEditingTitleChange={setEditingTitle}
+                              onEditingNoteChange={setEditingNote}
+                              onStartEdit={() => startEditing(task)}
+                              onCancelEdit={() => setEditingId(null)}
+                              onSaveEdit={() => saveEditing(task.id)}
+                              onToggle={(completed) => onToggleTask(task.id, completed)}
+                              onDelete={() => confirmDelete(task)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       </section>
 
