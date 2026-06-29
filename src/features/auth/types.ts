@@ -2,6 +2,7 @@ export type User = {
   id: string;
   fullName: string;
   email: string;
+  role?: "freelancer" | "admin" | string;
   /** Optional remote avatar; when absent the UI falls back to initials. */
   avatarUrl?: string;
 };

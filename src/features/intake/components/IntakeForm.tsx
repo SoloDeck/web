@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -12,84 +12,117 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { submitIntake, type IntakePayload, type IntakeResult } from "@/services/intakeService";
+import { cn } from "@/lib/utils";
+import {
+  getPublicIntakeFormConfig,
+  submitIntake,
+  type IntakePayload,
+  type IntakeResult,
+  type PublicIntakeFormFieldResponse,
+} from "@/services/intakeService";
 
-const SERVICE_OPTIONS = [
-  "Thiết kế website",
-  "Phát triển ứng dụng",
-  "Thiết kế thương hiệu",
-  "Tiếp thị số",
-  "Tư vấn",
-  "Dịch vụ khác",
-];
+type FieldValues = Record<string, string>;
+
+const NAME_FIELD: PublicIntakeFormFieldResponse = {
+  field_key: "name",
+  label: "Họ tên khách hàng",
+  placeholder: "Nguyễn Văn A",
+  field_type: "text",
+  is_required: true,
+};
+
+const CONTACT_FIELD_KEYS = new Set(["name", "phone", "email"]);
+const STANDARD_PAYLOAD_KEYS = new Set([
+  "name",
+  "phone",
+  "email",
+  "project_name",
+  "inquiry_text",
+  "estimated_budget",
+  "desired_timeline",
+]);
 
 export function IntakeForm({ shareToken }: { shareToken: string }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [inquiry, setInquiry] = useState("");
-  const [budget, setBudget] = useState("");
-  const [timeline, setTimeline] = useState("");
-  const [serviceType, setServiceType] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [values, setValues] = useState<FieldValues>({});
   const [result, setResult] = useState<IntakeResult | null>(null);
 
-  const canSubmit =
-    name.trim().length > 0 &&
-    phone.trim().length > 0 &&
-    projectName.trim().length > 0 &&
-    inquiry.trim().length > 0 &&
-    !submitting;
+  const configQuery = useQuery({
+    queryKey: ["public-intake-form-config", shareToken],
+    queryFn: () => getPublicIntakeFormConfig(shareToken),
+    retry: false,
+  });
 
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const fields = useMemo(
+    () => normalizePublicFields(configQuery.data?.fields ?? []),
+    [configQuery.data?.fields],
+  );
+
+  useEffect(() => {
+    setValues((current) => {
+      const next = createEmptyValues(fields);
+      for (const field of fields) {
+        next[field.field_key] = current[field.field_key] ?? "";
+      }
+      return next;
+    });
+  }, [fields]);
+
+  const submitMutation = useMutation({
+    mutationFn: (payload: IntakePayload) => submitIntake(shareToken, payload),
+    onSuccess: (response) => {
+      setResult(response);
+    },
+    onError: () => {
+      toast.error("Không thể gửi yêu cầu. Vui lòng kiểm tra lại và thử lại sau.");
+    },
+  });
+
+  const requiredFields = fields.filter((field) => field.is_required);
+  const canSubmit =
+    configQuery.isSuccess &&
+    requiredFields.every((field) => values[field.field_key]?.trim()) &&
+    !submitMutation.isPending;
+
+  const contactFields = fields.filter((field) => CONTACT_FIELD_KEYS.has(field.field_key));
+  const projectFields = fields.filter((field) => !CONTACT_FIELD_KEYS.has(field.field_key));
+  const title = configQuery.data?.title ?? "Biểu mẫu tiếp nhận yêu cầu";
+  const description =
+    configQuery.data?.description ??
+    "Điền một vài thông tin để Freelancer hiểu rõ nhu cầu và chuẩn bị phương án tư vấn phù hợp.";
+  const freelancerName = configQuery.data?.freelancer_name ?? "Freelancer";
+
+  const updateValue = (fieldKey: string, value: string) => {
+    setValues((current) => ({ ...current, [fieldKey]: value }));
+  };
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
-
-    const inquiryLines = [
-      `Tên dự án: ${projectName.trim()}`,
-      serviceType ? `Loại dịch vụ: ${serviceType}` : "",
-      `Mô tả nhu cầu: ${inquiry.trim()}`,
-      notes.trim() ? `Ghi chú thêm: ${notes.trim()}` : "",
-    ].filter(Boolean);
-
-    const payload: IntakePayload = {
-      name: name.trim(),
-      phone: phone.trim(),
-      inquiry_text: inquiryLines.join("\n"),
-    };
-    if (email.trim()) payload.email = email.trim();
-    if (budget.trim()) payload.estimated_budget = budget.trim();
-    if (timeline.trim()) payload.desired_timeline = timeline.trim();
-
-    setSubmitting(true);
-    try {
-      const response = await submitIntake(shareToken, payload);
-      setResult(response);
-    } catch {
-      toast.error("Không thể gửi yêu cầu. Vui lòng kiểm tra lại và thử lại sau.");
-    } finally {
-      setSubmitting(false);
-    }
+    submitMutation.mutate(buildPayload(fields, values));
   };
 
   if (result) {
-    return <SuccessState onSendAnother={() => setResult(null)} />;
+    return (
+      <SuccessState
+        freelancerName={freelancerName}
+        onSendAnother={() => {
+          setResult(null);
+          setValues(createEmptyValues(fields));
+        }}
+      />
+    );
   }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
-      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-70" />
-      <div className="pointer-events-none absolute -left-32 -top-32 size-96 rounded-full bg-primary/10 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 -right-24 size-[28rem] rounded-full bg-primary-glow/10 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-60" />
 
-      <header className="relative z-10 border-b border-border/70 bg-background/80 backdrop-blur-xl">
+      <header className="relative z-10 border-b border-border/70 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Brand />
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -104,14 +137,14 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
         <aside className="self-start lg:sticky lg:top-24">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
             <Sparkles className="size-3.5" />
-            Biểu mẫu tiếp nhận yêu cầu
+            Biểu mẫu của {freelancerName}
           </div>
           <h1 className="mt-5 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
             Chia sẻ dự án của bạn,
             <span className="block text-primary">bắt đầu thật dễ dàng.</span>
           </h1>
           <p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-            Điền một vài thông tin để Freelancer hiểu rõ nhu cầu và chuẩn bị phương án tư vấn phù hợp nhất.
+            {description}
           </p>
 
           <div className="mt-8 space-y-4">
@@ -122,7 +155,7 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
             />
             <Benefit
               icon={Clock3}
-              title="Chỉ mất khoảng 3 phút"
+              title="Chỉ mất vài phút"
               description="Bạn có thể bổ sung chi tiết sau khi Freelancer liên hệ."
             />
             <Benefit
@@ -146,7 +179,7 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
                 <BriefcaseBusiness className="size-5" />
               </div>
               <div>
-                <h2 className="text-xl font-bold tracking-tight">Gửi yêu cầu dự án</h2>
+                <h2 className="text-xl font-bold tracking-tight">{title}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   Các trường có dấu <span className="font-semibold text-destructive">*</span> là thông tin bắt buộc.
                 </p>
@@ -154,126 +187,64 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
             </div>
           </div>
 
-          <form onSubmit={onSubmit}>
-            <FormSection
-              step="01"
-              title="Thông tin liên hệ"
-              description="Freelancer sẽ dùng thông tin này để phản hồi bạn."
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Họ tên khách hàng" required className="sm:col-span-2">
-                  <Input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Nguyễn Văn A"
-                    aria-label="Họ tên khách hàng"
-                    autoComplete="name"
-                  />
-                </Field>
-                <Field label="Số điện thoại" required>
-                  <Input
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    placeholder="09xx xxx xxx"
-                    aria-label="Số điện thoại"
-                    autoComplete="tel"
-                    inputMode="tel"
-                  />
-                </Field>
-                <Field label="Email">
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="email@vidu.vn"
-                    aria-label="Email"
-                    autoComplete="email"
-                  />
-                </Field>
-              </div>
-            </FormSection>
+          {configQuery.isLoading ? (
+            <LoadingState />
+          ) : configQuery.isError ? (
+            <ErrorState onRetry={() => configQuery.refetch()} />
+          ) : (
+            <form onSubmit={onSubmit}>
+              <FormSection
+                step="01"
+                title="Thông tin liên hệ"
+                description="Freelancer sẽ dùng thông tin này để phản hồi bạn."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {contactFields.map((field) => (
+                    <DynamicField
+                      key={field.field_key}
+                      field={field}
+                      value={values[field.field_key] ?? ""}
+                      onChange={(value) => updateValue(field.field_key, value)}
+                      className={field.field_key === "name" ? "sm:col-span-2" : undefined}
+                    />
+                  ))}
+                </div>
+              </FormSection>
 
-            <FormSection
-              step="02"
-              title="Thông tin dự án"
-              description="Càng cụ thể, buổi tư vấn đầu tiên càng hiệu quả."
-              bordered
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Tên dự án" required>
-                  <Input
-                    value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
-                    placeholder="Ví dụ: Website bán hàng"
-                    aria-label="Tên dự án"
-                  />
-                </Field>
-                <Field label="Loại dịch vụ">
-                  <NativeSelect
-                    value={serviceType}
-                    onChange={(event) => setServiceType(event.target.value)}
-                    className="w-full"
-                    aria-label="Loại dịch vụ"
-                  >
-                    <NativeSelectOption value="">Chọn loại dịch vụ</NativeSelectOption>
-                    {SERVICE_OPTIONS.map((option) => (
-                      <NativeSelectOption key={option} value={option}>
-                        {option}
-                      </NativeSelectOption>
+              {projectFields.length > 0 && (
+                <FormSection
+                  step="02"
+                  title="Thông tin dự án"
+                  description="Càng cụ thể, buổi tư vấn đầu tiên càng hiệu quả."
+                  bordered
+                >
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {projectFields.map((field) => (
+                      <DynamicField
+                        key={field.field_key}
+                        field={field}
+                        value={values[field.field_key] ?? ""}
+                        onChange={(value) => updateValue(field.field_key, value)}
+                        className={isLongField(field) ? "sm:col-span-2" : undefined}
+                      />
                     ))}
-                  </NativeSelect>
-                </Field>
-                <Field label="Mô tả nhu cầu" required className="sm:col-span-2">
-                  <Textarea
-                    value={inquiry}
-                    onChange={(event) => setInquiry(event.target.value)}
-                    placeholder="Mô tả mục tiêu, phạm vi và kết quả bạn mong muốn..."
-                    rows={5}
-                    className="resize-y"
-                    aria-label="Mô tả nhu cầu"
-                  />
-                </Field>
-                <Field label="Ngân sách dự kiến">
-                  <Input
-                    value={budget}
-                    onChange={(event) => setBudget(event.target.value)}
-                    placeholder="Ví dụ: 10.000.000 VNĐ"
-                    aria-label="Ngân sách dự kiến"
-                  />
-                </Field>
-                <Field label="Thời gian mong muốn">
-                  <Input
-                    value={timeline}
-                    onChange={(event) => setTimeline(event.target.value)}
-                    placeholder="Ví dụ: Trong 3 tuần"
-                    aria-label="Thời gian mong muốn"
-                  />
-                </Field>
-                <Field label="Ghi chú thêm" className="sm:col-span-2">
-                  <Textarea
-                    value={notes}
-                    onChange={(event) => setNotes(event.target.value)}
-                    placeholder="Tài liệu tham khảo hoặc thông tin khác bạn muốn chia sẻ..."
-                    rows={3}
-                    className="resize-y"
-                    aria-label="Ghi chú thêm"
-                  />
-                </Field>
-              </div>
-            </FormSection>
+                  </div>
+                </FormSection>
+              )}
 
-            <div className="border-t border-border bg-muted/20 px-5 py-5 sm:px-7">
-              <Button type="submit" size="lg" disabled={!canSubmit} className="w-full sm:w-auto sm:min-w-52">
-                {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                {submitting ? "Đang gửi yêu cầu..." : "Gửi yêu cầu"}
-                {!submitting && <ArrowRight className="size-4" />}
-              </Button>
-              <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">
-                <LockKeyhole className="mt-0.5 size-3 shrink-0" />
-                Khi gửi biểu mẫu, bạn đồng ý để Freelancer liên hệ lại về yêu cầu này.
-              </p>
-            </div>
-          </form>
+              <div className="border-t border-border bg-muted/20 px-5 py-5 sm:px-7">
+                <Button type="submit" size="lg" disabled={!canSubmit} className="w-full sm:w-auto sm:min-w-52">
+                  {submitMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {submitMutation.isPending ? "Đang gửi yêu cầu..." : "Gửi yêu cầu"}
+                  {!submitMutation.isPending && <ArrowRight className="size-4" />}
+                </Button>
+                <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">
+                  <LockKeyhole className="mt-0.5 size-3 shrink-0" />
+                  Khi gửi biểu mẫu, bạn đồng ý để Freelancer liên hệ lại về yêu cầu này.
+                </p>
+              </div>
+            </form>
+          )}
         </section>
       </main>
 
@@ -282,6 +253,58 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
       </footer>
     </div>
   );
+}
+
+function normalizePublicFields(fields: PublicIntakeFormFieldResponse[]): PublicIntakeFormFieldResponse[] {
+  const normalized = fields.map((field) =>
+    field.field_key === "name" ? { ...field, is_required: true } : field,
+  );
+
+  // Backend vẫn cần `name` để tạo client, nên FE luôn đảm bảo có trường này.
+  if (!normalized.some((field) => field.field_key === "name")) {
+    return [NAME_FIELD, ...normalized];
+  }
+
+  return normalized;
+}
+
+function createEmptyValues(fields: PublicIntakeFormFieldResponse[]): FieldValues {
+  return Object.fromEntries(fields.map((field) => [field.field_key, ""]));
+}
+
+function buildPayload(fields: PublicIntakeFormFieldResponse[], values: FieldValues): IntakePayload {
+  const payload: IntakePayload = {
+    name: (values.name ?? "").trim(),
+  };
+  const customLines: string[] = [];
+  const inquiry = values.inquiry_text?.trim();
+
+  for (const field of fields) {
+    const value = values[field.field_key]?.trim();
+    if (!value) continue;
+
+    if (field.field_key === "phone") payload.phone = value;
+    else if (field.field_key === "email") payload.email = value;
+    else if (field.field_key === "project_name") payload.project_name = value;
+    else if (field.field_key === "estimated_budget") payload.estimated_budget = value;
+    else if (field.field_key === "desired_timeline") payload.desired_timeline = value;
+    else if (!STANDARD_PAYLOAD_KEYS.has(field.field_key)) customLines.push(`${field.label}: ${value}`);
+  }
+
+  const inquiryLines = [inquiry, ...customLines].filter(Boolean);
+  if (inquiryLines.length > 0) payload.inquiry_text = inquiryLines.join("\n");
+
+  return payload;
+}
+
+function isLongField(field: PublicIntakeFormFieldResponse): boolean {
+  return field.field_type === "textarea" || field.field_key === "inquiry_text";
+}
+
+function fieldInputType(fieldType: string): "text" | "email" | "tel" {
+  if (fieldType === "email") return "email";
+  if (fieldType === "phone" || fieldType === "tel") return "tel";
+  return "text";
 }
 
 function Brand() {
@@ -323,7 +346,7 @@ type FormSectionProps = {
   title: string;
   description: string;
   bordered?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 function FormSection({ step, title, description, bordered, children }: FormSectionProps) {
@@ -345,30 +368,91 @@ function FormSection({ step, title, description, bordered, children }: FormSecti
   );
 }
 
-type FieldProps = {
-  label: string;
-  required?: boolean;
+type DynamicFieldProps = {
+  field: PublicIntakeFormFieldResponse;
+  value: string;
   className?: string;
-  children: React.ReactNode;
+  onChange: (value: string) => void;
 };
 
-function Field({ label, required, className, children }: FieldProps) {
+function DynamicField({ field, value, className, onChange }: DynamicFieldProps) {
+  const fieldId = `intake-${field.field_key}`;
+
   return (
-    <label className={className}>
+    <label className={cn("block", className)} htmlFor={fieldId}>
       <span className="mb-1.5 block text-xs font-semibold">
-        {label}
-        {required && <span className="text-destructive"> *</span>}
+        {field.label}
+        {field.is_required && <span className="text-destructive"> *</span>}
       </span>
-      {children}
+      {field.field_type === "textarea" ? (
+        <Textarea
+          id={fieldId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={field.placeholder ?? "Nhập nội dung"}
+          rows={field.field_key === "inquiry_text" ? 5 : 3}
+          className="resize-y"
+          aria-label={field.label}
+          required={field.is_required}
+        />
+      ) : (
+        <Input
+          id={fieldId}
+          type={fieldInputType(field.field_type)}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={field.placeholder ?? "Nhập thông tin"}
+          aria-label={field.label}
+          autoComplete={field.field_key === "name" ? "name" : field.field_key}
+          inputMode={field.field_type === "phone" ? "tel" : undefined}
+          required={field.is_required}
+        />
+      )}
     </label>
   );
 }
 
-function SuccessState({ onSendAnother }: { onSendAnother: () => void }) {
+function LoadingState() {
+  return (
+    <div className="grid min-h-80 place-items-center px-5 py-12 text-center sm:px-7">
+      <div>
+        <Loader2 className="mx-auto size-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm font-semibold">Đang tải biểu mẫu</p>
+        <p className="mt-1 text-xs text-muted-foreground">SoloDesk đang lấy cấu hình mới nhất từ Freelancer.</p>
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="grid min-h-80 place-items-center px-5 py-12 text-center sm:px-7">
+      <div className="max-w-sm">
+        <div className="mx-auto grid size-12 place-items-center rounded-full bg-destructive/10 text-destructive">
+          <LockKeyhole className="size-5" />
+        </div>
+        <h2 className="mt-4 text-lg font-bold">Không mở được biểu mẫu</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Đường dẫn có thể đã sai hoặc biểu mẫu không còn khả dụng. Bạn có thể thử tải lại trang.
+        </p>
+        <Button type="button" variant="outline" className="mt-5" onClick={onRetry}>
+          Tải lại biểu mẫu
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SuccessState({
+  freelancerName,
+  onSendAnother,
+}: {
+  freelancerName: string;
+  onSendAnother: () => void;
+}) {
   return (
     <div className="relative grid min-h-screen place-items-center overflow-hidden bg-background p-4">
-      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-70" />
-      <div className="pointer-events-none absolute left-1/2 top-1/2 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-success/10 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-60" />
 
       <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card text-center shadow-xl">
         <div className="h-1.5 bg-gradient-to-r from-success to-primary" />
@@ -378,7 +462,7 @@ function SuccessState({ onSendAnother }: { onSendAnother: () => void }) {
           </div>
           <h1 className="mt-6 text-2xl font-bold tracking-tight">Đã nhận yêu cầu của bạn</h1>
           <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-muted-foreground">
-            Cảm ơn bạn đã chia sẻ thông tin. Freelancer sẽ xem yêu cầu và liên hệ lại trong thời gian sớm nhất.
+            Cảm ơn bạn đã chia sẻ thông tin. {freelancerName} sẽ xem yêu cầu và liên hệ lại trong thời gian sớm nhất.
           </p>
           <div className="mt-6 rounded-xl border border-border bg-muted/30 p-4 text-left">
             <div className="flex items-start gap-3">

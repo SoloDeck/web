@@ -304,3 +304,74 @@ bun run test:e2e
 - [ ] Thêm toast tiếng Việt cho toàn bộ flow lỗi API.
 - [ ] Chuẩn hóa folder `src/services` và thêm integration tests cho Kanban reorder.
 - [ ] Kết nối backend persistence (PostgreSQL/Cloudflare D1/Firestore tùy kiến trúc triển khai).
+
+## Admin API Pending Notes
+
+Trang admin hiện chỉ hiển thị các nhóm chức năng đã có API thật để tránh làm người quản trị thấy các mục kỹ thuật chưa dùng được.
+
+Đã có API:
+
+- `GET /api/v1/admin/users`
+- `GET /api/v1/admin/users/{user_id}`
+- `PATCH /api/v1/admin/users/{user_id}`: FE chỉ dùng để đổi `role` và `status`, không cho admin sửa tên hồ sơ người dùng.
+- `GET /api/v1/admin/plans`
+- `POST /api/v1/admin/plans`
+- `PATCH /api/v1/admin/plans/{plan_id}`
+
+Đang đợi 3 nhóm API theo requirement admin trong `Phieu_SU26SE083_VI.md`:
+
+- System monitoring: cần API tổng hợp người dùng hoạt động, số tài liệu/báo giá/hợp đồng được tạo, số lượt AI generation, token đã dùng theo khoảng thời gian.
+- AI cost monitoring: cần API tổng hợp chi phí token/API theo ngày/tháng, theo user, theo module AI.
+- Template library: cần API CRUD mẫu điều khoản hợp đồng và mẫu báo giá theo loại nghề, có versioning và trạng thái active/inactive.
+
+Khi backend expose các API trên, FE admin mới nên mở thêm các mục tương ứng trong sidebar. Không hiển thị các mục "chờ API" trực tiếp cho admin end-user.
+
+## Freelancer Web Coverage Notes
+
+Cập nhật ngày 29/06/2026. Phần này đối chiếu riêng trang dành cho Freelancer theo requirement trong `../Phieu_SU26SE083_VI.md`; không tính trang Admin. Nếu tính cả deliverable Mobile Flutter thì tỷ lệ tổng thể sẽ thấp hơn vì mobile hiện chưa có source chính trong repo này.
+
+### Mức hoàn thành ước lượng
+
+- FE Web dành cho Freelancer: khoảng **65-70%** so với requirement web.
+- FE Web nếu chỉ tính phần đã nối API thật, hạn chế mock/local state: khoảng **60-65%**.
+- FE tổng dự án nếu tính cả Mobile Flutter trong requirement: khoảng **45-50%**.
+
+### FE Freelancer đã có
+
+- Pipeline dự án: Kanban/list, thêm/sửa/xóa deal, chuyển stage, xem chi tiết deal.
+- Hồ sơ khách hàng: danh sách, chi tiết khách hàng, thông tin liên hệ, lịch sử tương tác từ `comm-logs`.
+- Dashboard doanh thu: đã gọi nhóm API analytics để lấy doanh thu, khoản còn phải thu, tỷ lệ thắng, khách hàng doanh thu cao.
+- Intake public form: đã nối `GET /api/v1/intake/{share_token}/config`, render field theo cấu hình public và submit bằng `POST /api/v1/intake/{share_token}`.
+- Cấu hình Intake Form: đã nối `GET /api/v1/intake-form`, `PUT /api/v1/intake-form`, map fields theo backend và dùng `share_url` thật để copy link chia sẻ.
+- Báo giá AI: đã có modal tạo báo giá, gọi API tạo proposal bằng AI, chỉnh nội dung ở UI và đổi trạng thái gửi.
+- Hợp đồng: đã có luồng tạo hợp đồng từ proposal đã được chấp nhận và gọi AI generate nội dung hợp đồng.
+- Công việc dự án: tab task trong chi tiết deal đã nối API project/task.
+- Nhắc nhở: đã có CRUD lịch nhắc theo deal, có chọn loại nhắc, kênh nhắc, thời gian và nội dung nháp.
+
+### FE Freelancer còn thiếu hoặc chưa đủ
+
+- Cài đặt hồ sơ freelancer còn lưu nhiều phần bằng `localStorage`: loại dịch vụ, mức giá, điều khoản hợp đồng mặc định, ngân hàng, MoMo, Zalo OA.
+- Intake custom field chưa được backend nhận như field độc lập trong payload public; FE hiện gom custom field vào `inquiry_text`, nên chưa nên dùng custom field bắt buộc cho tới khi BE hỗ trợ custom field values.
+- Chấm điểm lead thủ công chưa có flow rõ cho freelancer gõ/dán mô tả rồi bấm AI phân tích.
+- Hóa đơn/thanh toán chưa có UI đầy đủ để tạo hóa đơn, gửi hóa đơn, ghi nhận thanh toán; hiện chủ yếu đọc invoice/payment trong detail.
+- Hợp đồng chưa có trải nghiệm quản lý đầy đủ: sửa nội dung, gửi, ký, version/amend, export PDF thật.
+- Nhắc nhở chưa có AI tạo nội dung theo giọng trang trọng/thân mật và chưa gửi thật qua Email/Zalo.
+- Sidebar đang hiển thị Zalo/Email "Đã kết nối" cứng trong UI, trong khi backend gửi thật chưa hoàn chỉnh.
+
+### Backend còn thiếu cho Freelancer requirement
+
+- PDF worker chưa implement: `render_proposal_pdf`, `render_contract_pdf`, `render_invoice_pdf` trong `backend/src/workers/pdf_jobs/tasks.py` vẫn `NotImplemented`.
+- Reminder worker chưa implement: `send_reminder`, `send_pending_reminders`, `mark_overdue_invoices`, `refresh_analytics_snapshots` trong `backend/src/workers/reminder_jobs/tasks.py` vẫn `NotImplemented`.
+- Gửi thật qua Email/Zalo chưa hoàn chỉnh: các endpoint `send` của proposal/contract/invoice hiện chủ yếu đổi trạng thái, chưa tích hợp SendGrid/Zalo OA để giao tiếp thật với khách hàng.
+- MoMo/link thanh toán chưa có tích hợp thật; hiện mới có dữ liệu/payment method ở domain invoice/payment.
+- AI async chưa đủ: `generate_proposal_async`, `generate_contract_async`, `qualify_lead_async` trong `backend/src/workers/ai_jobs/tasks.py` vẫn chưa implement. Intake qualification async có triển khai một phần.
+- Hồ sơ freelancer backend chưa đủ field theo requirement: service category, hourly rate, default contract terms, bank/MoMo/Zalo OA chưa được persist đầy đủ qua `/users/me`.
+- Contract milestones mismatch: FE service có gọi `/contracts/{contract_id}/milestones`, nhưng backend router hiện chưa expose nhóm endpoint milestone này.
+
+### Ưu tiên đề xuất tiếp theo cho FE
+
+1. Làm màn hóa đơn/thanh toán đầy đủ: tạo hóa đơn, gửi hóa đơn, ghi nhận payment, lọc theo deal/client.
+2. Hoàn thiện quản lý hợp đồng trong detail: xem/sửa/gửi/ký/amend/export, nhưng phần export PDF thật cần backend worker trước.
+3. Chỉnh sidebar Zalo/Email thành trạng thái thật hoặc "Chưa kết nối" cho tới khi backend gửi thật sẵn sàng.
+4. Sau khi backend hỗ trợ custom intake field values, bỏ cơ chế gom custom field vào `inquiry_text`.
+5. Sau khi backend có reminder worker/gửi Email/Zalo, mở flow gửi nhắc thật và AI tạo nội dung nhắc theo giọng điệu.

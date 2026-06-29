@@ -11,6 +11,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrate = useAuthStore((s) => s.hydrate);
+  const syncFromStorage = useAuthStore((s) => s.syncFromStorage);
   const fetchConfig = useConfigStore((s) => s.fetchConfig);
 
   useEffect(() => {
@@ -20,6 +21,21 @@ function RootComponent() {
   useEffect(() => {
     if (isAuthenticated) hydrate();
   }, [isAuthenticated, hydrate]);
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (
+        event.key === "solodesk.auth.session.v1" ||
+        event.key === "solodesk.auth.refresh.v1"
+      ) {
+        // Đồng bộ login/logout giữa các tab để một browser không giữ hai tài khoản.
+        syncFromStorage();
+      }
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [syncFromStorage]);
 
   return <Outlet />;
 }

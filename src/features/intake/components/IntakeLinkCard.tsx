@@ -5,15 +5,15 @@ import { toast } from "sonner";
 import { getMe } from "@/services/usersService";
 
 /**
- * Shows the freelancer's public intake link (`/intake/{token}`) and lets them
- * copy it to share/embed. The token comes from GET /users/me.intake_share_token.
+ * Hiển thị link public `/bieu-mau/{token}` để freelancer gửi cho khách hàng.
+ * Token lấy từ GET /users/me.intake_share_token.
  */
 export function IntakeLinkCard() {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: getMe });
   const [copied, setCopied] = useState(false);
 
   const token = me?.intake_share_token ?? null;
-  const url = token ? `${window.location.origin}/intake/${token}` : "";
+  const url = token ? `${window.location.origin}/bieu-mau/${token}` : "";
 
   const onCopy = async () => {
     if (!url) return;

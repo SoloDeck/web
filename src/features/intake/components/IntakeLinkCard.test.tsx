@@ -53,7 +53,7 @@ describe("<IntakeLinkCard />", () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const copied = writeText.mock.calls[0][0] as string;
-    expect(copied).toContain("/intake/tok-abc123");
+    expect(copied).toContain("/bieu-mau/tok-abc123");
   });
 
   it("shows a fallback (no copy button) when the token is null", async () => {

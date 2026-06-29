@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell,
   Columns3,
@@ -32,8 +32,12 @@ import type { ClientRecord } from "@/services/clientsService";
 
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
-    if (!useAuthStore.getState().isAuthenticated) {
+    const { isAuthenticated, user } = useAuthStore.getState();
+    if (!isAuthenticated) {
       throw redirect({ to: "/home", replace: true });
+    }
+    if (user?.role === "admin") {
+      throw redirect({ to: "/admin", replace: true });
     }
   },
   component: Index,
@@ -48,6 +52,7 @@ function Index() {
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
   const { clauses, setClauses } = useClauses();
+  const currentUser = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
 
   const handleSaveProfile = useCallback(async (p: Profile) => {
@@ -67,6 +72,13 @@ function Index() {
   const [nav, setNav] = useState<NavKey>("pipeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pipelineView, setPipelineView] = useState<PipelineView>("kanban");
+
+  useEffect(() => {
+    // Nếu role admin được hydrate sau khi route đã load, vẫn đẩy về console quản trị.
+    if (currentUser?.role === "admin") {
+      navigate({ to: "/admin", replace: true });
+    }
+  }, [currentUser?.role, navigate]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -112,6 +124,10 @@ function Index() {
         onClose={() => setSidebarOpen(false)}
         active={nav}
         onNavigate={(nextNav) => {
+          if (nextNav === "admin") {
+            navigate({ to: "/admin" });
+            return;
+          }
           setNav(nextNav);
           if (window.innerWidth < 1024) setSidebarOpen(false);
         }}
