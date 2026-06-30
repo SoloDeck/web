@@ -143,8 +143,14 @@ function renderWithClient() {
 
 async function renderReady() {
   const view = renderWithClient();
-  await screen.findByText("Đã nối API");
+  await screen.findByDisplayValue("Gửi yêu cầu dự án");
   return view;
+}
+
+async function replaceText(user: ReturnType<typeof userEvent.setup>, element: HTMLElement, value: string) {
+  await user.click(element);
+  await user.keyboard("{Control>}a{/Control}");
+  await user.keyboard(value);
 }
 
 let writeText: ReturnType<typeof vi.fn>;
@@ -197,8 +203,7 @@ describe("<IntakeFormConfig />", () => {
     await renderReady();
 
     const titleInput = screen.getByLabelText("Tiêu đề biểu mẫu");
-    await user.clear(titleInput);
-    await user.type(titleInput, "Tư vấn nhận diện thương hiệu");
+    await replaceText(user, titleInput, "Tư vấn nhận diện thương hiệu");
 
     expect(screen.getByRole("heading", { name: "Tư vấn nhận diện thương hiệu" })).toBeInTheDocument();
   });
@@ -266,14 +271,17 @@ describe("<IntakeFormConfig />", () => {
     expect(screen.getByText("0/7 đang hiển thị")).toBeInTheDocument();
   });
 
-  it("sao chép đường dẫn chia sẻ từ API", async () => {
+  it("sao chép đường dẫn chia sẻ theo domain hiện tại", async () => {
     await renderReady();
 
-    fireEvent.click(screen.getByRole("button", { name: "Sao chép link" }));
+    const copyButton = screen.getByRole("button", { name: "Sao chép link" });
+    await waitFor(() => expect(copyButton).toBeEnabled());
+    fireEvent.click(copyButton);
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(SHARE_URL);
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/bieu-mau/token-demo`);
     });
+    expect(screen.getByDisplayValue(`${window.location.origin}/bieu-mau/token-demo`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Đã sao chép" })).toBeInTheDocument();
   });
 
@@ -282,15 +290,14 @@ describe("<IntakeFormConfig />", () => {
     await renderReady();
 
     const titleInput = screen.getByLabelText("Tiêu đề biểu mẫu");
-    await user.clear(titleInput);
-    await user.type(titleInput, "Form brief dự án");
+    await replaceText(user, titleInput, "Form brief dự án");
     await user.click(screen.getByRole("button", { name: "Lưu cấu hình" }));
 
     await waitFor(() => {
       expect(updateIntakeFormConfig).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Lưu cấu hình" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Lưu cấu hình" })).toBeDisabled();
     });
     const payload = vi.mocked(updateIntakeFormConfig).mock.calls[0][0];
     expect(payload).toEqual(
@@ -311,5 +318,21 @@ describe("<IntakeFormConfig />", () => {
       field_type: "phone",
       sort_order: 2,
     });
+  });
+
+  it("chỉ bật nút lưu khi cấu hình khác bản đã lưu", async () => {
+    const user = userEvent.setup();
+    await renderReady();
+
+    const saveButton = screen.getByRole("button", { name: "Lưu cấu hình" });
+    const titleInput = screen.getByLabelText("Tiêu đề biểu mẫu");
+
+    expect(saveButton).toBeDisabled();
+
+    await replaceText(user, titleInput, "Tiêu đề mới");
+    expect(saveButton).toBeEnabled();
+
+    await replaceText(user, titleInput, "Gửi yêu cầu dự án");
+    expect(saveButton).toBeDisabled();
   });
 });

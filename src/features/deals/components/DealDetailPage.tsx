@@ -25,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
-import { useDeal, useDeleteDeal, useUpdateDeal } from "@/features/deals/hooks/useDeals";
+import { useDeal, useDealIntakes, useDeleteDeal, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { DealReminderPanel } from "@/features/reminders/components/DealReminderPanel";
 import { useDealReminders } from "@/features/reminders/hooks/useReminders";
 import {
@@ -65,6 +65,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const proposals = useProposalList({ deal_id: deal?.id, page_size: 10 });
   const contracts = useContractList({ deal_id: deal?.id, page_size: 10 });
   const reminders = useDealReminders(deal?.id);
+  const intakeQuery = useDealIntakes(Boolean(deal?.clientId));
   const deleteDeal = useDeleteDeal();
   const updateDeal = useUpdateDeal();
   const createContract = useCreateContract();
@@ -103,6 +104,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       })) ?? [];
     return [...apiLogs, ...(deal?.history ?? [])].sort((a, b) => b.date.localeCompare(a.date));
   }, [commLogs.data, deal?.history]);
+  const intakeFallback = useMemo(() => {
+    if (!deal?.clientId) return undefined;
+    // Public intake hiện tạo client mới rồi mới tạo deal, nên ghép theo client_id là đủ ổn định ở FE.
+    return intakeQuery.data?.find((item) => item.clientId === deal.clientId);
+  }, [deal?.clientId, intakeQuery.data]);
+  const intakeDescription = intakeFallback?.inquiryText.trim() ?? "";
+  const intakeBudget = intakeFallback?.estimatedBudget.trim() ?? "";
+  const intakeTimeline = intakeFallback?.desiredTimeline.trim() ?? "";
+  const displayDescription = deal?.notes?.trim() || intakeDescription;
+  const displayBudget = deal?.budgetLabel || (deal && deal.value > 0 ? formatVND(deal.value) : intakeBudget || (deal ? formatVND(deal.value) : formatVND(0)));
+  const displayBudgetLabel = deal?.budgetLabel ? "Ngân sách khách nhập" : deal && deal.value > 0 ? "Giá trị dự kiến" : intakeBudget ? "Ngân sách khách nhập" : "Giá trị dự kiến";
+  const dealForProposal = useMemo(() => {
+    if (!deal) return null;
+    if (deal.notes.trim() || !intakeDescription) return deal;
+    return { ...deal, notes: intakeDescription };
+  }, [deal, intakeDescription]);
 
   const progressStageIndex = deal
     ? Math.max(0, STAGES.findIndex((stage) => stage.id === deal.stage))
@@ -337,8 +354,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       </button>
                     )}
                     <div className="ml-2 text-right">
-                    <div className="text-xs text-muted-foreground">Giá trị dự kiến</div>
-                    <div className="mt-1 font-mono text-xl font-bold text-primary">{formatVND(deal.value)}</div>
+                      <div className="text-xs text-muted-foreground">{displayBudgetLabel}</div>
+                      <div className="mt-1 max-w-[12rem] break-words text-xl font-bold text-primary">{displayBudget}</div>
                     </div>
                   </div>
                 </div>
@@ -365,7 +382,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     <>
                       <h2 className="text-xl font-bold">{deal.projectType}</h2>
                       <p className="mt-2 w-full whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {deal.notes || "Chưa có mô tả chi tiết."}
+                        {displayDescription || "Chưa có mô tả chi tiết."}
                       </p>
                     </>
                   )}
@@ -402,6 +419,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     payments={payments.data ?? []}
                     latestProposalTitle={latestProposal?.content?.title}
                     latestContractStatus={latestContract?.status}
+                    displayDescription={displayDescription}
+                    intakeTimeline={intakeTimeline}
                   />
                 </TabsContent>
 
@@ -431,7 +450,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
             <ActionsPanel
               deal={deal}
-              onProposal={() => setProposalDeal(deal)}
+              onProposal={() => setProposalDeal(dealForProposal ?? deal)}
               onContract={handleGenerateContract}
               onReminder={() => setTab("reminders")}
               contractLoading={createContract.isPending || generateContract.isPending}
@@ -755,12 +774,16 @@ function OverviewTab({
   payments,
   latestProposalTitle,
   latestContractStatus,
+  displayDescription,
+  intakeTimeline,
 }: {
   deal: Deal;
   invoices: Array<{ id: string; status: string; total: number; amount_paid: number; due_date: string }>;
   payments: Array<{ id: string; amount: number; payment_date: string; payment_method: string }>;
   latestProposalTitle?: string;
   latestContractStatus?: string;
+  displayDescription: string;
+  intakeTimeline: string;
 }) {
   const invoice = invoices[0];
   return (
@@ -794,9 +817,14 @@ function OverviewTab({
         <p className="text-sm text-muted-foreground">
           Tạo ngày {formatDate(deal.createdAt)} · cập nhật {deal.updatedAt ? formatDate(deal.updatedAt) : "chưa rõ"}
         </p>
+        {intakeTimeline && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Mong muốn của khách: <span className="font-medium text-foreground">{intakeTimeline}</span>
+          </p>
+        )}
       </InfoCard>
       <InfoCard icon={CheckCircle2} title="Ghi chú">
-        <p className="text-sm text-muted-foreground">{deal.notes || "Chưa có ghi chú."}</p>
+        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{displayDescription || "Chưa có ghi chú."}</p>
       </InfoCard>
     </div>
   );

@@ -43,6 +43,7 @@ export type Deal = {
   clientPhone?: string | null;
   projectType: string;
   value: number; // VND
+  budgetLabel?: string | null;
   score: LeadScore;
   stage: Stage;
   contact: string;

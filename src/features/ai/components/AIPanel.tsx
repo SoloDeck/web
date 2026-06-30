@@ -1,191 +1,244 @@
-import { useState } from "react";
-import { Loader2, Sparkles, X, Flame, Sun, Snowflake, Bell, MessageCircle, Mail } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, BadgeCheck, Bot, CheckCircle2, Flame, Loader2, Snowflake, Sun, X } from "lucide-react";
+import type { Deal, LeadScore } from "@/features/deals/types";
+import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
 
-type Result = {
-  score: "hot" | "warm" | "cold";
+type EvaluationResult = {
+  level: LeadScore;
+  score: number;
+  label: string;
   rationale: string;
   signals: string[];
+  recommendation: string;
   priceLow: number;
   priceHigh: number;
-  suggestedReply: string;
+  nextActions: string[];
 };
 
-const SAMPLE = `Chào bạn, mình là Hà chủ shop thời trang LaLuna. Shop mình mới mở chi nhánh thứ 3 ở quận 7, cần thuê designer làm bộ ảnh lookbook mùa hè (~30 outfit), gấp trong 2 tuần. Bên bạn báo giá giúp mình nhé, ngân sách dao động 10-15tr. Cảm ơn!`;
+const LEVEL_UI: Record<
+  LeadScore,
+  {
+    label: string;
+    icon: typeof Flame;
+    badgeClass: string;
+    scoreClass: string;
+  }
+> = {
+  hot: {
+    label: "Nóng",
+    icon: Flame,
+    badgeClass: "border-red-200 bg-red-50 text-red-600",
+    scoreClass: "text-red-600",
+  },
+  warm: {
+    label: "Ấm",
+    icon: Sun,
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+    scoreClass: "text-amber-700",
+  },
+  cold: {
+    label: "Lạnh",
+    icon: Snowflake,
+    badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+    scoreClass: "text-blue-700",
+  },
+};
 
-export function AIPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [text, setText] = useState(SAMPLE);
+function mockEvaluateDeal(deal: Deal): EvaluationResult {
+  const text = [deal.projectType, deal.notes, deal.aiQualificationRecommendation].join(" ").toLowerCase();
+  const hasBudget = deal.value > 0;
+  const urgent = /gấp|urgent|asap|ngay|tuần|deadline|sớm/.test(text);
+  const hasDetail = deal.notes.trim().length > 24;
+  const hasContact = Boolean(deal.clientPhone || deal.clientEmail);
+
+  // Tạm mô phỏng kết quả để UI giống flow API thật. Khi backend sẵn sàng, thay hàm này bằng request theo deal.id.
+  const score = Math.min(
+    95,
+    Math.max(
+      35,
+      (deal.aiQualificationScore ?? 42) +
+        (hasBudget ? 18 : 0) +
+        (urgent ? 14 : 0) +
+        (hasDetail ? 12 : 0) +
+        (hasContact ? 8 : 0)
+    )
+  );
+
+  const level: LeadScore = score >= 75 ? "hot" : score >= 55 ? "warm" : "cold";
+  const base = deal.value > 0 ? deal.value : 8_000_000;
+
+  return {
+    level,
+    score,
+    label: LEVEL_UI[level].label,
+    rationale:
+      level === "hot"
+        ? "Deal có tín hiệu tốt: khách đã có thông tin liên hệ, ngân sách hoặc mô tả đủ rõ để ưu tiên tư vấn sớm."
+        : level === "warm"
+        ? "Deal có tiềm năng nhưng vẫn cần hỏi thêm về phạm vi, deadline hoặc ngân sách trước khi báo giá chi tiết."
+        : "Deal còn thiếu dữ liệu quan trọng. Nên sàng lọc thêm để tránh mất thời gian tư vấn sai nhu cầu.",
+    signals: [
+      hasContact ? "Có thông tin liên hệ" : "Thiếu kênh liên hệ rõ ràng",
+      hasBudget ? `Ngân sách khách nhập: ${formatVND(deal.value)}` : "Chưa có ngân sách",
+      hasDetail ? "Mô tả nhu cầu đủ ngữ cảnh" : "Mô tả nhu cầu còn ngắn",
+      urgent ? "Có dấu hiệu cần xử lý sớm" : "Chưa thấy deadline rõ",
+    ],
+    recommendation:
+      level === "hot"
+        ? "Nên phản hồi trong hôm nay, xác nhận scope chính và chuyển nhanh sang bước báo giá."
+        : level === "warm"
+        ? "Nên gửi 2-3 câu hỏi sàng lọc trước khi tạo báo giá để tránh lệch phạm vi."
+        : "Nên nhắn hỏi lại nhu cầu, ngân sách và timeline trước khi đầu tư thời gian làm proposal.",
+    priceLow: Math.round(base * 0.9),
+    priceHigh: Math.round(base * 1.25),
+    nextActions:
+      level === "hot"
+        ? ["Nhắn Zalo hoặc email trong hôm nay", "Tạo báo giá AI sau khi xác nhận scope", "Đặt nhắc follow-up sau 24 giờ"]
+        : ["Hỏi thêm phạm vi công việc", "Xác nhận ngân sách và timeline", "Cập nhật deal sau khi khách phản hồi"],
+  };
+}
+
+export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | null; onClose: () => void }) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Result | null>(null);
-  const [tone, setTone] = useState<"formal" | "casual">("formal");
-  const [autoReminder, setAutoReminder] = useState(true);
+  const [result, setResult] = useState<EvaluationResult | null>(null);
 
-  const analyze = () => {
+  useEffect(() => {
+    if (!open || !deal) return;
+
     setLoading(true);
     setResult(null);
-    setTimeout(() => {
-      const lower = text.toLowerCase();
-      const urgent = /gấp|urgent|asap|trong \d|tuần|ngay/i.test(lower);
-      const budget = /(\d+)\s*(tr|triệu|m)/i.exec(lower);
-      const hasBudget = !!budget;
-      const score: Result["score"] = urgent && hasBudget ? "hot" : hasBudget ? "warm" : "cold";
-      const base = budget ? parseInt(budget[1]) * 1_000_000 : 8_000_000;
-      const r: Result = {
-        score,
-        rationale:
-          score === "hot"
-            ? "Khách có ngân sách rõ ràng, thời gian gấp và mô tả công việc cụ thể. Khả năng chốt cao trong 48h."
-            : score === "warm"
-            ? "Khách đã đề cập ngân sách nhưng chưa nói rõ deadline. Cần follow-up để qualify thêm."
-            : "Thông tin còn mơ hồ, chưa rõ ngân sách hay scope. Nên gửi câu hỏi sàng lọc.",
-        signals: [
-          urgent ? "✓ Có dấu hiệu cần gấp" : "○ Chưa có deadline rõ",
-          hasBudget ? `✓ Ngân sách ~${budget![1]} triệu` : "○ Chưa có ngân sách",
-          /shop|công ty|chi nhánh|brand/i.test(lower) ? "✓ Khách doanh nghiệp" : "○ Cá nhân",
-        ],
-        priceLow: Math.round(base * 0.9),
-        priceHigh: Math.round(base * 1.4),
-        suggestedReply:
-          tone === "formal"
-            ? `Kính gửi Anh/Chị,\n\nCảm ơn Anh/Chị đã liên hệ. Dựa trên scope mô tả, mình đề xuất gói dịch vụ trong khoảng ${formatVND(
-                Math.round(base * 0.9)
-              )} - ${formatVND(Math.round(base * 1.4))}. Mình có thể gửi proposal chi tiết trong 24h, Anh/Chị tiện trao đổi qua Zalo lúc nào ạ?\n\nTrân trọng,\nMinh Nguyễn`
-            : `Hi bạn,\n\nCảm ơn bạn đã nhắn nhé! Với scope như vậy, mức báo giá tham khảo của mình là ${formatVND(
-                Math.round(base * 0.9)
-              )} - ${formatVND(Math.round(base * 1.4))}. Mình gửi proposal chi tiết trong hôm nay, bạn tiện call Zalo 15p để mình hiểu rõ hơn không?\n\nThanks,\nMinh`,
-      };
-      setResult(r);
-      setLoading(false);
-    }, 1100);
-  };
 
-  if (!open) return null;
-  const ScoreIcon = result?.score === "hot" ? Flame : result?.score === "warm" ? Sun : Snowflake;
+    const timer = window.setTimeout(() => {
+      setResult(mockEvaluateDeal(deal));
+      setLoading(false);
+    }, 650);
+
+    return () => window.clearTimeout(timer);
+  }, [deal, open]);
+
+  const levelUi = useMemo(() => (result ? LEVEL_UI[result.level] : LEVEL_UI.warm), [result]);
+  const ScoreIcon = levelUi.icon;
+
+  if (!open || !deal) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl shadow-2xl border border-border">
-        <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-border px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-primary-glow grid place-items-center">
-              <Sparkles className="h-4 w-4 text-primary-foreground" />
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card/95 px-6 py-4 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <Bot className="h-4 w-4" />
             </div>
             <div>
-              <div className="font-semibold">Tác vụ Nhanh AI</div>
-              <div className="text-xs text-muted-foreground">Vận hành bởi Hệ thống SoloDesk LangChain</div>
+              <div className="font-semibold">Đánh giá deal bằng AI</div>
+              <div className="text-xs text-muted-foreground">Tự phân tích từ dữ liệu dự án hiện có</div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary">
+          <button type="button" onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Đóng">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Đánh giá Cơ hội — Dán tin nhắn khách hàng</label>
-              <div className="flex items-center gap-1 text-xs">
-                <span className="text-muted-foreground">Giọng điệu:</span>
-                {(["formal", "casual"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTone(t)}
-                    className={`px-2 py-0.5 rounded-md ${
-                      tone === t ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"
-                    }`}
-                  >
-                    {t === "formal" ? "Lịch sự" : "Thân mật"}
-                  </button>
-                ))}
-              </div>
+        <div className="space-y-5 p-6">
+          <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4 md:grid-cols-[1.1fr_0.9fr]">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deal đang đánh giá</div>
+              <h2 className="mt-1 text-lg font-bold text-foreground">{deal.projectType}</h2>
+              <div className="mt-1 text-sm text-muted-foreground">{deal.client}</div>
             </div>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={5}
-              className="w-full rounded-lg border border-input bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button
-              onClick={analyze}
-              disabled={loading}
-              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md hover:opacity-95 disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {loading ? "AI đang phân tích..." : "Phân tích Cơ hội"}
-            </button>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <InfoBlock label="Ngân sách" value={deal.budgetLabel || formatVND(deal.value)} />
+              <InfoBlock label="Kênh" value={deal.channel} />
+            </div>
           </div>
 
-          {result && (
-            <div className="rounded-xl border border-border bg-gradient-to-br from-accent/40 to-background p-5 space-y-4 animate-in fade-in slide-in-from-bottom-2">
-              <div className="flex items-start justify-between gap-3">
+          {loading && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
                 <div>
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Điểm Đánh Giá</div>
-                  <div className={`mt-1 inline-flex items-center gap-2 text-lg font-bold capitalize text-${result.score === "hot" ? "hot" : result.score === "warm" ? "warm" : "cold"}`}>
-                    <ScoreIcon className="h-5 w-5" />
-                    {result.score === "hot" ? "Nóng" : result.score === "warm" ? "Ấm" : "Lạnh"}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Khoảng giá đề xuất</div>
-                  <div className="text-base font-bold text-primary">
-                    {formatVND(result.priceLow)} – {formatVND(result.priceHigh)}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground mb-1">Cơ sở phân tích AI</div>
-                <p className="text-sm">{result.rationale}</p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {result.signals.map((s) => (
-                  <span key={s} className="text-xs rounded-full bg-card border border-border px-2.5 py-1">
-                    {s}
-                  </span>
-                ))}
-              </div>
-
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground mb-1.5">Tin nhắn trả lời gợi ý ({tone === "formal" ? "Lịch sự" : "Thân mật"})</div>
-                <div className="rounded-lg bg-card border border-border p-3 text-sm whitespace-pre-wrap font-mono">
-                  {result.suggestedReply}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <button className="inline-flex items-center gap-1.5 text-xs rounded-md bg-success text-success-foreground px-3 py-1.5 font-medium hover:opacity-95">
-                    <MessageCircle className="h-3 w-3" /> Gửi qua Zalo OA
-                  </button>
-                  <button className="inline-flex items-center gap-1.5 text-xs rounded-md bg-secondary text-secondary-foreground px-3 py-1.5 font-medium hover:bg-secondary/70">
-                    <Mail className="h-3 w-3" /> Gửi Email
-                  </button>
+                  <div className="font-semibold text-foreground">AI đang đánh giá deal...</div>
+                  <div className="text-sm text-muted-foreground">Đang đọc dữ liệu khách hàng, ngân sách và mô tả nhu cầu.</div>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="rounded-xl border border-border p-4 flex items-center justify-between bg-muted/40">
-            <div className="flex items-start gap-3">
-              <div className="h-9 w-9 rounded-lg bg-warning/20 grid place-items-center">
-                <Bell className="h-4 w-4 text-warning-foreground" />
+          {result && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+              <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Điểm đánh giá</div>
+                    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold", levelUi.badgeClass)}>
+                      <ScoreIcon className="h-3.5 w-3.5" />
+                      {result.label}
+                    </span>
+                  </div>
+                  <div className={cn("mt-4 text-5xl font-black leading-none", levelUi.scoreClass)}>{result.score}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">/ 100 điểm tiềm năng</div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <BadgeCheck className="h-4 w-4 text-primary" />
+                    Kết luận AI
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{result.rationale}</p>
+                  <div className="mt-4 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
+                    {result.recommendation}
+                  </div>
+                </div>
               </div>
-              <div>
-                <div className="text-sm font-semibold">Tự động nhắc nhở khi quá hạn thanh toán</div>
-                <div className="text-xs text-muted-foreground">Gửi nhắc nhở qua Zalo & Email sau 3 ngày trễ hạn.</div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="text-sm font-semibold">Tín hiệu phát hiện</div>
+                  <div className="mt-3 space-y-2">
+                    {result.signals.map((signal) => (
+                      <div key={signal} className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                        <span>{signal}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="text-sm font-semibold">Hành động đề xuất</div>
+                  <div className="mt-3 space-y-2">
+                    {result.nextActions.map((action) => (
+                      <div key={action} className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <ArrowRight className="h-4 w-4 shrink-0 text-primary" />
+                        <span>{action}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Khoảng giá gợi ý</div>
+                <div className="mt-1 text-xl font-bold text-primary">
+                  {formatVND(result.priceLow)} - {formatVND(result.priceHigh)}
+                </div>
               </div>
             </div>
-            <button
-              onClick={() => setAutoReminder((v) => !v)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${autoReminder ? "bg-primary" : "bg-input"}`}
-            >
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow transition-all ${
-                  autoReminder ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background px-3 py-2">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
 }

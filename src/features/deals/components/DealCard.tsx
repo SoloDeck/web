@@ -1,7 +1,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bot, FileText, Flame, Mail, Snowflake, Sun } from "lucide-react";
+import { Bot, Flame, Snowflake, Sun } from "lucide-react";
 import type React from "react";
+import { BrandIcon } from "@/components/solodesk/BrandIcon";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import type { Deal } from "@/features/deals/types";
@@ -44,8 +45,11 @@ export function DealCard({
     opacity: isDragging ? 0.7 : 1,
   };
   const ScoreIcon = scoreCfg[deal.score].icon;
+  const isNewLead = deal.stage === "new_lead";
   // Deal mới chưa qua bước sàng lọc nên không hiển thị phân loại Ấm/Nóng/Lạnh.
-  const shouldShowLeadScore = deal.stage !== "new_lead";
+  const shouldShowLeadScore = !isNewLead;
+  const budgetLabel = deal.budgetLabel || formatVND(deal.value);
+  const aiActionLabel = isNewLead ? "Đánh giá" : "AI";
 
   const stopPointer = (event: React.PointerEvent | React.MouseEvent) => {
     event.stopPropagation();
@@ -88,31 +92,35 @@ export function DealCard({
       </div>
 
       <div className="flex items-end justify-between gap-2">
-        <div className="truncate font-mono text-xs font-bold text-primary">{formatVND(deal.value)}</div>
+        <div className="truncate text-xs font-bold text-primary">{budgetLabel}</div>
       </div>
 
-      <div className="mt-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div
+        className={cn(
+          "mt-3 flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/35 p-1 transition-opacity",
+          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+        )}
+      >
         <button
           type="button"
           onPointerDown={stopPointer}
           onClick={stopPointer}
           aria-label={`Nhắn ${deal.client} qua Zalo`}
           title="Nhắn Zalo"
-          className="rounded-md border border-border px-2 py-1.5 text-[11px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50 text-muted-foreground hover:border-emerald-300 hover:bg-emerald-100"
         >
-          Zalo
+          <BrandIcon name="zalo" className="size-4" />
         </button>
         <button
           type="button"
           onPointerDown={stopPointer}
           onClick={stopPointer}
           aria-label={`Gửi email cho ${deal.client}`}
-          title="Email"
-          className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-primary/40 hover:text-primary"
+          title="Gmail"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-red-100 bg-red-50 text-muted-foreground hover:border-red-300 hover:bg-red-100"
         >
-          <Mail className="h-3.5 w-3.5" />
+          <BrandIcon name="email" className="size-4" />
         </button>
-        <div className="flex-1" />
         <button
           type="button"
           onPointerDown={stopPointer}
@@ -120,12 +128,17 @@ export function DealCard({
             event.stopPropagation();
             onDraft(deal);
           }}
-          aria-label={`Tạo báo giá AI cho ${deal.projectType}`}
-          title="Tạo báo giá AI"
-          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1.5 text-[11px] font-semibold text-primary hover:bg-primary/15"
+          aria-label={isNewLead ? `Đánh giá AI cho ${deal.projectType}` : `Tạo báo giá AI cho ${deal.projectType}`}
+          title={isNewLead ? "Đánh giá bằng AI" : "Tạo báo giá AI"}
+          className={cn(
+            "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+            isNewLead
+              ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+              : "bg-primary/10 text-primary hover:bg-primary/15"
+          )}
         >
-          {deal.stage === "qualified" ? <FileText className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-          AI
+          <Bot className="size-3.5 shrink-0" />
+          {aiActionLabel}
         </button>
       </div>
     </article>

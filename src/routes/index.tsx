@@ -16,6 +16,7 @@ import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
+import { AIPanel } from "@/features/ai/components/AIPanel";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
@@ -46,6 +47,29 @@ export const Route = createFileRoute("/")({
 type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
 type PipelineView = "kanban" | "list";
 
+const PAGE_META: Record<NavKey, { title: string; description: string }> = {
+  pipeline: {
+    title: "Dự án",
+    description: "Theo dõi quy trình tư vấn, báo giá và triển khai.",
+  },
+  clients: {
+    title: "Hồ sơ khách hàng",
+    description: "Quản lý thông tin liên hệ và lịch sử làm việc.",
+  },
+  revenue: {
+    title: "Thanh toán & Hợp đồng",
+    description: "Theo dõi báo giá, hợp đồng và dòng tiền.",
+  },
+  "intake-form": {
+    title: "Biểu mẫu tiếp nhận",
+    description: "Cấu hình form public để khách gửi yêu cầu dự án.",
+  },
+  settings: {
+    title: "Cài đặt hồ sơ",
+    description: "Cập nhật thông tin freelancer và mẫu điều khoản.",
+  },
+};
+
 // eslint-disable-next-line react-refresh/only-export-components
 function Index() {
   const navigate = useNavigate();
@@ -68,10 +92,12 @@ function Index() {
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [proposal, setProposal] = useState<Deal | null>(null);
+  const [aiDeal, setAiDeal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
   const [nav, setNav] = useState<NavKey>("pipeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pipelineView, setPipelineView] = useState<PipelineView>("kanban");
+  const pageMeta = PAGE_META[nav];
 
   useEffect(() => {
     // Nếu role admin được hydrate sau khi route đã load, vẫn đẩy về console quản trị.
@@ -94,6 +120,15 @@ function Index() {
     () => filtered.reduce((sum, deal) => sum + deal.value, 0),
     [filtered]
   );
+
+  const handleAiAction = useCallback((deal: Deal) => {
+    if (deal.stage === "new_lead") {
+      setAiDeal(deal);
+      return;
+    }
+
+    setProposal(deal);
+  }, []);
 
   const openDeal = useCallback(
     (deal: Deal) => {
@@ -135,7 +170,7 @@ function Index() {
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
-          <div className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-2 lg:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -144,8 +179,16 @@ function Index() {
               >
                 <Menu className="h-5 w-5" />
               </button>
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-bold leading-5 text-foreground sm:text-base">
+                  {pageMeta.title}
+                </h1>
+                <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                  {pageMeta.description}
+                </p>
+              </div>
               {nav === "pipeline" && (
-                <div className="hidden items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 md:flex md:w-72">
+                <div className="hidden items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 md:flex md:w-72 lg:ml-2">
                   <Search className="h-4 w-4 text-muted-foreground" />
                   <input
                     value={query}
@@ -244,7 +287,7 @@ function Index() {
                       <KanbanBoard
                         deals={filtered}
                         onCardClick={openDeal}
-                        onDraft={setProposal}
+                        onDraft={handleAiAction}
                         onAddDeal={() => setNewDealOpen(true)}
                       />
                     </div>
@@ -275,6 +318,7 @@ function Index() {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
+      <AIPanel open={Boolean(aiDeal)} deal={aiDeal} onClose={() => setAiDeal(null)} />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
     </div>
   );

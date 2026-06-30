@@ -375,3 +375,9 @@ Cập nhật ngày 29/06/2026. Phần này đối chiếu riêng trang dành cho
 3. Chỉnh sidebar Zalo/Email thành trạng thái thật hoặc "Chưa kết nối" cho tới khi backend gửi thật sẵn sàng.
 4. Sau khi backend hỗ trợ custom intake field values, bỏ cơ chế gom custom field vào `inquiry_text`.
 5. Sau khi backend có reminder worker/gửi Email/Zalo, mở flow gửi nhắc thật và AI tạo nội dung nhắc theo giọng điệu.
+
+## Brand Icon Assets
+
+- Các icon dùng lại cho AI/Zalo/Email nằm trong `public/brand-icons`.
+- FE gọi qua component `src/components/solodesk/BrandIcon.tsx`, nên chỉ cần thay file `ai.svg`, `logo_Zalo.webp`, `logo_Gmail.webp` là các nút liên quan tự cập nhật.
+- Khi tải logo thật về, giữ nguyên tên file để không phải sửa lại code ở nhiều nơi.

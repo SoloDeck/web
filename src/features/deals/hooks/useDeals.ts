@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   deleteDeal,
   getDeal,
+  getDealIntakes,
   getDealsByClient,
   getDeals,
   updateDeal,
@@ -17,6 +18,7 @@ export const dealKeys = {
   all: ["deals"] as const,
   detail: (dealId: string) => ["deals", "detail", dealId] as const,
   byClient: (clientId: string) => ["deals", "client", clientId] as const,
+  intakes: ["deals", "intakes"] as const,
 };
 
 /**
@@ -63,6 +65,15 @@ export function useClientDeals(clientId: string | undefined) {
     queryKey: dealKeys.byClient(clientId ?? ""),
     queryFn: () => getDealsByClient(clientId!),
     enabled: Boolean(clientId),
+  });
+}
+
+/** Danh sách phiếu tiếp nhận từ public form; dùng để bù mô tả/ngân sách cho deal tạo từ intake. */
+export function useDealIntakes(enabled = true) {
+  return useQuery({
+    queryKey: dealKeys.intakes,
+    queryFn: () => getDealIntakes(),
+    enabled,
   });
 }
 

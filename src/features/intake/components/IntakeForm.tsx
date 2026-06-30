@@ -91,8 +91,9 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
   const contactFields = fields.filter((field) => CONTACT_FIELD_KEYS.has(field.field_key));
   const projectFields = fields.filter((field) => !CONTACT_FIELD_KEYS.has(field.field_key));
   const title = configQuery.data?.title ?? "Biểu mẫu tiếp nhận yêu cầu";
+  const configuredDescription = configQuery.data?.description?.trim();
   const description =
-    configQuery.data?.description ??
+    configuredDescription ||
     "Điền một vài thông tin để Freelancer hiểu rõ nhu cầu và chuẩn bị phương án tư vấn phù hợp.";
   const freelancerName = configQuery.data?.freelancer_name ?? "Freelancer";
 
@@ -180,6 +181,9 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
               </div>
               <div>
                 <h2 className="text-xl font-bold tracking-tight">{title}</h2>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {description}
+                </p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   Các trường có dấu <span className="font-semibold text-destructive">*</span> là thông tin bắt buộc.
                 </p>
