@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bot, Flame, Snowflake, Sun } from "lucide-react";
+import { Bot, Clock, Flame, Snowflake, Sun } from "lucide-react";
 import type React from "react";
 import { BrandIcon } from "@/components/solodesk/BrandIcon";
 import { formatVND } from "@/utils/format";
@@ -45,11 +45,18 @@ export function DealCard({
     opacity: isDragging ? 0.7 : 1,
   };
   const ScoreIcon = scoreCfg[deal.score].icon;
-  const isNewLead = deal.stage === "new_lead";
-  // Deal mới chưa qua bước sàng lọc nên không hiển thị phân loại Ấm/Nóng/Lạnh.
+  const stage = deal.stage;
+  const isNewLead = stage === "new_lead";
   const shouldShowLeadScore = !isNewLead;
   const budgetLabel = deal.budgetLabel || formatVND(deal.value);
-  const aiActionLabel = isNewLead ? "Đánh giá" : "AI";
+
+  const aiBtn =
+    stage === "new_lead"       ? { label: "Đánh giá",       icon: Bot,   style: "primary",   action: "draft"    } :
+    stage === "qualified"      ? { label: "Báo giá",         icon: Bot,   style: "secondary",  action: "draft"    } :
+    stage === "proposal_sent"  ? { label: "Chờ khách",       icon: Clock, style: "disabled",   action: "none"     } :
+    stage === "in_negotiation" ? { label: "Tạo hợp đồng",    icon: Bot,   style: "secondary",  action: "draft"    } :
+    stage === "active"         ? { label: "Đang triển khai", icon: Bot,   style: "disabled",   action: "none"     } :
+    null;
 
   const stopPointer = (event: React.PointerEvent | React.MouseEvent) => {
     event.stopPropagation();
@@ -121,25 +128,29 @@ export function DealCard({
         >
           <BrandIcon name="email" className="size-4" />
         </button>
-        <button
-          type="button"
-          onPointerDown={stopPointer}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDraft(deal);
-          }}
-          aria-label={isNewLead ? `Đánh giá AI cho ${deal.projectType}` : `Tạo báo giá AI cho ${deal.projectType}`}
-          title={isNewLead ? "Đánh giá bằng AI" : "Tạo báo giá AI"}
-          className={cn(
-            "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-            isNewLead
-              ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-              : "bg-primary/10 text-primary hover:bg-primary/15"
-          )}
-        >
-          <Bot className="size-3.5 shrink-0" />
-          {aiActionLabel}
-        </button>
+        {aiBtn && (
+          <button
+            type="button"
+            disabled={aiBtn.action === "none"}
+            onPointerDown={aiBtn.action !== "none" ? stopPointer : undefined}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (aiBtn.action === "draft") onDraft(deal);
+              else if (aiBtn.action === "navigate") onClick();
+            }}
+            aria-label={aiBtn.label}
+            title={aiBtn.label}
+            className={cn(
+              "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+              aiBtn.style === "primary"   && "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
+              aiBtn.style === "secondary" && "bg-primary/10 text-primary hover:bg-primary/15",
+              aiBtn.style === "disabled"  && "cursor-default bg-muted/60 text-muted-foreground",
+            )}
+          >
+            <aiBtn.icon className="size-3.5 shrink-0" />
+            {aiBtn.label}
+          </button>
+        )}
       </div>
     </article>
   );

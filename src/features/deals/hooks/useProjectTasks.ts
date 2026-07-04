@@ -2,8 +2,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getProjectByDeal,
   createProject,
-  listTasks,
-  createTask,
+  listProjectTasks,
+  createProjectTask,
   updateTask,
   deleteTask,
 } from "@/services/projectsService";
@@ -17,23 +17,24 @@ export const projectTaskKeys = {
 };
 
 // ---------------------------------------------------------------------------
-// Main hook — get-or-create project, then fetch tasks
+// Main hook — get/create project for the deal, then fetch tasks under that project
 // ---------------------------------------------------------------------------
 
 /**
- * Loads (or auto-creates) the project for a deal, then fetches its tasks.
- * Returns tasks ready to pass to ProjectTaskPanel, plus the projectId for mutations.
+ * Requirement chính của SoloDesk là Deal -> Project -> Task.
+ * Vì vậy tab Công việc luôn lấy project theo deal trước, rồi mới lấy task của project đó.
  */
-export function useProjectTasks(dealId: string | undefined) {
+export function useProjectTasks(dealId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: projectTaskKeys.all(dealId ?? ""),
-    enabled: Boolean(dealId),
+    enabled: Boolean(dealId) && enabled,
     queryFn: async () => {
       let project = await getProjectByDeal(dealId!);
       if (!project) {
+        // Nếu BE chưa auto tạo project cho deal này, FE tạo project đúng payload `name`.
         project = await createProject(dealId!, "Công việc dự án");
       }
-      const taskData = await listTasks(project.id);
+      const taskData = await listProjectTasks(project.id);
       return { projectId: project.id, ...taskData };
     },
   });
@@ -48,7 +49,7 @@ export function useAddTask(dealId: string, projectId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ title, note }: { title: string; note: string }) =>
-      createTask(projectId, title, note || undefined),
+      createProjectTask(projectId, title, note || undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     },
@@ -56,11 +57,11 @@ export function useAddTask(dealId: string, projectId: string) {
 }
 
 /** Toggle task done/undone. */
-export function useToggleTask(dealId: string, projectId: string) {
+export function useToggleTask(dealId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ taskId, is_done }: { taskId: string; is_done: boolean }) =>
-      updateTask(projectId, taskId, { is_done }),
+      updateTask(taskId, { status: is_done ? "done" : "todo" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     },
@@ -68,11 +69,11 @@ export function useToggleTask(dealId: string, projectId: string) {
 }
 
 /** Update task title and/or note. */
-export function useUpdateTask(dealId: string, projectId: string) {
+export function useUpdateTask(dealId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ taskId, title, note }: { taskId: string; title?: string; note?: string }) =>
-      updateTask(projectId, taskId, { title, note }),
+      updateTask(taskId, { title, note }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     },
@@ -80,10 +81,10 @@ export function useUpdateTask(dealId: string, projectId: string) {
 }
 
 /** Delete a task. */
-export function useDeleteTask(dealId: string, projectId: string) {
+export function useDeleteTask(dealId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (taskId: string) => deleteTask(projectId, taskId),
+    mutationFn: (taskId: string) => deleteTask(taskId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     },

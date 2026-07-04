@@ -19,7 +19,7 @@ export function Providers({ children }: ProvidersProps) {
       </DragDropProvider>
       {/* Devtools sẽ mặc định ẩn ở môi trường production */}
       <ReactQueryDevtools initialIsOpen={false} />
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );
 }

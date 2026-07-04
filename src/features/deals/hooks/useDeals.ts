@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -7,12 +7,14 @@ import {
   getDealIntakes,
   getDealsByClient,
   getDeals,
+  qualifyDeal,
   updateDeal,
   updateDealStage,
   type DealPayload,
 } from "@/services/dealsService";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import type { Stage } from "@/features/deals/types";
+import { getDealHistory, subscribeDealHistory } from "@/features/deals/dealHistoryStorage";
 
 export const dealKeys = {
   all: ["deals"] as const,
@@ -57,6 +59,17 @@ export function useDeal(dealId: string | undefined) {
   }, [query.data, updateStoredDeal]);
 
   return query;
+}
+
+const EMPTY_HISTORY: ReturnType<typeof getDealHistory> = [];
+
+/** Lịch sử riêng của deal, lưu cục bộ tại trình duyệt vì BE chưa có API deal-activity. */
+export function useDealHistory(dealId: string | undefined) {
+  return useSyncExternalStore(
+    (callback) => (dealId ? subscribeDealHistory(dealId, callback) : () => {}),
+    () => (dealId ? getDealHistory(dealId) : EMPTY_HISTORY),
+    () => EMPTY_HISTORY
+  );
 }
 
 /** Danh sách dự án theo khách hàng; đang dùng fallback FE cho đến khi BE có API filter client_id. */
@@ -133,6 +146,17 @@ export function useTransitionDealStage() {
     },
     onError: () => {
       toast.error("Không thể cập nhật giai đoạn dự án.");
+    },
+  });
+}
+
+export function useQualifyDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dealId: string) => qualifyDeal(dealId),
+    onSuccess: (_, dealId) => {
+      qc.invalidateQueries({ queryKey: dealKeys.all });
+      qc.invalidateQueries({ queryKey: dealKeys.detail(dealId) });
     },
   });
 }

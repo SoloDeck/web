@@ -76,6 +76,18 @@ export type DealIntake = {
   createdAt: string;
 };
 
+export type DealQualificationResult = {
+  project_type?: string | null;
+  budget_signal?: string | null;
+  timeline_signal?: string | null;
+  urgency_signal?: string | null;
+  red_flags?: string[] | null;
+  suggested_lead_score?: string | null;
+  reasoning?: string | null;
+  ai_qualification_score?: number | null;
+  ai_qualification_recommendation?: string | null;
+};
+
 // ---------------------------------------------------------------------------
 // Mapping helpers
 // ---------------------------------------------------------------------------
@@ -294,4 +306,15 @@ export async function updateDeal(id: string, payload: DealPayload): Promise<Deal
 /** DELETE /deals/{id} — soft-deletes a deal. */
 export async function deleteDeal(id: string): Promise<void> {
   await axiosClient.delete(`/deals/${id}`);
+}
+
+/** POST /deals/{id}/qualify - AI đánh giá deal theo DealId và lưu điểm vào backend. */
+export async function qualifyDeal(id: string): Promise<DealQualificationResult> {
+  const { data } = await axiosClient.post<ApiResponse<DealQualificationResult>>(
+    `/deals/${id}/qualify`,
+    undefined,
+    // Endpoint AI có thể mất hơn 15 giây, nên tăng timeout riêng thay vì đổi toàn bộ axios client.
+    { timeout: 65000 }
+  );
+  return data.data;
 }

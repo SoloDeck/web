@@ -17,15 +17,17 @@ import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { AIPanel } from "@/features/ai/components/AIPanel";
+import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
 import { IntakeFormConfig } from "@/features/intake/components/IntakeFormConfig";
+import { SubscriptionPage } from "@/features/subscriptions/components/SubscriptionPage";
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { updateMe } from "@/services/usersService";
+import { updateMe, updateFreelancerProfile } from "@/services/usersService";
 import { STAGE_BY_ID, type Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
@@ -44,13 +46,13 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings";
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription";
 type PipelineView = "kanban" | "list";
 
 const PAGE_META: Record<NavKey, { title: string; description: string }> = {
   pipeline: {
-    title: "Dự án",
-    description: "Theo dõi quy trình tư vấn, báo giá và triển khai.",
+    title: "Quy trình deal",
+    description: "Theo dõi yêu cầu khách hàng từ tư vấn, báo giá đến triển khai.",
   },
   clients: {
     title: "Hồ sơ khách hàng",
@@ -68,6 +70,10 @@ const PAGE_META: Record<NavKey, { title: string; description: string }> = {
     title: "Cài đặt hồ sơ",
     description: "Cập nhật thông tin freelancer và mẫu điều khoản.",
   },
+  subscription: {
+    title: "Gói đăng ký",
+    description: "Xem và quản lý gói dịch vụ SoloDesk của bạn.",
+  },
 };
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -82,7 +88,18 @@ function Index() {
   const handleSaveProfile = useCallback(async (p: Profile) => {
     setProfile(p);
     try {
-      await updateMe({ full_name: p.fullName, phone: p.phone || undefined });
+      await Promise.all([
+        updateMe({ full_name: p.fullName, phone: p.phone || undefined }),
+        updateFreelancerProfile({
+          professional_title: p.professionalTitle || undefined,
+          bio: p.bio || undefined,
+          skills: p.skills.length > 0 ? p.skills : undefined,
+          service_categories: p.serviceCategories.length > 0 ? p.serviceCategories : undefined,
+          avatar_url: p.avatarUrl || undefined,
+          portfolio_url: p.portfolioUrl || undefined,
+          is_listed: p.isListed,
+        }),
+      ]);
       updateUser({ fullName: p.fullName });
     } catch {
       toast.error("Không thể lưu hồ sơ lên server. Thay đổi vẫn được lưu cục bộ.");
@@ -126,9 +143,12 @@ function Index() {
       setAiDeal(deal);
       return;
     }
-
+    if (deal.stage === "in_negotiation") {
+      navigate({ to: "/deals/$dealId", params: { dealId: deal.id } });
+      return;
+    }
     setProposal(deal);
-  }, []);
+  }, [navigate]);
 
   const openDeal = useCallback(
     (deal: Deal) => {
@@ -193,7 +213,7 @@ function Index() {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Tìm khách hàng, dự án..."
+                    placeholder="Tìm khách hàng, yêu cầu..."
                     className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   />
                 </div>
@@ -220,7 +240,7 @@ function Index() {
                 onClick={() => setNewDealOpen(true)}
                 className="hidden items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90 sm:inline-flex"
               >
-                <Plus className="h-4 w-4" /> Thêm dự án mới
+                <Plus className="h-4 w-4" /> Thêm yêu cầu mới
               </button>
             </div>
           </div>
@@ -244,7 +264,7 @@ function Index() {
                       <div>
                         <h1 className="text-xl font-bold tracking-tight">Quy Trình Dự Án</h1>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {filtered.length} dự án · Tổng: {formatVND(totalValue)}
+                          {filtered.length} deal · Tổng: {formatVND(totalValue)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -303,6 +323,8 @@ function Index() {
 
               {nav === "revenue" && <RevenueDashboard />}
 
+              {nav === "subscription" && <SubscriptionPage />}
+
               {nav === "settings" && (
                 <ProfileSettings
                   profile={profile}
@@ -319,6 +341,7 @@ function Index() {
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
       <AIPanel open={Boolean(aiDeal)} deal={aiDeal} onClose={() => setAiDeal(null)} />
+      <AIActivityCenter />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
     </div>
   );
@@ -329,7 +352,7 @@ function PipelineList({ deals, onOpenDeal }: { deals: Deal[]; onOpenDeal: (deal:
     <div className="min-h-0 flex-1 overflow-auto p-4 lg:p-6">
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="grid grid-cols-[1.4fr_1fr_140px_150px] border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <div>Dự án</div>
+          <div>Yêu cầu / deal</div>
           <div>Khách hàng</div>
           <div>Giai đoạn</div>
           <div className="text-right">Giá trị</div>
@@ -355,7 +378,7 @@ function PipelineList({ deals, onOpenDeal }: { deals: Deal[]; onOpenDeal: (deal:
         ))}
         {deals.length === 0 && (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Không tìm thấy dự án phù hợp.
+            Không tìm thấy yêu cầu phù hợp.
           </div>
         )}
       </div>

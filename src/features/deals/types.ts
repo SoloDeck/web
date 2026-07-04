@@ -89,8 +89,8 @@ export function formatDealSource(source?: string | null): string {
 export const STAGES: StageConfig[] = [
   {
     id: "new_lead",
-    title: "Yêu Cầu Mới",
-    shortTitle: "Yêu cầu mới",
+    title: "Deal Mới",
+    shortTitle: "Deal mới",
     hint: "Khách hàng vừa liên hệ",
     dotClass: "bg-amber-500",
     bgClass: "bg-amber-50",
@@ -98,8 +98,8 @@ export const STAGES: StageConfig[] = [
   },
   {
     id: "qualified",
-    title: "Đã Sàng Lọc",
-    shortTitle: "Đã sàng lọc",
+    title: "Đã Đánh Giá",
+    shortTitle: "Đã đánh giá",
     hint: "Phù hợp dịch vụ",
     dotClass: "bg-blue-500",
     bgClass: "bg-blue-50",

@@ -113,10 +113,12 @@ export async function listContracts(
   return data;
 }
 
-/** POST /contracts — create a contract from an accepted proposal. */
+/** POST /contracts — create a contract draft. */
 export async function createContract(payload: {
-  proposal_id: string;
-  content?: ContractContentDTO;
+  deal_id: string;
+  client_id: string;
+  proposal_id?: string;
+  content: ContractContentDTO;
   effective_date?: string;
   end_date?: string;
 }): Promise<ContractResponse> {
@@ -163,6 +165,18 @@ export async function sendContract(contractId: string): Promise<ContractResponse
 export async function signContract(contractId: string): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
     `/contracts/${contractId}/sign`
+  );
+  return data.data;
+}
+
+/** POST /contracts/public/{share_token}/sign — khách ký qua link public, không cần đăng nhập. */
+export async function signContractAsClient(
+  shareToken: string,
+  signerName: string
+): Promise<unknown> {
+  const { data } = await axiosClient.post<ApiResponse<unknown>>(
+    `/contracts/public/${shareToken}/sign`,
+    { signer_name: signerName }
   );
   return data.data;
 }

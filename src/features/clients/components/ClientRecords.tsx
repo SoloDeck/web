@@ -13,10 +13,10 @@ import type { Deal } from "@/features/deals/types";
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<ClientStatus, { label: string; cls: string }> = {
-  prospect:  { label: "Tiềm năng",       cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400" },
-  active:    { label: "Đang hoạt động",  cls: "bg-success/15 text-success" },
-  inactive:  { label: "Không hoạt động", cls: "bg-muted text-muted-foreground" },
-  archived:  { label: "Lưu trữ",         cls: "bg-destructive/10 text-destructive" },
+  prospect: { label: "Tiềm năng", cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400" },
+  active: { label: "Đang hoạt động", cls: "bg-success/15 text-success" },
+  inactive: { label: "Không hoạt động", cls: "bg-muted text-muted-foreground" },
+  archived: { label: "Lưu trữ", cls: "bg-destructive/10 text-destructive" },
 };
 
 function StatusBadge({ status }: { status: ClientStatus }) {
@@ -90,7 +90,7 @@ function PaginationBar({ total, page, onPage }: { total: number; page: number; o
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   const from = (page - 1) * PAGE_SIZE + 1;
-  const to   = Math.min(page * PAGE_SIZE, total);
+  const to = Math.min(page * PAGE_SIZE, total);
 
   const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
     .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1);
@@ -136,24 +136,24 @@ function PaginationBar({ total, page, onPage }: { total: number; page: number; o
 // ── Table row ─────────────────────────────────────────────────────────────────
 
 const STAGE_LABEL: Record<string, string> = {
-  new_lead:             "Yêu Cầu Mới",
-  qualified:            "Đã Sàng Lọc",
-  proposal_sent:        "Đã Gửi Báo Giá",
-  in_negotiation:       "Đang Đàm Phán",
-  active:               "Đang Triển Khai",
+  new_lead: "Deal Mới",
+  qualified: "Deal Đã Đánh Giá",
+  proposal_sent: "Đã Gửi Báo Giá",
+  in_negotiation: "Đang Đàm Phán",
+  active: "Đang Triển Khai",
   completed_and_billed: "Hoàn Thành",
-  lost:                 "Không Chốt",
+  lost: "Không Chốt",
 };
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
-  const mins  = Math.floor(diff / 60000);
+  const mins = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
-  const days  = Math.floor(diff / 86400000);
-  if (mins < 1)   return "Vừa xong";
-  if (mins < 60)  return `${mins} phút trước`;
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "Vừa xong";
+  if (mins < 60) return `${mins} phút trước`;
   if (hours < 24) return `${hours} giờ trước`;
-  if (days < 30)  return `${days} ngày trước`;
+  if (days < 30) return `${days} ngày trước`;
   return new Date(dateStr).toLocaleDateString("vi-VN");
 }
 
@@ -168,7 +168,7 @@ function TableRow({
   onOpenClient: (c: ClientRecord) => void;
   onDelete: (c: ClientRecord) => void;
 }) {
-  const phone      = client.phone ?? null;
+  const phone = client.phone ?? null;
   const recentDeal = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   const lastInteraction = clientDeals
@@ -264,7 +264,7 @@ function ClientCard({
   onOpenClient: (c: ClientRecord) => void;
   onDelete: (c: ClientRecord) => void;
 }) {
-  const phone     = client.phone ?? null;
+  const phone = client.phone ?? null;
   const recentDeal = clientDeals.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   return (
@@ -334,11 +334,11 @@ export function ClientRecords({
   onOpenClient: (client: ClientRecord) => void;
 }) {
   const deals = useDealStore((s) => s.deals);
-  const [q, setQ]           = useState("");
+  const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort]     = useState<SortKey>("newest");
-  const [page, setPage]     = useState(1);
-  const [view, setView]     = useState<ViewMode>("table");
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [page, setPage] = useState(1);
+  const [view, setView] = useState<ViewMode>("table");
 
   const [deleteTarget, setDeleteTarget] = useState<ClientRecord | null>(null);
 
@@ -380,9 +380,9 @@ export function ClientRecords({
     return list;
   }, [filtered, sort]);
 
-  const handleQ      = (v: string) => { setQ(v);      setPage(1); };
+  const handleQ = (v: string) => { setQ(v); setPage(1); };
   const handleFilter = (v: Filter) => { setFilter(v); setPage(1); };
-  const handleSort   = (v: SortKey) => { setSort(v);  setPage(1); };
+  const handleSort = (v: SortKey) => { setSort(v); setPage(1); };
 
   const paginated = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -390,8 +390,8 @@ export function ClientRecords({
   }, [sorted, page]);
 
   const stats = useMemo(() => ({
-    total:    allClients.length,
-    active:   allClients.filter((c) => c.status === "active").length,
+    total: allClients.length,
+    active: allClients.filter((c) => c.status === "active").length,
     prospect: allClients.filter((c) => c.status === "prospect").length,
   }), [allClients]);
 

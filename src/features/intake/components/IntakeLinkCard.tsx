@@ -13,7 +13,7 @@ export function IntakeLinkCard() {
   const [copied, setCopied] = useState(false);
 
   const token = me?.intake_share_token ?? null;
-  const url = token ? `${window.location.origin}/bieu-mau/${token}` : "";
+  const url = token ? `${window.location.origin}/intake/${token}` : "";
 
   const onCopy = async () => {
     if (!url) return;

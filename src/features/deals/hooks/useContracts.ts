@@ -6,6 +6,7 @@ import {
   updateContract,
   sendContract,
   signContract,
+  signContractAsClient,
   generateContractContent,
   aiGenerateContract,
   amendContract,
@@ -109,6 +110,25 @@ export function useSignContract() {
   return useMutation({
     mutationFn: (contractId: string) => signContract(contractId),
     onSuccess: (_, contractId) => {
+      qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
+      qc.invalidateQueries({ queryKey: contractKeys.all });
+    },
+  });
+}
+
+/** Ghi nhận chữ ký của khách qua share token public. */
+export function useSignContractAsClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      shareToken,
+      signerName,
+    }: {
+      contractId: string;
+      shareToken: string;
+      signerName: string;
+    }) => signContractAsClient(shareToken, signerName),
+    onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });
     },

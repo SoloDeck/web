@@ -8,28 +8,44 @@ import type { ProjectTask } from "@/features/deals/types";
 
 type ProjectResponse = {
   id: string;
-  deal_id: string;
-  title: string;
+  deal_id: string | null;
+  owner_id: string;
+  name: string;
   description: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string;
+  task_count: number;
+  done_count: number;
   created_at: string;
   updated_at: string;
 };
 
 type TaskResponse = {
   id: string;
-  project_id: string;
+  entity_type: "project" | "deal" | "reminder";
+  entity_id: string;
   title: string;
-  note: string | null;
-  is_done: boolean;
+  description: string | null;
+  priority: "low" | "medium" | "high";
+  status: "todo" | "in_progress" | "review" | "done";
+  deadline: string | null;
+  checklist_items: unknown[];
   created_at: string;
   updated_at: string;
 };
 
-type TaskListResponse = {
-  tasks: TaskResponse[];
-  total: number;
-  done: number;
-  percent: number;
+type PaginatedApiResponse<T> = {
+  success: boolean;
+  code: number;
+  timestamp: string;
+  data: T[];
+  pagination: {
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -37,15 +53,17 @@ type TaskListResponse = {
 // ---------------------------------------------------------------------------
 
 function mapTask(t: TaskResponse): ProjectTask {
+  const completed = t.status === "done";
   return {
     id: t.id,
     title: t.title,
-    note: t.note ?? "",
-    status: t.is_done ? "done" : "todo",
-    completed: t.is_done,
+    note: t.description ?? "",
+    status: completed ? "done" : "todo",
+    completed,
     createdAt: t.created_at,
-    completedAt: t.is_done ? t.updated_at : null,
-    dueDate: null, // backend does not support dueDate
+    completedAt: completed ? t.updated_at : null,
+    dueDate: t.deadline,
+    priority: t.priority,
   };
 }
 
@@ -55,17 +73,17 @@ function mapTask(t: TaskResponse): ProjectTask {
 
 /** GET /projects?deal_id=... — returns the first project for a deal, or null. */
 export async function getProjectByDeal(dealId: string): Promise<ProjectResponse | null> {
-  const { data } = await axiosClient.get<ApiResponse<ProjectResponse[]>>("/projects", {
+  const { data } = await axiosClient.get<PaginatedApiResponse<ProjectResponse>>("/projects", {
     params: { deal_id: dealId },
   });
   return data.data?.[0] ?? null;
 }
 
 /** POST /projects — creates a project linked to a deal. */
-export async function createProject(dealId: string, title: string): Promise<ProjectResponse> {
+export async function createProject(dealId: string, name: string): Promise<ProjectResponse> {
   const { data } = await axiosClient.post<ApiResponse<ProjectResponse>>("/projects", {
     deal_id: dealId,
-    title,
+    name,
   });
   return data.data;
 }
@@ -74,52 +92,59 @@ export async function createProject(dealId: string, title: string): Promise<Proj
 // Task service functions
 // ---------------------------------------------------------------------------
 
-/** GET /projects/{id}/tasks — returns tasks with completion stats. */
-export async function listTasks(projectId: string): Promise<{
+/** GET /projects/{id}/tasks — lấy task thuộc project của deal. */
+export async function listProjectTasks(projectId: string): Promise<{
   tasks: ProjectTask[];
   total: number;
   done: number;
   percent: number;
 }> {
-  const { data } = await axiosClient.get<ApiResponse<TaskListResponse>>(
-    `/projects/${projectId}/tasks`
-  );
-  const raw = data.data;
+  const { data } = await axiosClient.get<PaginatedApiResponse<TaskResponse>>(`/projects/${projectId}/tasks`, {
+    params: { page_size: 100 },
+  });
+  const tasks = (data.data ?? []).map(mapTask);
+  const total = data.pagination?.total ?? tasks.length;
+  const done = tasks.filter((task) => task.completed).length;
+
   return {
-    tasks: (raw.tasks ?? []).map(mapTask),
-    total: raw.total,
-    done: raw.done,
-    percent: raw.percent,
+    tasks,
+    total,
+    done,
+    percent: total === 0 ? 0 : Math.round((done / total) * 100),
   };
 }
 
-/** POST /projects/{id}/tasks — creates a new task. */
-export async function createTask(
+/** POST /projects/{id}/tasks — tạo task thuộc project của deal. */
+export async function createProjectTask(
   projectId: string,
   title: string,
   note?: string
 ): Promise<ProjectTask> {
   const { data } = await axiosClient.post<ApiResponse<TaskResponse>>(
     `/projects/${projectId}/tasks`,
-    { title, note: note || undefined }
+    { title, description: note || undefined }
   );
   return mapTask(data.data);
 }
 
-/** PATCH /projects/{id}/tasks/{taskId} — updates a task. */
+/** PATCH /tasks/{taskId} — cập nhật task bằng endpoint direct của backend. */
 export async function updateTask(
-  projectId: string,
   taskId: string,
-  payload: { title?: string; note?: string; is_done?: boolean }
+  payload: { title?: string; note?: string; status?: "todo" | "done" }
 ): Promise<ProjectTask> {
+  const requestPayload = {
+    title: payload.title,
+    description: payload.note,
+    status: payload.status,
+  };
   const { data } = await axiosClient.patch<ApiResponse<TaskResponse>>(
-    `/projects/${projectId}/tasks/${taskId}`,
-    payload
+    `/tasks/${taskId}`,
+    requestPayload
   );
   return mapTask(data.data);
 }
 
-/** DELETE /projects/{id}/tasks/{taskId} — deletes a task. */
-export async function deleteTask(projectId: string, taskId: string): Promise<void> {
-  await axiosClient.delete(`/projects/${projectId}/tasks/${taskId}`);
+/** DELETE /tasks/{taskId} — xóa task bằng endpoint direct của backend. */
+export async function deleteTask(taskId: string): Promise<void> {
+  await axiosClient.delete(`/tasks/${taskId}`);
 }

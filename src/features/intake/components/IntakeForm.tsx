@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -6,11 +6,13 @@ import {
   CheckCircle2,
   Clock3,
   FileCheck2,
+  FileText,
   Loader2,
   LockKeyhole,
+  Paperclip,
   Send,
   ShieldCheck,
-  Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -50,6 +52,20 @@ const STANDARD_PAYLOAD_KEYS = new Set([
 export function IntakeForm({ shareToken }: { shareToken: string }) {
   const [values, setValues] = useState<FieldValues>({});
   const [result, setResult] = useState<IntakeResult | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (incoming: FileList | File[]) => {
+    const next = Array.from(incoming).filter(
+      (f) => !attachments.some((a) => a.name === f.name && a.size === f.size),
+    );
+    setAttachments((prev) => [...prev, ...next]);
+  };
+
+  const removeFile = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const configQuery = useQuery({
     queryKey: ["public-intake-form-config", shareToken],
@@ -136,19 +152,37 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
 
       <main className="relative z-10 mx-auto grid max-w-6xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[0.72fr_1.28fr] lg:gap-12 lg:py-16">
         <aside className="self-start lg:sticky lg:top-24">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
-            <Sparkles className="size-3.5" />
-            Biểu mẫu của {freelancerName}
-          </div>
-          <h1 className="mt-5 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-            Chia sẻ dự án của bạn,
-            <span className="block text-primary">bắt đầu thật dễ dàng.</span>
-          </h1>
-          <p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-            {description}
-          </p>
+          {/* Freelancer profile card */}
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="grid size-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-primary-glow text-xl font-bold text-primary-foreground shadow-lg shadow-primary/20">
+                {freelancerName
+                  .split(" ")
+                  .filter(Boolean)
+                  .map((w) => w[0].toUpperCase())
+                  .slice(0, 2)
+                  .join("")}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Biểu mẫu tiếp nhận của
+                </div>
+                <div className="mt-0.5 truncate text-lg font-bold leading-tight">
+                  {freelancerName}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-success">
+                  <span className="inline-block size-1.5 rounded-full bg-success" />
+                  Freelancer chuyên nghiệp
+                </div>
+              </div>
+            </div>
 
-          <div className="mt-8 space-y-4">
+            <div className="mt-4 border-t border-border pt-4">
+              <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
             <Benefit
               icon={FileCheck2}
               title="Thông tin rõ ràng"
@@ -166,7 +200,7 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
             />
           </div>
 
-          <div className="mt-8 hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
+          <div className="mt-6 hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
             <Check className="size-3.5 text-success" />
             Không cần đăng nhập hoặc tạo tài khoản
           </div>
@@ -235,6 +269,75 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
                   </div>
                 </FormSection>
               )}
+
+              <FormSection
+                step="03"
+                title="Tài liệu đính kèm"
+                description="Brief, mockup, hoặc tài liệu tham khảo sẽ giúp Freelancer hiểu nhanh hơn."
+                bordered
+              >
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed px-5 py-7 text-center transition-colors ${
+                    isDragging
+                      ? "border-primary bg-primary/5"
+                      : "border-border bg-muted/20 hover:border-primary/40 hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+                    <Paperclip className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Kéo thả file vào đây</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      hoặc <span className="font-medium text-primary underline underline-offset-2">bấm để chọn file</span>
+                    </p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">PDF, Word, Excel, hình ảnh · Tối đa 10MB/file</p>
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar"
+                  onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+                />
+                {attachments.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {attachments.map((file, index) => (
+                      <li
+                        key={`${file.name}-${file.size}`}
+                        className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5"
+                      >
+                        <FileText className="size-4 shrink-0 text-primary" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold">{file.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {file.size < 1024 * 1024
+                              ? `${(file.size / 1024).toFixed(1)} KB`
+                              : `${(file.size / 1024 / 1024).toFixed(1)} MB`}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeFile(index); }}
+                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </FormSection>
 
               <div className="border-t border-border bg-muted/20 px-5 py-5 sm:px-7">
                 <Button type="submit" size="lg" disabled={!canSubmit} className="w-full sm:w-auto sm:min-w-52">
