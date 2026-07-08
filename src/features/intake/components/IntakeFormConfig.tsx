@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -12,7 +12,6 @@ import {
   Loader2,
   Pencil,
   Plus,
-  RefreshCw,
   Save,
   Trash2,
   X,
@@ -170,6 +169,37 @@ function fieldToPayload(field: FieldConfig, index: number): IntakeFormFieldPaylo
   };
 }
 
+type IntakeFormSnapshot = {
+  title: string;
+  description: string;
+  isActive: boolean;
+  fields: IntakeFormFieldPayload[];
+};
+
+function createConfigSnapshot(
+  title: string,
+  description: string,
+  isActive: boolean,
+  fields: FieldConfig[],
+): IntakeFormSnapshot {
+  return {
+    title: title.trim(),
+    description: description.trim(),
+    isActive,
+    fields: fields.map(fieldToPayload),
+  };
+}
+
+function snapshotFromConfig(config: IntakeFormConfigResponse | undefined): IntakeFormSnapshot | null {
+  if (!config) return null;
+  return createConfigSnapshot(
+    config.title,
+    config.description ?? "",
+    config.is_active,
+    fieldsFromConfig(config),
+  );
+}
+
 export function IntakeFormConfig() {
   const accountName = useAuthStore((state) => state.user?.fullName);
   const queryClient = useQueryClient();
@@ -185,6 +215,18 @@ export function IntakeFormConfig() {
   const [fields, setFields] = useState<FieldConfig[]>(DEFAULT_FIELDS);
   const [showAddField, setShowAddField] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState<FieldConfig | null>(null);
+  const savedSnapshot = useMemo(
+    () => snapshotFromConfig(intakeFormQuery.data),
+    [intakeFormQuery.data],
+  );
+  const currentSnapshot = useMemo(
+    () => createConfigSnapshot(formTitle, formDescription, isActive, fields),
+    [fields, formDescription, formTitle, isActive],
+  );
+  // Dirty checking: so sánh bản đang chỉnh với bản đã lưu; nếu user đổi lại như cũ thì nút lưu tự tắt.
+  const hasConfigChanges = Boolean(
+    savedSnapshot && JSON.stringify(currentSnapshot) !== JSON.stringify(savedSnapshot),
+  );
 
   useEffect(() => {
     if (!intakeFormQuery.data) return;
@@ -226,10 +268,10 @@ export function IntakeFormConfig() {
     }
 
     saveConfigMutation.mutate({
-      title: formTitle.trim(),
-      description: formDescription.trim() || null,
+      title: currentSnapshot.title,
+      description: currentSnapshot.description || null,
       is_active: isActive,
-      fields: fields.map(fieldToPayload),
+      fields: currentSnapshot.fields,
     });
   };
 
@@ -261,47 +303,21 @@ export function IntakeFormConfig() {
                 description="Nội dung giới thiệu khách hàng sẽ nhìn thấy đầu tiên."
                 step="01"
                 action={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                        intakeFormQuery.isError
-                          ? "bg-destructive/10 text-destructive"
-                          : "bg-emerald-50 text-emerald-700",
-                      )}
-                    >
-                      {intakeFormQuery.isLoading
-                        ? "Đang tải cấu hình"
-                        : intakeFormQuery.isError
-                          ? "Lỗi tải API"
-                          : "Đã nối API"}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => intakeFormQuery.refetch()}
-                      disabled={intakeFormQuery.isFetching || saveConfigMutation.isPending}
-                    >
-                      <RefreshCw
-                        className={cn("size-3.5", intakeFormQuery.isFetching && "animate-spin")}
-                      />
-                      Tải lại
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={saveFormConfig}
-                      disabled={intakeFormQuery.isLoading || saveConfigMutation.isPending}
-                    >
-                      {saveConfigMutation.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Save className="size-3.5" />
-                      )}
-                      {saveConfigMutation.isPending ? "Đang lưu" : "Lưu cấu hình"}
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={hasConfigChanges ? "default" : "secondary"}
+                    onClick={saveFormConfig}
+                    disabled={!hasConfigChanges || intakeFormQuery.isLoading || saveConfigMutation.isPending}
+                    title={hasConfigChanges ? "Lưu thay đổi biểu mẫu" : "Chưa có thay đổi để lưu"}
+                  >
+                    {saveConfigMutation.isPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Save className="size-3.5" />
+                    )}
+                    {saveConfigMutation.isPending ? "Đang lưu" : "Lưu cấu hình"}
+                  </Button>
                 }
               />
               <div className="grid gap-4 p-4 sm:p-5">
@@ -893,18 +909,42 @@ type ShareLinkCardProps = {
   loading: boolean;
 };
 
+function normalizeShareUrlForCurrentSite(shareUrl: string | null): string | null {
+  if (!shareUrl) return null;
+
+  try {
+    const parsedUrl = new URL(shareUrl, window.location.origin);
+    const pathname = parsedUrl.pathname;
+    // Giữ nguyên path công khai (backend trả /bieu-mau/{token}); chấp nhận cả /intake/ để tương thích link cũ.
+    const isPublicIntakePath =
+      pathname.startsWith("/bieu-mau/") || pathname.startsWith("/intake/");
+
+    // Backend có thể trả domain production; khi test local, dùng origin hiện tại để mở đúng FE đang chạy.
+    if (isPublicIntakePath) {
+      return `${window.location.origin}${pathname}${parsedUrl.search}${parsedUrl.hash}`;
+    }
+  } catch {
+    return shareUrl;
+  }
+
+  return shareUrl;
+}
+
 function ShareLinkCard({ shareUrl, loading }: ShareLinkCardProps) {
   const [copied, setCopied] = useState(false);
-  const displayUrl = loading ? "Đang lấy đường dẫn từ backend..." : shareUrl ?? "Chưa có đường dẫn chia sẻ";
+  const publicShareUrl = normalizeShareUrlForCurrentSite(shareUrl);
+  const displayUrl = loading
+    ? "Đang lấy đường dẫn từ backend..."
+    : publicShareUrl ?? "Chưa có đường dẫn chia sẻ";
 
   const copyLink = async () => {
-    if (!shareUrl) {
+    if (!publicShareUrl) {
       toast.error("Backend chưa trả đường dẫn chia sẻ cho biểu mẫu này.");
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(publicShareUrl);
       setCopied(true);
       toast.success("Đã sao chép đường dẫn biểu mẫu.");
       window.setTimeout(() => setCopied(false), 2000);
@@ -936,7 +976,7 @@ function ShareLinkCard({ shareUrl, loading }: ShareLinkCardProps) {
             type="button"
             onClick={copyLink}
             className="shrink-0"
-            disabled={!shareUrl || loading}
+            disabled={!publicShareUrl || loading}
           >
             {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             {copied ? "Đã sao chép" : "Sao chép link"}
@@ -944,8 +984,8 @@ function ShareLinkCard({ shareUrl, loading }: ShareLinkCardProps) {
         </div>
         <p className="flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" />
-          {shareUrl
-            ? "Đường dẫn này lấy trực tiếp từ backend và có thể gửi cho khách hàng."
+          {publicShareUrl
+            ? "Đường dẫn này dùng domain hiện tại để mở đúng biểu mẫu public."
             : "Backend chưa cấp share_url. Hãy tải lại hoặc lưu cấu hình để backend tạo đường dẫn."}
         </p>
       </div>

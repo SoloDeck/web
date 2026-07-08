@@ -6,10 +6,12 @@ import {
   updateProposal,
   deleteProposal,
   sendProposal,
+  transitionProposalStatus,
   generateProposalContent,
+  generateProposalFromDeal,
   aiGenerateProposal,
 } from "@/services/proposalsService";
-import type { AiProposalRequest, ProposalContentDTO, ProposalListFilters } from "@/services/proposalsService";
+import type { AiProposalRequest, ProposalDecisionStatus, ProposalListFilters, UpdateProposalPayload } from "@/services/proposalsService";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -61,8 +63,8 @@ export function useCreateProposal() {
 export function useUpdateProposal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ proposalId, content }: { proposalId: string; content: ProposalContentDTO }) =>
-      updateProposal(proposalId, content),
+    mutationFn: ({ proposalId, payload }: { proposalId: string; payload: UpdateProposalPayload }) =>
+      updateProposal(proposalId, payload),
     onSuccess: (_, { proposalId }) => {
       qc.invalidateQueries({ queryKey: proposalKeys.detail(proposalId) });
       qc.invalidateQueries({ queryKey: proposalKeys.all });
@@ -93,6 +95,19 @@ export function useSendProposal() {
   });
 }
 
+/** Freelancer ghi nhận khách đã chấp nhận/từ chối báo giá ở ngoài SoloDesk. */
+export function useTransitionProposalStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ proposalId, status }: { proposalId: string; status: ProposalDecisionStatus }) =>
+      transitionProposalStatus(proposalId, status),
+    onSuccess: (_, { proposalId }) => {
+      qc.invalidateQueries({ queryKey: proposalKeys.detail(proposalId) });
+      qc.invalidateQueries({ queryKey: proposalKeys.all });
+    },
+  });
+}
+
 /**
  * AI-fill content into an existing draft proposal.
  * POST /proposals/{id}/generate — synchronous, no polling needed.
@@ -103,6 +118,20 @@ export function useGenerateProposalContent() {
     mutationFn: (proposalId: string) => generateProposalContent(proposalId),
     onSuccess: (_, proposalId) => {
       qc.invalidateQueries({ queryKey: proposalKeys.detail(proposalId) });
+      qc.invalidateQueries({ queryKey: proposalKeys.all });
+    },
+  });
+}
+
+/**
+ * POST /proposals/generate-from-deal/{dealId} — để backend tự lấy Deal/Client/Profile.
+ * Cách này bám nghiệp vụ hơn việc FE tự ráp payload AI.
+ */
+export function useGenerateProposalFromDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dealId: string) => generateProposalFromDeal(dealId),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: proposalKeys.all });
     },
   });

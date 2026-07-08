@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import type React from "react";
 import {
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
@@ -18,8 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import type { ProjectTask } from "@/features/deals/types";
+
+type TaskSortMode = "newest" | "oldest";
 
 const PHASE_RULES: { label: string; keywords: string[] }[] = [
   { label: "GIAI ĐOẠN 1: THIẾT KẾ", keywords: ["thiết kế", "wireframe", "mockup", "figma"] },
@@ -55,6 +59,32 @@ function groupTasks(tasks: ProjectTask[]): TaskGroup[] {
   return result;
 }
 
+function getTaskCreatedTime(task: ProjectTask): number {
+  const time = new Date(task.createdAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortTasksForWork(tasks: ProjectTask[], sortMode: TaskSortMode): ProjectTask[] {
+  return [...tasks].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const diff = getTaskCreatedTime(a) - getTaskCreatedTime(b);
+    return sortMode === "newest" ? -diff : diff;
+  });
+}
+
+function formatTaskDate(value?: string | null): string {
+  if (!value) return "Chưa có";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa rõ";
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 type ProjectTaskPanelProps = {
   tasks: ProjectTask[];
   onAddTask: (title: string, note: string) => void;
@@ -79,6 +109,8 @@ export function ProjectTaskPanel({
   const [editingTitle, setEditingTitle] = useState("");
   const [editingNote, setEditingNote] = useState("");
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
+  const [taskPendingDelete, setTaskPendingDelete] = useState<ProjectTask | null>(null);
+  const [sortMode, setSortMode] = useState<TaskSortMode>("newest");
 
   function togglePhase(label: string) {
     setCollapsedPhases((prev) => {
@@ -91,6 +123,7 @@ export function ProjectTaskPanel({
 
   const completedCount = tasks.filter((task) => task.completed).length;
   const progress = tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
+  const visibleTasks = useMemo(() => sortTasksForWork(tasks, sortMode), [tasks, sortMode]);
 
   function openAdd() {
     setAdding(true);
@@ -109,7 +142,7 @@ export function ProjectTaskPanel({
     const title = newTitle.trim();
     if (!title) return;
 
-    // BE task hiện chỉ nhận title/note/is_done, nên form chỉ gửi đúng dữ liệu backend hỗ trợ.
+    // BE task hiện nhận title/description/status; UI vẫn gọi trường ghi chú là note cho dễ hiểu với Freelancer.
     onAddTask(title, newNote.trim());
     cancelAdd();
   }
@@ -130,9 +163,13 @@ export function ProjectTaskPanel({
   }
 
   function confirmDelete(task: ProjectTask) {
-    if (window.confirm(`Xóa công việc "${task.title}"?`)) {
-      onDeleteTask(task.id);
-    }
+    setTaskPendingDelete(task);
+  }
+
+  function handleConfirmDeleteTask() {
+    if (!taskPendingDelete) return;
+    onDeleteTask(taskPendingDelete.id);
+    setTaskPendingDelete(null);
   }
 
   return (
@@ -156,13 +193,27 @@ export function ProjectTaskPanel({
                 {completedCount}/{tasks.length} · {progress}% hoàn thành
               </p>
             </div>
-            <button
-              type="button"
-              onClick={openAdd}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            >
-              <Plus className="h-4 w-4" /> Thêm công việc
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <label className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                <CalendarDays className="h-4 w-4" />
+                <select
+                  value={sortMode}
+                  onChange={(event) => setSortMode(event.target.value as TaskSortMode)}
+                  aria-label="Sắp xếp công việc"
+                  className="bg-transparent text-sm font-medium text-foreground outline-none"
+                >
+                  <option value="newest">Mới tạo trước</option>
+                  <option value="oldest">Cũ hơn trước</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={openAdd}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              >
+                <Plus className="h-4 w-4" /> Thêm công việc
+              </button>
+            </div>
           </div>
           <div
             role="progressbar"
@@ -195,12 +246,12 @@ export function ProjectTaskPanel({
             </div>
           </div>
         ) : (() => {
-            const groups = groupTasks(tasks);
+            const groups = groupTasks(visibleTasks);
             const isGrouped = groups.some((g) => g.phaseLabel !== null);
             if (!isGrouped) {
               return (
                 <div className="divide-y divide-border">
-                  {tasks.map((task) => (
+                  {visibleTasks.map((task) => (
                     <TaskRow
                       key={task.id}
                       task={task}
@@ -298,6 +349,23 @@ export function ProjectTaskPanel({
           />
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(taskPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open) setTaskPendingDelete(null);
+        }}
+        title="Xóa công việc?"
+        description={
+          taskPendingDelete
+            ? `Công việc "${taskPendingDelete.title}" sẽ bị xóa khỏi danh sách triển khai. Hành động này không thể hoàn tác.`
+            : undefined
+        }
+        confirmLabel="Xóa công việc"
+        cancelLabel="Giữ lại"
+        tone="danger"
+        onConfirm={handleConfirmDeleteTask}
+      />
     </>
   );
 }
@@ -378,7 +446,7 @@ function TaskRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="group flex items-start gap-2 px-4 py-3 hover:bg-muted/30">
+    <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
       <GripVertical className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
       <input
         type="checkbox"
@@ -425,8 +493,17 @@ function TaskRow({
             {task.note && <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{task.note}</p>}
           </>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>{task.completed ? "Hoàn thành" : "Chưa làm"}</span>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 font-medium",
+              task.completed ? "bg-success/10 text-success" : "bg-secondary text-muted-foreground"
+            )}
+          >
+            {task.completed ? "Hoàn thành" : "Chưa làm"}
+          </span>
+          <span>Tạo: {formatTaskDate(task.createdAt)}</span>
+          {task.completed && <span>Hoàn thành: {formatTaskDate(task.completedAt)}</span>}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">

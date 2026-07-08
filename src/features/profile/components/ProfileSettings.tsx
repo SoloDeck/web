@@ -1,16 +1,19 @@
-import { useState } from "react";
-import { Check, Save, ShieldCheck, AlertCircle, Briefcase, CreditCard, MessageCircle, FileText, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  AlertCircle, Briefcase, Camera, Check, CreditCard, Eye, EyeOff, ExternalLink,
+  FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save,
+  ShieldCheck, Tag, Trash2, User, X,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   type Profile,
-  type ServiceCategory,
   type PricingTier,
   type ContractClause,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 
-const SERVICE_CATEGORIES: ServiceCategory[] = [
+const SERVICE_CATEGORIES = [
   "Brand & Content Designer",
   "Web Developer",
   "Marketing Consultant",
@@ -109,92 +112,213 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
 
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             {tab === "profile" && (
-              <div className="space-y-5">
+              <div className="space-y-6">
                 <IntakeLinkCard />
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Họ tên">
-                    <input
-                      value={draft.fullName}
-                      onChange={(e) => setDraft({ ...draft, fullName: e.target.value })}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Chức danh hiển thị">
-                    <input
-                      value={draft.displayTitle}
-                      onChange={(e) => setDraft({ ...draft, displayTitle: e.target.value })}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Email">
-                    <input
-                      type="email"
-                      value={draft.email}
-                      readOnly
-                      className={`${inputCls} cursor-default opacity-60`}
-                      title="Email không thể thay đổi"
-                    />
-                  </Field>
-                  <Field label="Số điện thoại">
-                    <input
-                      value={draft.phone}
-                      onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Mã số thuế (nếu có)">
-                    <input
-                      value={draft.taxCode}
-                      onChange={(e) => setDraft({ ...draft, taxCode: e.target.value })}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Giá theo giờ (VND)">
-                    <input
-                      type="number"
-                      value={draft.hourlyRate}
-                      onChange={(e) => setDraft({ ...draft, hourlyRate: Number(e.target.value) || 0 })}
-                      className={inputCls}
+
+                {/* Avatar + identity card */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <User className="h-3.5 w-3.5" /> Thông tin cơ bản
+                  </div>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                    {/* Avatar upload */}
+                    <div className="flex shrink-0 flex-col items-center gap-2">
+                      <AvatarUpload
+                        value={draft.avatarUrl}
+                        name={draft.fullName}
+                        onChange={(url) => setDraft({ ...draft, avatarUrl: url })}
+                      />
+                    </div>
+
+                    <div className="flex-1 space-y-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Field label="Họ tên">
+                          <input
+                            value={draft.fullName}
+                            onChange={(e) => setDraft({ ...draft, fullName: e.target.value })}
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Chức danh chuyên môn">
+                          <input
+                            value={draft.professionalTitle}
+                            onChange={(e) => setDraft({ ...draft, professionalTitle: e.target.value })}
+                            placeholder="VD: Full-stack Developer"
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Email">
+                          <input
+                            type="email"
+                            value={draft.email}
+                            readOnly
+                            className={`${inputCls} cursor-default opacity-60`}
+                            title="Email không thể thay đổi"
+                          />
+                        </Field>
+                        <Field label="Số điện thoại">
+                          <input
+                            value={draft.phone}
+                            onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
+                            className={inputCls}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bio */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5" /> Giới thiệu bản thân
+                  </div>
+                  <Field label="Bio">
+                    <textarea
+                      value={draft.bio}
+                      onChange={(e) => setDraft({ ...draft, bio: e.target.value })}
+                      rows={3}
+                      placeholder="Mô tả ngắn về kinh nghiệm và thế mạnh của bạn..."
+                      className={`${inputCls} resize-none`}
                     />
                   </Field>
                 </div>
 
-                <Field label="Loại dịch vụ">
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                    {SERVICE_CATEGORIES.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => setDraft({ ...draft, serviceCategory: c })}
-                        className={`text-left text-sm px-3 py-2.5 rounded-lg border transition-colors ${
-                          draft.serviceCategory === c
-                            ? "border-primary bg-primary/5 text-foreground font-medium"
-                            : "border-border hover:bg-secondary/60"
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    ))}
+                {/* Skills & Categories */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Tag className="h-3.5 w-3.5" /> Kỹ năng & Dịch vụ
                   </div>
-                </Field>
 
-                <Field label="Mức giá (Pricing tier)">
-                  <div className="grid grid-cols-3 gap-2">
-                    {PRICING_TIERS.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => setDraft({ ...draft, pricingTier: t.id })}
-                        className={`text-left p-3 rounded-lg border transition-colors ${
-                          draft.pricingTier === t.id
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:bg-secondary/60"
-                        }`}
-                      >
-                        <div className="text-sm font-semibold">{t.label}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{t.hint}</div>
-                      </button>
-                    ))}
+                  <Field label="Kỹ năng">
+                    <SkillsInput
+                      value={draft.skills}
+                      onChange={(skills) => setDraft({ ...draft, skills })}
+                    />
+                  </Field>
+
+                  <Field label="Loại dịch vụ cung cấp">
+                    <div className="flex flex-wrap gap-2">
+                      {SERVICE_CATEGORIES.map((c) => {
+                        const selected = draft.serviceCategories.includes(c);
+                        return (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => {
+                              const next = selected
+                                ? draft.serviceCategories.filter((x) => x !== c)
+                                : [...draft.serviceCategories, c];
+                              setDraft({ ...draft, serviceCategories: next });
+                            }}
+                            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                              selected
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                            }`}
+                          >
+                            {selected && <Check className="mr-1 inline h-3 w-3" />}
+                            {c}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                </div>
+
+                {/* Portfolio & visibility */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Globe className="h-3.5 w-3.5" /> Portfolio & Hiển thị
                   </div>
-                </Field>
+                  <Field label="Portfolio URL">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Link2 className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          value={draft.portfolioUrl}
+                          onChange={(e) => setDraft({ ...draft, portfolioUrl: e.target.value })}
+                          placeholder="https://portfolio.example.com"
+                          className={`${inputCls} pl-9`}
+                        />
+                      </div>
+                      {draft.portfolioUrl && (
+                        <a
+                          href={draft.portfolioUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="grid place-items-center rounded-md border border-border px-2.5 hover:bg-secondary"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                        </a>
+                      )}
+                    </div>
+                  </Field>
+
+                  <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-card p-3">
+                    <div>
+                      <div className="text-sm font-medium">Hiển thị trong thư mục Freelancer</div>
+                      <div className="text-xs text-muted-foreground">
+                        Cho phép khách hàng tìm thấy bạn qua directory công khai.
+                      </div>
+                    </div>
+                    <div
+                      onClick={() => setDraft({ ...draft, isListed: !draft.isListed })}
+                      className={`relative h-5 w-9 rounded-full transition-colors ${
+                        draft.isListed ? "bg-primary" : "bg-muted"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          draft.isListed ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </div>
+                  </label>
+                </div>
+
+                {/* Other */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Thông tin khác
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Mã số thuế (nếu có)">
+                      <input
+                        value={draft.taxCode}
+                        onChange={(e) => setDraft({ ...draft, taxCode: e.target.value })}
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Giá theo giờ (VND)">
+                      <input
+                        type="number"
+                        value={draft.hourlyRate}
+                        onChange={(e) => setDraft({ ...draft, hourlyRate: Number(e.target.value) || 0 })}
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Mức giá (Pricing tier)">
+                    <div className="grid grid-cols-3 gap-2">
+                      {PRICING_TIERS.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setDraft({ ...draft, pricingTier: t.id })}
+                          className={`text-left p-3 rounded-lg border transition-colors ${
+                            draft.pricingTier === t.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-secondary/60"
+                          }`}
+                        >
+                          <div className="text-sm font-semibold">{t.label}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{t.hint}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                </div>
               </div>
             )}
 
@@ -556,5 +680,140 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs font-medium text-muted-foreground mb-1.5">{label}</div>
       {children}
     </label>
+  );
+}
+
+function AvatarUpload({
+  value,
+  name,
+  onChange,
+}: {
+  value: string;
+  name: string;
+  onChange: (url: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase())
+    .slice(0, 2)
+    .join("");
+
+  const handleFile = (file: File) => {
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Ảnh quá lớn. Vui lòng chọn file dưới 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result;
+      if (typeof result === "string") onChange(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="group relative cursor-pointer" onClick={() => fileRef.current?.click()}>
+        {value ? (
+          <img
+            src={value}
+            alt={name}
+            className="h-20 w-20 rounded-full object-cover ring-2 ring-border"
+          />
+        ) : (
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-primary to-primary-glow text-2xl font-bold text-primary-foreground ring-2 ring-border">
+            {initials}
+          </div>
+        )}
+        {/* Hover overlay */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+          <Camera className="h-5 w-5 text-white" />
+          <span className="text-[10px] font-semibold text-white">Thay ảnh</span>
+        </div>
+      </div>
+
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 className="h-3 w-3" /> Xóa ảnh
+        </button>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        hidden
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function SkillsInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const add = () => {
+    const trimmed = input.trim();
+    if (trimmed && !value.includes(trimmed)) {
+      onChange([...value, trimmed]);
+    }
+    setInput("");
+  };
+
+  const remove = (skill: string) => onChange(value.filter((s) => s !== skill));
+
+  return (
+    <div
+      className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-primary/30 cursor-text"
+      onClick={() => inputRef.current?.focus()}
+    >
+      {value.map((skill) => (
+        <span
+          key={skill}
+          className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+        >
+          {skill}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); remove(skill); }}
+            className="hover:text-destructive"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
+          if (e.key === "Backspace" && !input && value.length > 0) remove(value[value.length - 1]);
+        }}
+        placeholder={value.length === 0 ? "Nhập kỹ năng, Enter để thêm..." : ""}
+        className="min-w-[140px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      />
+      {input && (
+        <button
+          type="button"
+          onClick={add}
+          className="grid place-items-center rounded-full bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/20"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   );
 }

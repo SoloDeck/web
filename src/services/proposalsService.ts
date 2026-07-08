@@ -29,6 +29,9 @@ export type ProposalContentDTO = {
   title?: string;
   executive_summary?: string;
   scope_of_work?: string;
+  // FE lưu bản rich text đã chỉnh để nội dung gửi đi khớp với những gì Freelancer thấy trên màn hình.
+  rendered_html?: string;
+  html?: string;
   timeline?: {
     start_date?: string;
     end_date?: string;
@@ -108,6 +111,13 @@ export type AiProposalRequest = {
   freelancer_name: string;
 };
 
+export type ProposalDecisionStatus = "accepted" | "rejected" | "expired";
+
+export type UpdateProposalPayload = {
+  deal_id: string;
+  content: ProposalContentDTO;
+};
+
 // ---------------------------------------------------------------------------
 // Service functions
 // ---------------------------------------------------------------------------
@@ -145,11 +155,12 @@ export async function getProposal(proposalId: string): Promise<ProposalResponse>
 /** PATCH /proposals/{id} — update proposal content (draft only). */
 export async function updateProposal(
   proposalId: string,
-  content: ProposalContentDTO
+  payload: UpdateProposalPayload
 ): Promise<ProposalResponse> {
+  // Backend hiện validate deal_id khi PATCH dù openapi.yaml chưa khai báo field này trong UpdateProposalRequest.
   const { data } = await axiosClient.patch<ApiResponse<ProposalResponse>>(
     `/proposals/${proposalId}`,
-    { content }
+    payload
   );
   return data.data;
 }
@@ -167,6 +178,18 @@ export async function sendProposal(proposalId: string): Promise<ProposalResponse
   return data.data;
 }
 
+/** PATCH /proposals/{id}/status - Freelancer ghi nhận phản hồi của khách bên ngoài SoloDesk. */
+export async function transitionProposalStatus(
+  proposalId: string,
+  status: ProposalDecisionStatus
+): Promise<ProposalResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ProposalResponse>>(
+    `/proposals/${proposalId}/status`,
+    { status }
+  );
+  return data.data;
+}
+
 /**
  * POST /proposals/{id}/generate — AI-fill an existing draft proposal.
  * Synchronous — returns the updated proposal immediately. Requires AI subscription.
@@ -176,6 +199,14 @@ export async function generateProposalContent(
 ): Promise<ProposalResponse> {
   const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
     `/proposals/${proposalId}/generate`
+  );
+  return data.data;
+}
+
+/** POST /proposals/generate-from-deal/{dealId} - tạo draft báo giá AI trực tiếp từ Deal. */
+export async function generateProposalFromDeal(dealId: string): Promise<ProposalResponse> {
+  const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
+    `/proposals/generate-from-deal/${dealId}`
   );
   return data.data;
 }

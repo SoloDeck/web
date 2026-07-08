@@ -18,11 +18,16 @@ export type ContractClause = {
 
 export type Profile = {
   fullName: string;
-  displayTitle: string;
+  professionalTitle: string;
+  bio: string;
+  avatarUrl: string;
   email: string;
   phone: string;
   taxCode: string;
-  serviceCategory: ServiceCategory;
+  skills: string[];
+  serviceCategories: string[];
+  portfolioUrl: string;
+  isListed: boolean;
   pricingTier: PricingTier;
   hourlyRate: number;
   zaloOA: {
@@ -45,11 +50,16 @@ export type Profile = {
 
 export const DEFAULT_PROFILE: Profile = {
   fullName: "Minh Nguyễn",
-  displayTitle: "Brand & Content Designer",
+  professionalTitle: "Brand & Content Designer",
+  bio: "",
+  avatarUrl: "",
   email: "minh.nguyen@solodesk.space",
   phone: "0909123456",
   taxCode: "8123456789",
-  serviceCategory: "Brand & Content Designer",
+  skills: [],
+  serviceCategories: [],
+  portfolioUrl: "",
+  isListed: true,
   pricingTier: "Professional",
   hourlyRate: 350000,
   zaloOA: {

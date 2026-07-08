@@ -1,22 +1,26 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   deleteDeal,
   getDeal,
+  getDealIntakes,
   getDealsByClient,
   getDeals,
+  qualifyDeal,
   updateDeal,
   updateDealStage,
   type DealPayload,
 } from "@/services/dealsService";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import type { Stage } from "@/features/deals/types";
+import { getDealHistory, subscribeDealHistory } from "@/features/deals/dealHistoryStorage";
 
 export const dealKeys = {
   all: ["deals"] as const,
   detail: (dealId: string) => ["deals", "detail", dealId] as const,
   byClient: (clientId: string) => ["deals", "client", clientId] as const,
+  intakes: ["deals", "intakes"] as const,
 };
 
 /**
@@ -57,12 +61,32 @@ export function useDeal(dealId: string | undefined) {
   return query;
 }
 
+const EMPTY_HISTORY: ReturnType<typeof getDealHistory> = [];
+
+/** Lịch sử riêng của deal, lưu cục bộ tại trình duyệt vì BE chưa có API deal-activity. */
+export function useDealHistory(dealId: string | undefined) {
+  return useSyncExternalStore(
+    (callback) => (dealId ? subscribeDealHistory(dealId, callback) : () => {}),
+    () => (dealId ? getDealHistory(dealId) : EMPTY_HISTORY),
+    () => EMPTY_HISTORY
+  );
+}
+
 /** Danh sách dự án theo khách hàng; đang dùng fallback FE cho đến khi BE có API filter client_id. */
 export function useClientDeals(clientId: string | undefined) {
   return useQuery({
     queryKey: dealKeys.byClient(clientId ?? ""),
     queryFn: () => getDealsByClient(clientId!),
     enabled: Boolean(clientId),
+  });
+}
+
+/** Danh sách phiếu tiếp nhận từ public form; dùng để bù mô tả/ngân sách cho deal tạo từ intake. */
+export function useDealIntakes(enabled = true) {
+  return useQuery({
+    queryKey: dealKeys.intakes,
+    queryFn: () => getDealIntakes(),
+    enabled,
   });
 }
 
@@ -122,6 +146,17 @@ export function useTransitionDealStage() {
     },
     onError: () => {
       toast.error("Không thể cập nhật giai đoạn dự án.");
+    },
+  });
+}
+
+export function useQualifyDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dealId: string) => qualifyDeal(dealId),
+    onSuccess: (_, dealId) => {
+      qc.invalidateQueries({ queryKey: dealKeys.all });
+      qc.invalidateQueries({ queryKey: dealKeys.detail(dealId) });
     },
   });
 }

@@ -29,7 +29,7 @@ export function KanbanColumn({
   const highlighted = isOver || isDropTarget;
 
   return (
-    <section className="flex min-w-0 flex-col" aria-labelledby={`stage-${stage}`}>
+    <section className="flex min-h-0 min-w-0 flex-col" aria-labelledby={`stage-${stage}`}>
       <header className="mb-2 rounded-lg px-1 py-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -55,7 +55,7 @@ export function KanbanColumn({
         role="list"
         aria-label={title}
         className={cn(
-          "min-h-[440px] min-w-0 flex-1 space-y-2 rounded-xl border border-dashed p-2 transition-all duration-150",
+          "min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto rounded-xl border border-dashed p-2 transition-all duration-150",
           highlighted
             ? "border-primary bg-primary/5 shadow-[0_0_0_2px_hsl(var(--primary)/0.12)]"
             : "border-border bg-background"

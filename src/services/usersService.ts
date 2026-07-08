@@ -15,10 +15,17 @@ export type UserResponse = {
 
 export type UpdateUserPayload = {
   full_name?: string;
-  email?: string;
-  avatar_url?: string;
-  bio?: string;
   phone?: string;
+};
+
+export type FreelancerProfilePayload = {
+  professional_title?: string;
+  bio?: string;
+  skills?: string[];
+  service_categories?: string[];
+  avatar_url?: string;
+  portfolio_url?: string;
+  is_listed?: boolean;
 };
 
 export type ChangePasswordPayload = {
@@ -33,6 +40,11 @@ export async function getMe(): Promise<UserResponse> {
 
 export async function updateMe(payload: UpdateUserPayload): Promise<UserResponse> {
   const { data } = await axiosClient.patch<ApiResponse<UserResponse>>("/users/me", payload);
+  return data.data;
+}
+
+export async function updateFreelancerProfile(payload: FreelancerProfilePayload): Promise<UserResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<UserResponse>>("/users/me/freelancer-profile", payload);
   return data.data;
 }
 

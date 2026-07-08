@@ -1,6 +1,7 @@
 import {
   Briefcase,
   ClipboardList,
+  CreditCard,
   LayoutDashboard,
   MessageSquareHeart,
   Plus,
@@ -12,7 +13,7 @@ import {
 import { UserMenu } from "@/features/auth/components/UserMenu";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 
-type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "admin";
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription" | "admin";
 
 export function AppSidebar({
   onOpenAI,
@@ -29,11 +30,12 @@ export function AppSidebar({
 }) {
   const isAdmin = useAuthStore((state) => state.user?.role === "admin");
   const navItems = [
-    { key: "pipeline" as const, icon: LayoutDashboard, label: "Dự án" },
+    { key: "pipeline" as const, icon: LayoutDashboard, label: "Quy trình deal" },
     { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
     { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
     { key: "intake-form" as const, icon: ClipboardList, label: "Biểu mẫu tiếp nhận" },
     { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
+    { key: "subscription" as const, icon: CreditCard, label: "Gói đăng ký" },
     ...(isAdmin ? [{ key: "admin" as const, icon: ShieldCheck, label: "Admin" }] : []),
   ];
 
@@ -94,7 +96,7 @@ export function AppSidebar({
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-3 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:opacity-95"
         >
           <Plus className="h-4 w-4" />
-          Thêm dự án mới
+          Thêm yêu cầu mới
         </button>
       </div>
 

@@ -92,3 +92,20 @@ export async function listClientCommLogs(clientId: string): Promise<ClientCommLo
   );
   return data.data ?? [];
 }
+
+export type ClientCommLogPayload = {
+  channel: string;
+  summary: string;
+  communicated_at: string;
+};
+
+export async function createClientCommLog(
+  clientId: string,
+  payload: ClientCommLogPayload
+): Promise<ClientCommLog> {
+  const { data } = await axiosClient.post<ApiEnvelope<ClientCommLog>>(
+    `/clients/${clientId}/comm-logs`,
+    payload
+  );
+  return data.data;
+}

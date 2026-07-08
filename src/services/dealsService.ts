@@ -1,6 +1,7 @@
 import axiosClient from "@/configs/axios";
 import type { ApiResponse } from "@/features/auth/types";
 import type { Deal, LeadScore, Stage } from "@/features/deals/types";
+import { formatVND } from "@/utils/format";
 
 // ---------------------------------------------------------------------------
 // Backend response shapes
@@ -38,6 +39,18 @@ type PaginatedEnvelope<T> = {
   pagination?: { total: number; page: number; page_size: number; total_pages: number };
 };
 
+type ApiIntakeResponse = {
+  id: string;
+  owner_user_id: string;
+  client_id: string;
+  inquiry_text: string | null;
+  estimated_budget: string | null;
+  desired_timeline: string | null;
+  source: string | null;
+  submitted_at: string;
+  created_at: string;
+};
+
 export type DealPayload = {
   client_id: string;
   title: string;
@@ -49,6 +62,30 @@ export type DealPayload = {
   project_type?: string | null;
   service_category?: string | null;
   pricing_tier?: string | null;
+};
+
+export type DealIntake = {
+  id: string;
+  ownerUserId: string;
+  clientId: string;
+  inquiryText: string;
+  estimatedBudget: string;
+  desiredTimeline: string;
+  source: string | null;
+  submittedAt: string;
+  createdAt: string;
+};
+
+export type DealQualificationResult = {
+  project_type?: string | null;
+  budget_signal?: string | null;
+  timeline_signal?: string | null;
+  urgency_signal?: string | null;
+  red_flags?: string[] | null;
+  suggested_lead_score?: string | null;
+  reasoning?: string | null;
+  ai_qualification_score?: number | null;
+  ai_qualification_recommendation?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -108,13 +145,82 @@ export function mapDeal(d: ApiDealResponse, clientMap: Map<string, ClientHint>):
   };
 }
 
+function mapDealIntake(intake: ApiIntakeResponse): DealIntake {
+  return {
+    id: intake.id,
+    ownerUserId: intake.owner_user_id,
+    clientId: intake.client_id,
+    inquiryText: intake.inquiry_text ?? "",
+    estimatedBudget: intake.estimated_budget ?? "",
+    desiredTimeline: intake.desired_timeline ?? "",
+    source: intake.source,
+    submittedAt: intake.submitted_at,
+    createdAt: intake.created_at,
+  };
+}
+
+function parseBudgetToVnd(budget: string): number {
+  const normalized = budget.trim().toLowerCase();
+  if (!normalized) return 0;
+
+  const matches = normalized.match(/\d+(?:[.,]\d+)*/g);
+  if (!matches?.length) return 0;
+
+  const hasMillionUnit = /triệu|trieu|\btr\b|\btrieu\b|\bm\b/.test(normalized);
+  const hasBillionUnit = /tỷ|ty|\bb\b/.test(normalized);
+  const hasThousandUnit = /nghìn|ngàn|nghin|ngan|\bk\b/.test(normalized);
+  const multiplier = hasBillionUnit ? 1_000_000_000 : hasMillionUnit ? 1_000_000 : hasThousandUnit ? 1_000 : 1;
+
+  const values = matches
+    .map((token) => {
+      const separator = token.includes(",") ? "," : token.includes(".") ? "." : "";
+      const parts = separator ? token.split(separator) : [token];
+      const looksDecimal = multiplier > 1 && parts.length === 2 && parts[1].length <= 2;
+      const rawNumber = looksDecimal ? token.replace(",", ".") : token.replace(/[.,]/g, "");
+      const number = Number(rawNumber);
+      return Number.isFinite(number) ? number * multiplier : 0;
+    })
+    .filter((value) => value > 0);
+
+  return values.length ? Math.round(Math.max(...values)) : 0;
+}
+
+function formatBudgetLabel(budget: string, parsedValue: number): string {
+  const trimmed = budget.trim();
+  const looksLikeRange = /-|–|—|đến|den|to/i.test(trimmed);
+  return parsedValue > 0 && !looksLikeRange ? formatVND(parsedValue) : trimmed;
+}
+
+function createLatestIntakeByClient(intakes: DealIntake[]): Map<string, DealIntake> {
+  const map = new Map<string, DealIntake>();
+  for (const intake of intakes) {
+    if (!map.has(intake.clientId)) map.set(intake.clientId, intake);
+  }
+  return map;
+}
+
+function applyIntakeFallback(deal: Deal, intake?: DealIntake): Deal {
+  if (!intake) return deal;
+
+  const budget = intake.estimatedBudget.trim();
+  const parsedBudget = budget ? parseBudgetToVnd(budget) : 0;
+
+  return {
+    ...deal,
+    // BE đang lưu ngân sách public intake ở bảng riêng; khi deal chưa có estimated_value thì FE bù vào để board không hiện 0đ.
+    value: deal.value > 0 ? deal.value : parsedBudget || deal.value,
+    budgetLabel: deal.value > 0 || !budget ? deal.budgetLabel : formatBudgetLabel(budget, parsedBudget),
+    notes: deal.notes.trim() || intake.inquiryText.trim() || deal.notes,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Service functions
 // ---------------------------------------------------------------------------
 
 /** GET /deals — fetches all user deals, enriched with client names/contact. */
 export async function getDeals(): Promise<Deal[]> {
-  const [dealsRes, clientsRes] = await Promise.all([
+  const [dealsRes, clientsRes, intakes] = await Promise.all([
     axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
       params: { page_size: 100 },
     }),
@@ -123,13 +229,17 @@ export async function getDeals(): Promise<Deal[]> {
         params: { page_size: 100 },
       })
       .catch(() => ({ data: { data: [] as ClientHint[] } })),
+    getDealIntakes().catch(() => [] as DealIntake[]),
   ]);
 
   const clientMap = new Map<string, ClientHint>(
     (clientsRes.data.data ?? []).map((c) => [c.id, c])
   );
+  const intakeByClient = createLatestIntakeByClient(intakes);
 
-  return (dealsRes.data.data ?? []).map((d) => mapDeal(d, clientMap));
+  return (dealsRes.data.data ?? []).map((d) =>
+    applyIntakeFallback(mapDeal(d, clientMap), intakeByClient.get(d.client_id))
+  );
 }
 
 /** GET /deals — BE chưa có filter theo client_id, nên FE tạm lọc local ở một nơi duy nhất. */
@@ -153,7 +263,16 @@ export async function getDeal(id: string): Promise<Deal> {
     // BE detail vẫn đủ để render trang; client detail chỉ làm giàu contact.
   }
 
-  return mapDeal(deal, clientMap);
+  const intakes = await getDealIntakes().catch(() => [] as DealIntake[]);
+  return applyIntakeFallback(mapDeal(deal, clientMap), createLatestIntakeByClient(intakes).get(deal.client_id));
+}
+
+/** GET /deals/intakes — BE lưu phiếu tiếp nhận riêng với deal, FE dùng để bổ sung mô tả/ngân sách khi deal chưa copy dữ liệu. */
+export async function getDealIntakes(pageSize = 100): Promise<DealIntake[]> {
+  const { data } = await axiosClient.get<PaginatedEnvelope<ApiIntakeResponse>>("/deals/intakes", {
+    params: { page_size: pageSize },
+  });
+  return (data.data ?? []).map(mapDealIntake);
 }
 
 /** POST /deals/{id}/stage — transitions a deal to a new stage. */
@@ -187,4 +306,15 @@ export async function updateDeal(id: string, payload: DealPayload): Promise<Deal
 /** DELETE /deals/{id} — soft-deletes a deal. */
 export async function deleteDeal(id: string): Promise<void> {
   await axiosClient.delete(`/deals/${id}`);
+}
+
+/** POST /deals/{id}/qualify - AI đánh giá deal theo DealId và lưu điểm vào backend. */
+export async function qualifyDeal(id: string): Promise<DealQualificationResult> {
+  const { data } = await axiosClient.post<ApiResponse<DealQualificationResult>>(
+    `/deals/${id}/qualify`,
+    undefined,
+    // Endpoint AI có thể mất hơn 15 giây, nên tăng timeout riêng thay vì đổi toàn bộ axios client.
+    { timeout: 65000 }
+  );
+  return data.data;
 }

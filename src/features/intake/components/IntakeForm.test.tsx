@@ -118,7 +118,8 @@ describe("<IntakeForm />", () => {
     await renderReady();
 
     expect(getPublicIntakeFormConfig).toHaveBeenCalledWith("tok123");
-    expect(screen.getByText("Biểu mẫu của Nguyễn Văn Freelancer")).toBeInTheDocument();
+    // Thẻ hồ sơ hiển thị tên freelancer chủ biểu mẫu.
+    expect(screen.getByText("Nguyễn Văn Freelancer")).toBeInTheDocument();
     expect(screen.getByLabelText("Họ tên khách hàng")).toBeInTheDocument();
     expect(screen.getByLabelText("Mô tả nhu cầu")).toBeInTheDocument();
     expect(screen.queryByLabelText("Zalo")).not.toBeInTheDocument();

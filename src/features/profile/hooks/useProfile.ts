@@ -22,6 +22,7 @@ export function useProfile() {
           fullName: me.full_name,
           email: me.email,
           phone: me.phone ?? prev.phone,
+          avatarUrl: me.avatar_url ?? prev.avatarUrl,
         }));
       })
       .catch(() => {});

@@ -1,4 +1,4 @@
-import { X, Mail, CreditCard, Clock, Construction } from "lucide-react";
+import { X, Mail, CreditCard, Clock, Construction, Lock } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import type { Deal, ProjectTask } from "@/features/deals/types";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
@@ -30,18 +30,21 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
     deal ? state.deals.find((item) => item.id === deal.id) : undefined,
   );
   const selectedDeal = storedDeal ?? deal;
+  const projectStageUnlocked =
+    selectedDeal?.stage === "active" || selectedDeal?.stage === "completed_and_billed";
 
-  const { data: taskData } = useProjectTasks(selectedDeal?.id);
+  const { data: taskData } = useProjectTasks(selectedDeal?.id, projectStageUnlocked);
   const projectId = taskData?.projectId ?? "";
 
   const addTaskMutation = useAddTask(selectedDeal?.id ?? "", projectId);
-  const toggleTaskMutation = useToggleTask(selectedDeal?.id ?? "", projectId);
-  const updateTaskMutation = useUpdateTask(selectedDeal?.id ?? "", projectId);
-  const deleteTaskMutation = useDeleteTask(selectedDeal?.id ?? "", projectId);
+  const toggleTaskMutation = useToggleTask(selectedDeal?.id ?? "");
+  const updateTaskMutation = useUpdateTask(selectedDeal?.id ?? "");
+  const deleteTaskMutation = useDeleteTask(selectedDeal?.id ?? "");
 
   if (!selectedDeal) return null;
 
   function handleAddTask(title: string, note: string) {
+    if (!projectId) return;
     addTaskMutation.mutate({ title, note });
   }
 
@@ -163,14 +166,33 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
         </div>
         </div>
 
-        <ProjectTaskPanel
-          tasks={taskData?.tasks ?? []}
-          onAddTask={handleAddTask}
-          onUpdateTask={handleUpdateTask}
-          onDeleteTask={handleDeleteTask}
-          onToggleTask={handleToggleTask}
-          onClick={(event) => event.stopPropagation()}
-        />
+        {projectStageUnlocked ? (
+          <ProjectTaskPanel
+            tasks={taskData?.tasks ?? []}
+            onAddTask={handleAddTask}
+            onUpdateTask={handleUpdateTask}
+            onDeleteTask={handleDeleteTask}
+            onToggleTask={handleToggleTask}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : (
+          <section
+            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-[560px] min-h-0 flex-col rounded-xl border border-border bg-card p-5 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <Lock className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-semibold uppercase tracking-wide">Công việc chưa mở</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Task chỉ được tạo sau khi deal chuyển sang Đang triển khai và có project gắn với deal.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

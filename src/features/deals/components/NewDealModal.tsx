@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Plus, Save, Search, User, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Paperclip, Plus, Save, Search, Trash2, User, XCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -85,6 +85,9 @@ export function NewDealModal({
   const queryClient = useQueryClient();
   const [form, dispatch] = useReducer(formReducer, INITIAL);
   const [submitting, setSubmitting] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [suggestions, setSuggestions] = useState<ClientRecord[]>([]);
   const [searching, setSearching] = useState(false);
@@ -181,11 +184,11 @@ export function NewDealModal({
 
   const modalCopy = useMemo(
     () => ({
-      title: isEditing ? "Sửa dự án" : "Thêm dự án mới",
+      title: isEditing ? "Sửa yêu cầu" : "Thêm yêu cầu mới",
       description: isEditing
-        ? "Cập nhật thông tin dự án và đồng bộ lại dữ liệu."
-        : "Tạo khách hàng nếu chưa có, sau đó tạo dự án mới.",
-      submit: isEditing ? "Lưu thay đổi" : selectedClient ? "Tạo dự án" : "Tạo khách hàng & dự án",
+        ? "Cập nhật thông tin deal trước khi chuyển sang triển khai."
+        : "Tạo khách hàng nếu chưa có, sau đó tạo yêu cầu mới ở cột Deal Mới.",
+      submit: isEditing ? "Lưu thay đổi" : selectedClient ? "Tạo yêu cầu" : "Tạo khách hàng & yêu cầu",
     }),
     [isEditing, selectedClient]
   );
@@ -207,19 +210,31 @@ export function NewDealModal({
     dispatch({ client_name: "", client_phone: "", client_email: "", client_notes: "" });
   };
 
+  const addFiles = (incoming: FileList | File[]) => {
+    const next = Array.from(incoming).filter(
+      (f) => !attachments.some((a) => a.name === f.name && a.size === f.size),
+    );
+    setAttachments((prev) => [...prev, ...next]);
+  };
+
+  const removeFile = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleClose = () => {
     if (submitting) return;
     dispatch(INITIAL);
     setSelectedClient(null);
     setSuggestions([]);
     setShowDropdown(false);
+    setAttachments([]);
     onClose();
   };
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!canSubmit) {
-      toast.error("Vui lòng nhập đủ tên khách hàng và tên dự án.");
+      toast.error("Vui lòng nhập đủ tên khách hàng và tên yêu cầu.");
       return;
     }
 
@@ -236,7 +251,7 @@ export function NewDealModal({
         };
         const updated = await updateDeal(deal.id, payload);
         updateStoredDeal({ ...updated, client: deal.client, clientEmail: deal.clientEmail, clientPhone: deal.clientPhone });
-        toast.success("Đã cập nhật dự án.");
+        toast.success("Đã cập nhật yêu cầu.");
       } else {
         let client = selectedClient;
         if (!client) {
@@ -259,14 +274,14 @@ export function NewDealModal({
           client
         );
         addDeal(created);
-        toast.success(`Đã tạo dự án "${created.projectType}" cho ${created.client}.`);
+        toast.success(`Đã tạo yêu cầu "${created.projectType}" cho ${created.client}.`);
       }
 
       queryClient.invalidateQueries({ queryKey: dealKeys.all });
       handleClose();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Không thể lưu dự án. Vui lòng thử lại.");
+      toast.error(msg ?? "Không thể lưu yêu cầu. Vui lòng thử lại.");
     } finally {
       setSubmitting(false);
     }
@@ -396,11 +411,11 @@ export function NewDealModal({
 
           <section className="space-y-3 border-t border-dashed border-border pt-5">
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Yêu cầu dự án
+              Thông tin yêu cầu
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">
-                Tên dự án <span className="text-destructive">*</span>
+                Tên yêu cầu <span className="text-destructive">*</span>
               </label>
               <input
                 value={form.title}
@@ -444,7 +459,7 @@ export function NewDealModal({
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Yêu cầu dự án</label>
+              <label className="mb-1 block text-sm font-medium">Nội dung yêu cầu</label>
               <textarea
                 value={form.notes}
                 onChange={set("notes")}
@@ -452,6 +467,70 @@ export function NewDealModal({
                 placeholder="Mô tả yêu cầu, phạm vi, điều kiện bàn giao..."
                 className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                Tài liệu đính kèm
+                <span className="ml-2 text-[11px] font-normal text-muted-foreground">(PDF, Word, Excel, hình ảnh)</span>
+              </label>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors ${
+                  isDragging
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40"
+                }`}
+              >
+                <Paperclip className="size-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Kéo thả file vào đây hoặc bấm để chọn</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Tối đa 10MB mỗi file</p>
+                </div>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar"
+                onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+              />
+
+              {attachments.length > 0 && (
+                <ul className="mt-2 space-y-1.5">
+                  {attachments.map((file, index) => (
+                    <li
+                      key={`${file.name}-${file.size}`}
+                      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2"
+                    >
+                      <FileText className="size-4 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium">{file.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {file.size < 1024 * 1024
+                            ? `${(file.size / 1024).toFixed(1)} KB`
+                            : `${(file.size / 1024 / 1024).toFixed(1)} MB`}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeFile(index); }}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </section>
 
