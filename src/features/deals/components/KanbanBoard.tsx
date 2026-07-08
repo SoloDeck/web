@@ -116,7 +116,7 @@ export function KanbanBoard({
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     >
-      <div className="grid h-full min-w-0 grid-cols-6 gap-3 p-4 lg:gap-4 lg:p-6">
+      <div className="grid h-full min-w-0 grid-cols-6 grid-rows-1 gap-3 p-4 lg:gap-4 lg:p-6">
         {VISIBLE_STAGES.map((stage) => (
           <KanbanColumn
             key={stage.id}

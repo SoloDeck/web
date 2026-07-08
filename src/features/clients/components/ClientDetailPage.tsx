@@ -6,38 +6,71 @@ import {
   CalendarDays,
   Loader2,
   Mail,
+  Pencil,
   Phone,
   Plus,
+  Search,
 } from "lucide-react";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
-import { useClient, useClientCommLogs } from "@/features/clients/hooks/useClients";
+import { ClientEditDialog } from "@/features/clients/components/ClientEditDialog";
+import { ClientInteractionHistory } from "@/features/clients/components/ClientInteractionHistory";
+import { useClient } from "@/features/clients/hooks/useClients";
 import { useClientDeals } from "@/features/deals/hooks/useDeals";
 import { STAGE_BY_ID, type Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
 
+type DealSort = "newest" | "oldest" | "value";
+
+const DEAL_SORT_OPTIONS: { value: DealSort; label: string }[] = [
+  { value: "newest", label: "Mới nhất" },
+  { value: "oldest", label: "Cũ nhất" },
+  { value: "value", label: "Giá trị cao" },
+];
+
 export function ClientDetailPage({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const clientQuery = useClient(clientId);
   const dealsQuery = useClientDeals(clientId);
-  const commLogsQuery = useClientCommLogs(clientId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [dealSearch, setDealSearch] = useState("");
+  const [dealSort, setDealSort] = useState<DealSort>("newest");
 
   const client = clientQuery.data;
-  const deals = useMemo(
-    () => [...(dealsQuery.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [dealsQuery.data]
-  );
+  // Danh sách gốc (chưa lọc) — dùng cho các chỉ số tổng quan.
+  const deals = useMemo(() => dealsQuery.data ?? [], [dealsQuery.data]);
   const totalValue = useMemo(() => deals.reduce((sum, deal) => sum + deal.value, 0), [deals]);
   const activeDeals = useMemo(
     () => deals.filter((deal) => deal.stage !== "lost" && deal.stage !== "completed_and_billed").length,
     [deals]
   );
 
+  // Danh sách hiển thị: lọc theo từ khoá rồi sắp xếp theo lựa chọn của người dùng.
+  const visibleDeals = useMemo(() => {
+    const term = dealSearch.trim().toLowerCase();
+    const filtered = term
+      ? deals.filter(
+          (deal) =>
+            deal.projectType.toLowerCase().includes(term) ||
+            (deal.notes ?? "").toLowerCase().includes(term)
+        )
+      : deals;
+    const sorted = [...filtered];
+    if (dealSort === "value") {
+      sorted.sort((a, b) => b.value - a.value);
+    } else if (dealSort === "oldest") {
+      sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    } else {
+      sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    return sorted;
+  }, [deals, dealSearch, dealSort]);
+
   function goBack() {
-    navigate({ to: "/" });
+    navigate({ to: "/", search: { tab: "clients" } });
   }
 
   function openDeal(deal: Deal) {
@@ -95,7 +128,11 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
         onClose={() => setSidebarOpen(false)}
         active="clients"
         onOpenAI={() => setNewDealOpen(true)}
-        onNavigate={(nav) => navigate({ to: nav === "admin" ? "/admin" : "/" })}
+        onNavigate={(navKey) =>
+          navKey === "admin"
+            ? navigate({ to: "/admin" })
+            : navigate({ to: "/", search: navKey === "pipeline" ? {} : { tab: navKey } })
+        }
       />
 
       <main className="min-w-0 flex-1 overflow-auto">
@@ -161,6 +198,16 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                     {client.notes || client.description || "Chưa có ghi chú khách hàng."}
                   </p>
                 </div>
+
+                <div className="mt-5 flex gap-2 border-t border-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90"
+                  >
+                    <Pencil className="h-4 w-4" /> Chỉnh sửa
+                  </button>
+                </div>
               </section>
 
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -181,8 +228,7 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                   <div>
                     <h2 className="text-base font-semibold">Dự án đã hợp tác</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {/* BE chưa có API deal theo client_id, danh sách này đang lấy GET /deals rồi lọc theo clientId ở service. */}
-                      Dữ liệu dự án đang dùng fallback có kiểm soát cho đến khi backend hỗ trợ filter theo khách hàng.
+                      {deals.length} dự án · Tổng giá trị {formatVND(totalValue)}
                     </p>
                   </div>
                   {dealsQuery.isFetching && (
@@ -192,8 +238,34 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                   )}
                 </div>
 
-                <div className="mt-4 space-y-3">
-                  {deals.map((deal) => (
+                {deals.length > 0 && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-input bg-background px-3 py-2">
+                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <input
+                        value={dealSearch}
+                        onChange={(e) => setDealSearch(e.target.value)}
+                        placeholder="Tìm theo tên dự án hoặc ghi chú..."
+                        className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                      />
+                    </div>
+                    <select
+                      value={dealSort}
+                      onChange={(e) => setDealSort(e.target.value as DealSort)}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      aria-label="Sắp xếp dự án"
+                    >
+                      {DEAL_SORT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="mt-4 max-h-[480px] space-y-3 overflow-y-auto pr-1">
+                  {visibleDeals.map((deal) => (
                     <DealRow key={deal.id} deal={deal} onOpen={() => openDeal(deal)} />
                   ))}
 
@@ -202,37 +274,27 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                       <BriefcaseBusiness className="mx-auto h-8 w-8 text-muted-foreground/60" />
                       <h3 className="mt-3 text-sm font-semibold">Chưa có dự án hợp tác</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Khi backend có dữ liệu deal theo khách hàng, danh sách sẽ tự cập nhật tại đây.
+                        Thêm dự án mới để bắt đầu theo dõi công việc với khách hàng này.
                       </p>
+                    </div>
+                  )}
+
+                  {deals.length > 0 && visibleDeals.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                      Không tìm thấy dự án khớp với "{dealSearch}".
                     </div>
                   )}
                 </div>
               </section>
 
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="text-base font-semibold">Lịch sử tương tác</h2>
-                <div className="mt-4 space-y-3">
-                  {(commLogsQuery.data ?? []).map((log) => (
-                    <div key={log.id} className="rounded-lg border border-border px-3 py-2">
-                      <div className="text-xs text-muted-foreground">
-                        {formatDate(log.communicated_at)} · {log.channel}
-                      </div>
-                      <div className="mt-1 text-sm">{log.summary}</div>
-                    </div>
-                  ))}
-                  {!commLogsQuery.isLoading && (commLogsQuery.data ?? []).length === 0 && (
-                    <div className="rounded-lg border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-                      Chưa có lịch sử tương tác từ API comm-logs.
-                    </div>
-                  )}
-                </div>
-              </section>
+              <ClientInteractionHistory clientId={clientId} />
             </section>
           </div>
         </div>
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
+      <ClientEditDialog client={client} open={editOpen} onClose={() => setEditOpen(false)} />
     </div>
   );
 }

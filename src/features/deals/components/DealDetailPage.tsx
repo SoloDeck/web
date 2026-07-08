@@ -1200,7 +1200,7 @@ function ClientInfoPanel({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90"
           >
             <Pencil className="h-4 w-4" /> Chỉnh sửa
           </button>

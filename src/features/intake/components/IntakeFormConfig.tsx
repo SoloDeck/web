@@ -914,12 +914,10 @@ function normalizeShareUrlForCurrentSite(shareUrl: string | null): string | null
 
   try {
     const parsedUrl = new URL(shareUrl, window.location.origin);
-    let pathname = parsedUrl.pathname;
-    // Normalize /bieu-mau/ → /intake/ để URL luôn hiển thị tiếng Anh
-    if (pathname.startsWith("/bieu-mau/")) {
-      pathname = "/intake/" + pathname.slice("/bieu-mau/".length);
-    }
-    const isPublicIntakePath = pathname.startsWith("/intake/");
+    const pathname = parsedUrl.pathname;
+    // Giữ nguyên path công khai (backend trả /bieu-mau/{token}); chấp nhận cả /intake/ để tương thích link cũ.
+    const isPublicIntakePath =
+      pathname.startsWith("/bieu-mau/") || pathname.startsWith("/intake/");
 
     // Backend có thể trả domain production; khi test local, dùng origin hiện tại để mở đúng FE đang chạy.
     if (isPublicIntakePath) {

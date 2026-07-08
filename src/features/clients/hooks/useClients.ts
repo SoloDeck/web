@@ -7,8 +7,10 @@ import {
   updateClient,
   deleteClient,
   listClientCommLogs,
+  createClientCommLog,
   type GetClientsParams,
   type ClientPayload,
+  type ClientCommLogPayload,
 } from "@/services/clientsService";
 
 export function useClients(params: GetClientsParams = {}) {
@@ -31,6 +33,21 @@ export function useClientCommLogs(clientId: string | undefined) {
     queryKey: ["clients", "comm-logs", clientId],
     queryFn: () => listClientCommLogs(clientId!),
     enabled: Boolean(clientId),
+  });
+}
+
+export function useCreateClientCommLog(clientId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ClientCommLogPayload) =>
+      createClientCommLog(clientId!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients", "comm-logs", clientId] });
+      toast.success("Đã ghi nhận lịch sử tương tác.");
+    },
+    onError: () => {
+      toast.error("Không thể lưu lịch sử tương tác. Vui lòng thử lại.");
+    },
   });
 }
 

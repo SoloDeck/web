@@ -2,9 +2,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell,
-  Columns3,
   Filter,
-  List,
   Loader2,
   Menu,
   Plus,
@@ -28,12 +26,30 @@ import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { updateMe, updateFreelancerProfile } from "@/services/usersService";
-import { STAGE_BY_ID, type Deal } from "@/features/deals/types";
+import type { Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
 import type { ClientRecord } from "@/services/clientsService";
 
+type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription";
+
+const NAV_KEYS: NavKey[] = [
+  "pipeline",
+  "clients",
+  "revenue",
+  "intake-form",
+  "settings",
+  "subscription",
+];
+
+type IndexSearch = { tab?: NavKey };
+
 export const Route = createFileRoute("/")({
+  // Tab hiện tại được lưu ở query param `?tab=` để nút back và link chia sẻ mở đúng màn hình.
+  validateSearch: (search: Record<string, unknown>): IndexSearch => {
+    const tab = search.tab as NavKey | undefined;
+    return { tab: tab && NAV_KEYS.includes(tab) ? tab : undefined };
+  },
   beforeLoad: () => {
     const { isAuthenticated, user } = useAuthStore.getState();
     if (!isAuthenticated) {
@@ -45,9 +61,6 @@ export const Route = createFileRoute("/")({
   },
   component: Index,
 });
-
-type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription";
-type PipelineView = "kanban" | "list";
 
 const PAGE_META: Record<NavKey, { title: string; description: string }> = {
   pipeline: {
@@ -111,10 +124,19 @@ function Index() {
   const [proposal, setProposal] = useState<Deal | null>(null);
   const [aiDeal, setAiDeal] = useState<Deal | null>(null);
   const [query, setQuery] = useState("");
-  const [nav, setNav] = useState<NavKey>("pipeline");
+  // Tab lấy từ URL (?tab=) để nút back từ trang chi tiết mở lại đúng màn hình.
+  const { tab } = Route.useSearch();
+  const nav: NavKey = tab ?? "pipeline";
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [pipelineView, setPipelineView] = useState<PipelineView>("kanban");
   const pageMeta = PAGE_META[nav];
+
+  const goToTab = useCallback(
+    (nextNav: NavKey) => {
+      // pipeline là mặc định → bỏ query cho URL gọn ("/").
+      navigate({ to: "/", search: nextNav === "pipeline" ? {} : { tab: nextNav } });
+    },
+    [navigate]
+  );
 
   useEffect(() => {
     // Nếu role admin được hydrate sau khi route đã load, vẫn đẩy về console quản trị.
@@ -183,7 +205,7 @@ function Index() {
             navigate({ to: "/admin" });
             return;
           }
-          setNav(nextNav);
+          goToTab(nextNav);
           if (window.innerWidth < 1024) setSidebarOpen(false);
         }}
       />
@@ -267,53 +289,23 @@ function Index() {
                           {filtered.length} deal · Tổng: {formatVND(totalValue)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="inline-flex rounded-lg border border-border bg-card p-1">
-                          <button
-                            type="button"
-                            onClick={() => setPipelineView("kanban")}
-                            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
-                              pipelineView === "kanban"
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            <Columns3 className="h-4 w-4" /> Bảng
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setPipelineView("list")}
-                            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
-                              pipelineView === "list"
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            <List className="h-4 w-4" /> Danh sách
-                          </button>
-                        </div>
-                        <button
-                          onClick={() => setNewDealOpen(true)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 sm:hidden"
-                        >
-                          <Plus className="h-4 w-4" /> Thêm
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setNewDealOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 sm:hidden"
+                      >
+                        <Plus className="h-4 w-4" /> Thêm
+                      </button>
                     </div>
                   </div>
 
-                  {pipelineView === "kanban" ? (
-                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-                      <KanbanBoard
-                        deals={filtered}
-                        onCardClick={openDeal}
-                        onDraft={handleAiAction}
-                        onAddDeal={() => setNewDealOpen(true)}
-                      />
-                    </div>
-                  ) : (
-                    <PipelineList deals={filtered} onOpenDeal={openDeal} />
-                  )}
+                  <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+                    <KanbanBoard
+                      deals={filtered}
+                      onCardClick={openDeal}
+                      onDraft={handleAiAction}
+                      onAddDeal={() => setNewDealOpen(true)}
+                    />
+                  </div>
                 </section>
               )}
 
@@ -343,45 +335,6 @@ function Index() {
       <AIPanel open={Boolean(aiDeal)} deal={aiDeal} onClose={() => setAiDeal(null)} />
       <AIActivityCenter />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
-    </div>
-  );
-}
-
-function PipelineList({ deals, onOpenDeal }: { deals: Deal[]; onOpenDeal: (deal: Deal) => void }) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto p-4 lg:p-6">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="grid grid-cols-[1.4fr_1fr_140px_150px] border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <div>Yêu cầu / deal</div>
-          <div>Khách hàng</div>
-          <div>Giai đoạn</div>
-          <div className="text-right">Giá trị</div>
-        </div>
-        {deals.map((deal) => (
-          <button
-            key={deal.id}
-            type="button"
-            onClick={() => onOpenDeal(deal)}
-            className="grid w-full grid-cols-[1.4fr_1fr_140px_150px] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-secondary/60"
-          >
-            <div className="min-w-0">
-              <div className="truncate font-semibold">{deal.projectType}</div>
-              <div className="truncate text-xs text-muted-foreground">{deal.notes || "Chưa có ghi chú"}</div>
-            </div>
-            <div className="truncate text-muted-foreground">{deal.client}</div>
-            <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-secondary px-2 py-1 text-xs font-medium">
-              <span className={`h-2 w-2 rounded-full ${STAGE_BY_ID[deal.stage].dotClass}`} />
-              {STAGE_BY_ID[deal.stage].shortTitle}
-            </div>
-            <div className="text-right font-mono font-semibold text-primary">{formatVND(deal.value)}</div>
-          </button>
-        ))}
-        {deals.length === 0 && (
-          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Không tìm thấy yêu cầu phù hợp.
-          </div>
-        )}
-      </div>
     </div>
   );
 }

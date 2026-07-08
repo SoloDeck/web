@@ -131,13 +131,14 @@ describe("<ProjectTaskPanel />", () => {
     expect(screen.getByText("Chốt phạm vi dự án")).toBeInTheDocument();
     expect(screen.getByText("Ghi chú mới")).toBeInTheDocument();
 
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    const deleteButton = screen.getByRole("button", { name: /Xóa Chốt phạm vi/ });
-    await user.click(deleteButton);
+    // Xóa cần xác nhận qua hộp thoại. Lần 1: mở hộp thoại rồi "Giữ lại" → công việc vẫn còn.
+    await user.click(screen.getByRole("button", { name: /Xóa Chốt phạm vi/ }));
+    await user.click(await screen.findByRole("button", { name: "Giữ lại" }));
     expect(screen.getByText("Chốt phạm vi dự án")).toBeInTheDocument();
 
-    await user.click(deleteButton);
+    // Lần 2: mở hộp thoại rồi bấm "Xóa công việc" → công việc biến mất.
+    await user.click(screen.getByRole("button", { name: /Xóa Chốt phạm vi/ }));
+    await user.click(await screen.findByRole("button", { name: "Xóa công việc" }));
     expect(screen.queryByText("Chốt phạm vi dự án")).not.toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledTimes(2);
   });
 });
