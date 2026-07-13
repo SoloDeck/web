@@ -1,9 +1,19 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Eye, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { useAIActivityStore, type AIJob, type AIJobKind } from "@/features/ai/hooks/useAIActivityStore";
+import { useCancelAiJob, useRecentAiJobs } from "@/features/ai/hooks/useAIJobs";
+import { getAiJobErrorMessage, isTerminal } from "@/services/aiJobsService";
+
+const RECENT_WINDOW_MS = 60 * 60 * 1000; // 1 giờ
+
+/** Job vừa xong trong vòng 1 giờ — đủ gần để người dùng còn quan tâm sau khi F5. */
+function isRecent(isoTime: string): boolean {
+  const t = Date.parse(isoTime);
+  return Number.isFinite(t) && Date.now() - t < RECENT_WINDOW_MS;
+}
 
 const KIND_LABEL: Record<AIJobKind, string> = {
   deal_qualification: "Đánh giá deal",
@@ -24,6 +34,76 @@ export function AIActivityCenter() {
   const removeJob = useAIActivityStore((state) => state.removeJob);
   const cancelJob = useAIActivityStore((state) => state.cancelJob);
   const clearFinished = useAIActivityStore((state) => state.clearFinished);
+  const cancelAiJobApi = useCancelAiJob();
+
+  // Khôi phục job sau F5 phải làm Ở ĐÂY, không phải trong AIPanel: reload xong
+  // chẳng panel nào còn mở, nên không có gì tự hỏi lại backend. Task Center thì
+  // luôn sống cùng app shell.
+  const { data: remoteJobs } = useRecentAiJobs();
+
+  // Chỉ dựng lại job ĐÃ XONG đúng MỘT lần, ngay sau khi tải trang. Nếu dựng ở mọi
+  // lần poll thì job người dùng vừa bấm X dọn đi sẽ sống lại sau 2 giây.
+  const restoredFinishedRef = useRef(false);
+
+  useEffect(() => {
+    if (!remoteJobs?.length) return;
+    const store = useAIActivityStore.getState();
+    const firstLoad = !restoredFinishedRef.current;
+    restoredFinishedRef.current = true;
+
+    for (const job of remoteJobs) {
+      // Người dùng đã bấm X ẩn job này → ĐỪNG dựng lại. Trước đây tôi chỉ nhớ trong
+      // bộ nhớ nên F5 xong nó hiện lên lại, cứ ẩn rồi lại mọc ra như trêu người dùng.
+      if (store.isJobDismissed(job.id)) continue;
+
+      const known = store.jobs.some((j) => j.id === job.id);
+
+      if (!isTerminal(job.status)) {
+        // Job đang chạy → dựng lại (hoặc giữ nguyên nếu đã có).
+        store.upsertJob({
+          id: job.id,
+          kind: "deal_qualification",
+          title: "Đánh giá deal",
+          description: "AI đang phân tích nhu cầu, ngân sách và tín hiệu từ deal.",
+          status: "running",
+          remote: true,
+        });
+        continue;
+      }
+
+      // AI giờ chạy rất nhanh (~4 giây), nên tình huống thường gặp là job XONG RỒI
+      // người dùng mới F5. Trước đây tôi chỉ dựng lại job đang chạy, nên kết quả
+      // biến mất luôn và không mò lại được. Giờ dựng lại cả job vừa xong trong
+      // vòng 1 giờ — nhưng chỉ ở lần tải trang đầu tiên.
+      if (!known && firstLoad && isRecent(job.updated_at)) {
+        store.upsertJob({
+          id: job.id,
+          kind: "deal_qualification",
+          title: "Đánh giá deal",
+          description: "",
+          status: job.status === "succeeded" ? "success" : "error",
+          remote: true,
+        });
+      } else if (!known) {
+        continue;
+      }
+
+      if (job.status === "succeeded") {
+        store.updateJob(job.id, {
+          status: "success",
+          description: "Đã có kết quả. Bấm Xem để kiểm tra và lưu đánh giá.",
+        });
+      } else if (job.status === "failed") {
+        store.updateJob(job.id, {
+          status: "error",
+          description: "Không thể đánh giá deal bằng AI.",
+          error: getAiJobErrorMessage(job) ?? undefined,
+        });
+      } else {
+        store.removeJob(job.id); // cancelled
+      }
+    }
+  }, [remoteJobs]);
 
   if (jobs.length === 0) return null;
 
@@ -32,8 +112,25 @@ export function AIActivityCenter() {
 
   function confirmCancelJob() {
     if (!cancelTarget) return;
-    cancelJob(cancelTarget.id);
+    const target = cancelTarget;
     setCancelTarget(null);
+
+    // Job của BE → huỷ thật. Job chỉ có trên giao diện (báo giá) → chỉ ẩn đi,
+    // gọi API sẽ 404 vì backend không hề biết tới nó.
+    if (target.remote) {
+      cancelAiJobApi.mutate(target.id, {
+        onSuccess: () => {
+          cancelJob(target.id);
+          // Huỷ là best-effort: worker đang gọi LLM thì không dừng giữa chừng được,
+          // BE chỉ đánh dấu cờ rồi bỏ qua kết quả. Đừng hứa "đã dừng ngay".
+          toast.info("Đã yêu cầu hủy tác vụ AI. Kết quả (nếu có) sẽ bị bỏ qua.");
+        },
+        onError: () => toast.error("Không hủy được tác vụ. Có thể nó vừa chạy xong."),
+      });
+      return;
+    }
+
+    cancelJob(target.id);
     toast.info("Đã hủy tác vụ AI trên giao diện. Nếu backend trả kết quả muộn, FE sẽ bỏ qua.");
   }
 

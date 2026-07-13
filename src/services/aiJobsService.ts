@@ -1,0 +1,94 @@
+import axiosClient from "@/configs/axios";
+import type { ApiResponse } from "@/features/auth/types";
+
+// ---------------------------------------------------------------------------
+// AI Jobs — hàng đợi tác vụ AI chạy nền (Celery) trên backend.
+//
+// Thay cho cách cũ: gọi AI đồng bộ rồi ngồi chờ. Giờ BE trả `job_id` ngay, FE
+// poll cho tới khi job vào trạng thái kết thúc. Nhờ vậy job sống sót qua F5 và
+// chạy nhiều job song song được — đúng NFR "không chặn ứng dụng chính".
+//
+// ⚠️ Trên BE main hiện chỉ `lead_qualifier` chạy được:
+//    - proposal_generator → BE dựng Gemini client rồi gọi API Groq → 500
+//    - contract_generator → chain còn là stub, raise NotImplementedError
+// ---------------------------------------------------------------------------
+
+export type AiJobType = "lead_qualifier" | "proposal_generator" | "contract_generator";
+export type AiJobEntityType = "deal" | "contract";
+
+/** queued → running → (succeeded | failed | cancelled). Ba trạng thái sau là kết thúc. */
+export type AiJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export const TERMINAL_STATUSES: readonly AiJobStatus[] = ["succeeded", "failed", "cancelled"];
+
+export function isTerminal(status: AiJobStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
+export type AiJob = {
+  id: string;
+  type: AiJobType;
+  entity_type: AiJobEntityType;
+  entity_id: string;
+  status: AiJobStatus;
+  result: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateAiJobPayload = {
+  entity_id: string;
+  type: AiJobType;
+  entity_type: AiJobEntityType;
+  /** Gửi kèm để bấm hai lần không tạo hai job. BE cũng tự trả lại job đang chạy nếu trùng entity + type. */
+  idempotency_key?: string;
+};
+
+type PaginatedJobs = {
+  data: AiJob[];
+  pagination: { total: number; page: number; page_size: number; total_pages: number };
+};
+
+/** POST /ai/jobs — tạo job, BE đẩy sang Celery và trả job_id ngay lập tức. */
+export async function createAiJob(payload: CreateAiJobPayload): Promise<AiJob> {
+  const { data } = await axiosClient.post<ApiResponse<AiJob>>("/ai/jobs", payload);
+  return data.data;
+}
+
+/** GET /ai/jobs/{id} — dùng để poll trạng thái. */
+export async function getAiJob(jobId: string): Promise<AiJob> {
+  const { data } = await axiosClient.get<ApiResponse<AiJob>>(`/ai/jobs/${jobId}`);
+  return data.data;
+}
+
+/** GET /ai/jobs?entity_id= — dùng để khôi phục job đang chạy sau khi F5. */
+export async function listAiJobs(params: {
+  entity_type?: AiJobEntityType;
+  entity_id?: string;
+  page_size?: number;
+}): Promise<AiJob[]> {
+  const { data } = await axiosClient.get<PaginatedJobs>("/ai/jobs", {
+    params: { page_size: 20, ...params },
+  });
+  return data.data ?? [];
+}
+
+/**
+ * POST /ai/jobs/{id}/cancel — huỷ job.
+ *
+ * Là "best-effort": nếu worker đang gọi LLM thì không kill được giữa chừng, BE
+ * chỉ đánh dấu cờ rồi bỏ qua kết quả khi worker trả về. Nên UI đừng hứa "đã dừng
+ * ngay lập tức".
+ */
+export async function cancelAiJob(jobId: string): Promise<AiJob> {
+  const { data } = await axiosClient.post<ApiResponse<AiJob>>(`/ai/jobs/${jobId}/cancel`);
+  return data.data;
+}
+
+/** Đọc thông điệp lỗi từ cột `error` (JSONB) của job. */
+export function getAiJobErrorMessage(job: AiJob | undefined): string | null {
+  if (!job?.error) return null;
+  const msg = job.error.message ?? job.error.detail;
+  return typeof msg === "string" && msg.trim() ? msg : "AI xử lý thất bại.";
+}

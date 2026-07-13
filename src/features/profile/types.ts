@@ -1,10 +1,15 @@
+/**
+ * Năm nhóm nghề nêu trong phiếu đề tài (Phieu_SU26SE083_VI.md, §Bối cảnh):
+ * nhà thiết kế đồ họa, lập trình viên, chuyên viên marketing, copywriter,
+ * nhiếp ảnh gia. Thêm nhóm mới thì phải bổ sung kỹ năng gợi ý tương ứng trong
+ * `features/onboarding/constants.ts`, không thì onboarding không điền hộ được.
+ */
 export type ServiceCategory =
   | "Brand & Content Designer"
   | "Web Developer"
   | "Marketing Consultant"
   | "Photographer / Videographer"
-  | "Copywriter / SEO"
-  | "Business Coach";
+  | "Copywriter / SEO";
 
 export type PricingTier = "Starter" | "Professional" | "Premium";
 

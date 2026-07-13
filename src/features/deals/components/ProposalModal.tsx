@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Loader2, X, Send,
+  Loader2, X, Send, Download,
   Bold, Italic, Underline,
   AlignLeft, AlignCenter, AlignRight, List,
   Minus, RefreshCw, Sparkles,
@@ -11,7 +11,7 @@ import type { Deal } from "@/features/deals/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
-import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal } from "@/features/deals/hooks/useProposals";
+import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO } from "@/services/proposalsService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
@@ -29,6 +29,36 @@ type BackendProposalContent = {
   payment_terms: string;
   assumptions?: string;
 };
+
+/**
+ * Cờ chặn nút "Tải PDF". `null` = cho phép tải.
+ *
+ * Lịch sử: `GET /proposals/{id}/pdf` từng 500 với MỌI báo giá do FE tạo — BE index
+ * cứng shape nội bộ của AI (`project_overview`, `deliverables`...) bằng `[...]` chứ
+ * không `.get()`, trong khi FE lưu shape `ProposalContentDTO` mà chính
+ * `contracts/openapi.yaml` khai. Thiếu một khoá là KeyError → 500.
+ *
+ * Đã sửa ở BE (2026-07-12, nhánh `fix/lead-qualifier-json-parse`): `generate_pdf`
+ * giờ đọc được cả hai shape. Kiểm chứng bằng cách gọi thật: shape hợp đồng, shape
+ * AI, và content rỗng — cả ba đều trả 200 + `%PDF`.
+ *
+ * Giữ lại cờ này thay vì xoá hẳn: nếu BE lại hỏng, chỉ cần gán một câu là nút mờ đi
+ * kèm lý do, không phải sửa JSX.
+ */
+const PDF_BLOCKED_REASON: string | null = null;
+
+/** Bỏ dấu tiếng Việt và ký tự lạ để tên file tải về không bị vỡ trên Windows/macOS. */
+function slugifyFilename(name: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return slug || "khach-hang";
+}
 
 function isBackendContent(c: unknown): c is BackendProposalContent {
   return typeof c === "object" && c !== null && "project_overview" in c;
@@ -272,6 +302,8 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const createDraft = useCreateProposal();
   const updateDraft = useUpdateProposal();
   const send = useSendProposal();
+  const downloadPdf = useDownloadProposalPdf();
+  const [pendingAction, setPendingAction] = useState<"send" | "pdf" | null>(null);
   const upsertJob = useAIActivityStore((state) => state.upsertJob);
   const updateJob = useAIActivityStore((state) => state.updateJob);
   const removeJob = useAIActivityStore((state) => state.removeJob);
@@ -413,11 +445,13 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
     const editedText = editorRef.current?.innerText ?? "";
     const contentToSave = normalizeProposalContentForApi(proposalContent, deal, editedText);
 
+    setPendingAction("send");
     // Backend Swagger hiện chỉ nhận ProposalContentDTO chuẩn, nên FE chuẩn hóa payload trước khi khóa và gửi.
     updateDraft.mutate({ proposalId, payload: { deal_id: deal.id, content: contentToSave } }, {
       onSuccess: () => {
         send.mutate(proposalId, {
           onSuccess: () => {
+            setPendingAction(null);
             toast.success("Đã gửi báo giá cho khách hàng.");
             addDealHistoryEntry(deal.id, {
               date: new Date().toISOString(),
@@ -431,12 +465,45 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
             onClose();
           },
           onError: () => {
+            setPendingAction(null);
             toast.error("Gửi báo giá thất bại. Vui lòng thử lại.");
           },
         });
       },
       onError: () => {
+        setPendingAction(null);
         toast.error("Không thể lưu nội dung báo giá trước khi gửi. Vui lòng thử lại.");
+      },
+    });
+  };
+
+  // BE render PDF từ nội dung đã lưu trên server, nên phải lưu bản nháp trước —
+  // nếu không, người dùng tải về bản PDF thiếu đúng những gì họ vừa sửa trong editor.
+  const handleDownloadPdf = () => {
+    if (!proposalId) return;
+    const editedText = editorRef.current?.innerText ?? "";
+    const contentToSave = normalizeProposalContentForApi(proposalContent, deal, editedText);
+
+    setPendingAction("pdf");
+    updateDraft.mutate({ proposalId, payload: { deal_id: deal.id, content: contentToSave } }, {
+      onSuccess: () => {
+        downloadPdf.mutate(
+          { proposalId, filename: `bao-gia-${slugifyFilename(deal.client)}.pdf` },
+          {
+            onSuccess: () => {
+              setPendingAction(null);
+              toast.success("Đã tải báo giá PDF.");
+            },
+            onError: () => {
+              setPendingAction(null);
+              toast.error("Không tải được PDF. Vui lòng thử lại.");
+            },
+          }
+        );
+      },
+      onError: () => {
+        setPendingAction(null);
+        toast.error("Không thể lưu nội dung báo giá trước khi xuất PDF. Vui lòng thử lại.");
       },
     });
   };
@@ -451,8 +518,11 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
     triggerGenerate(deal, 0);
   };
 
+  // Gửi và xuất PDF đều đi qua updateDraft trước, nên không thể phân biệt bằng
+  // mutation flag — theo dõi hành động đang chạy một cách tường minh.
   const isLoading = isGenerating;
-  const isSending = send.isPending || updateDraft.isPending;
+  const isDownloading = pendingAction === "pdf";
+  const isSending = pendingAction === "send";
 
   function handleClose() {
     if (jobId) removeJob(jobId);
@@ -588,8 +658,22 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
             {/* Footer */}
             <div className="border-t border-border p-4 bg-card flex gap-2 shrink-0">
               <button
+                onClick={handleDownloadPdf}
+                disabled={PDF_BLOCKED_REASON !== null || !proposalId || isDownloading || isSending}
+                title={PDF_BLOCKED_REASON ?? "Lưu bản nháp rồi tải PDF do server render"}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {isDownloading ? "Đang tạo PDF..." : "Tải PDF"}
+                {PDF_BLOCKED_REASON && (
+                  <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
+                    Chờ BE
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={handleSend}
-                disabled={!proposalId || isSending}
+                disabled={!proposalId || isSending || isDownloading}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95 shadow-lg shadow-primary/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

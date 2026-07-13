@@ -10,6 +10,8 @@ import {
   generateProposalContent,
   generateProposalFromDeal,
   aiGenerateProposal,
+  getProposalPdf,
+  saveBlobAsFile,
 } from "@/services/proposalsService";
 import type { AiProposalRequest, ProposalDecisionStatus, ProposalListFilters, UpdateProposalPayload } from "@/services/proposalsService";
 
@@ -79,6 +81,16 @@ export function useDeleteProposal() {
     mutationFn: (proposalId: string) => deleteProposal(proposalId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: proposalKeys.all });
+    },
+  });
+}
+
+/** Tải báo giá dạng PDF do backend render. */
+export function useDownloadProposalPdf() {
+  return useMutation({
+    mutationFn: async ({ proposalId, filename }: { proposalId: string; filename: string }) => {
+      const blob = await getProposalPdf(proposalId);
+      saveBlobAsFile(blob, filename);
     },
   });
 }

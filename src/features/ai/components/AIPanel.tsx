@@ -3,12 +3,14 @@ import { ArrowRight, BadgeCheck, Bot, CheckCircle2, Flame, Loader2, Minus, Refre
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import type { Deal, LeadScore } from "@/features/deals/types";
-import { useQualifyDeal, useTransitionDealStage } from "@/features/deals/hooks/useDeals";
+import { useTransitionDealStage } from "@/features/deals/hooks/useDeals";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { addDealQualificationDocument } from "@/features/deals/dealQualificationStorage";
 import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
+import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
+import { getAiJobErrorMessage, isTerminal } from "@/services/aiJobsService";
 
 type EvaluationResult = {
   level: LeadScore;
@@ -111,76 +113,137 @@ function getErrorHint(error: unknown): string {
   return "Request bị hủy hoặc backend không phản hồi. Hãy mở Network để xem dòng qualify.";
 }
 
-export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | null; onClose: () => void }) {
-  const [result, setResult] = useState<EvaluationResult | null>(null);
-  const [errorHint, setErrorHint] = useState("");
-  const [minimized, setMinimized] = useState(true);
+export function AIPanel({
+  open,
+  deal,
+  onClose,
+  /**
+   * Mở để XEM LẠI một job đã chạy, thay vì chạy job mới.
+   *
+   * Dùng khi bấm "Xem" ở tab Lịch sử: kết quả AI nằm trên backend nên xem lại được
+   * kể cả sau khi F5 — trước đây reload là mất, không mò lại được.
+   */
+  viewJobId,
+}: {
+  open: boolean;
+  deal?: Deal | null;
+  onClose: () => void;
+  viewJobId?: string | null;
+}) {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const cancelledJobsRef = useRef(new Set<string>());
-  const qualify = useQualifyDeal();
+  const [createError, setCreateError] = useState("");
+
+  // job_id THẬT do backend cấp (POST /ai/jobs), không còn là chuỗi tự chế.
+  // Xem lại job cũ thì dùng thẳng viewJobId — SUY RA chứ không set state trong
+  // effect (vừa gây render dây chuyền, vừa bị eslint chặn).
+  const [createdJobId, setCreatedJobId] = useState<string | null>(null);
+  const jobId = viewJobId ?? createdJobId;
+
+  // Chạy job mới → thu nhỏ để người dùng làm việc khác. Xem lại job cũ → mở sẵn,
+  // vì họ bấm "Xem" chính là để nhìn kết quả ngay.
+  const [minimizedOverride, setMinimizedOverride] = useState<boolean | null>(null);
+  const minimized = minimizedOverride ?? !viewJobId;
+  const setMinimized = setMinimizedOverride;
+
+  const createJob = useCreateAiJob();
+  const cancelJobApi = useCancelAiJob();
+  const { data: job } = useAiJob(jobId ?? undefined);
+
   const transitionStage = useTransitionDealStage();
   const upsertJob = useAIActivityStore((state) => state.upsertJob);
   const updateJob = useAIActivityStore((state) => state.updateJob);
   const removeJob = useAIActivityStore((state) => state.removeJob);
-  const cancelJob = useAIActivityStore((state) => state.cancelJob);
   const viewRequestId = useAIActivityStore((state) => state.viewRequestId);
   const consumeViewRequest = useAIActivityStore((state) => state.consumeViewRequest);
-  const jobId = deal ? `ai-qualify-${deal.id}` : "";
+
+  // Kết quả và lỗi được SUY RA từ job, không lưu thành state riêng. Nhờ vậy sau khi
+  // F5 và khôi phục lại job, màn hình tự hiện đúng — không cần đồng bộ tay.
+  const result: EvaluationResult | null = useMemo(() => {
+    if (!deal || job?.status !== "succeeded" || !job.result) return null;
+    return mapApiQualification(deal, job.result as ApiQualificationResult);
+  }, [deal, job]);
+
+  const errorHint =
+    createError || (job?.status === "failed" ? (getAiJobErrorMessage(job) ?? "") : "");
+
+  // Đang chạy = đang tạo job, hoặc job có rồi nhưng chưa vào trạng thái kết thúc.
+  const isRunning = createJob.isPending || Boolean(job && !isTerminal(job.status));
 
   function runQualification(currentDeal: Deal) {
-    const currentJobId = `ai-qualify-${currentDeal.id}`;
-    cancelledJobsRef.current.delete(currentJobId);
-    setResult(null);
-    setErrorHint("");
+    setCreateError("");
+    setCreatedJobId(null);
     setMinimized(true);
-    upsertJob({
-      id: currentJobId,
-      kind: "deal_qualification",
-      title: `Đánh giá ${currentDeal.projectType}`,
-      description: "AI đang phân tích nhu cầu, ngân sách và tín hiệu từ deal.",
-      entityLabel: currentDeal.client,
-      status: "running",
-    });
-    toast.info("AI đang đánh giá deal ở nền. Bạn có thể tiếp tục thao tác màn hình khác.");
-    qualify.mutate(currentDeal.id, {
-      onSuccess: (data) => {
-        if (cancelledJobsRef.current.has(currentJobId) || useAIActivityStore.getState().isJobCancelled(currentJobId)) return;
-        const mapped = mapApiQualification(currentDeal, data);
-        setResult(mapped);
-        updateJob(currentJobId, {
-          status: "success",
-          description: `Đã có kết quả ${mapped.score}/100. Bấm Xem để kiểm tra và lưu đánh giá.`,
-        });
 
-        // Lưu vào lịch sử riêng của deal (cục bộ FE) — không dùng comm-logs của
-        // client vì comm-logs là theo client_id nên các deal chung 1 client sẽ lẫn lịch sử.
-        const levelLabel = mapped.level === "hot" ? "Nóng" : mapped.level === "cold" ? "Lạnh" : "Ấm";
-        addDealHistoryEntry(currentDeal.id, {
-          date: new Date().toISOString(),
-          text: `AI đánh giá deal: ${mapped.score}/100 (${levelLabel}). ${mapped.rationale}`.slice(0, 500),
-          channel: "message",
-        });
-      },
-      onError: (error) => {
-        if (cancelledJobsRef.current.has(currentJobId) || useAIActivityStore.getState().isJobCancelled(currentJobId)) return;
-        const hint = getErrorHint(error);
-        setErrorHint(hint);
-        updateJob(currentJobId, {
-          status: "error",
-          description: "Không thể đánh giá deal bằng AI.",
-          error: hint,
-        });
-        toast.error("Không thể đánh giá deal bằng AI. Vui lòng kiểm tra Network.");
-      },
-    });
+    createJob.mutate(
+      { entity_id: currentDeal.id, type: "lead_qualifier", entity_type: "deal" },
+      {
+        onSuccess: (created) => {
+          // BE tự trả lại job đang chạy nếu deal này đã có job cùng loại — nên gọi
+          // lại sau F5 sẽ NHẬN LẠI ĐÚNG JOB CŨ thay vì đẻ thêm job mới.
+          setCreatedJobId(created.id);
+          upsertJob({
+            id: created.id,
+            kind: "deal_qualification",
+            title: `Đánh giá ${currentDeal.projectType}`,
+            description: "AI đang phân tích nhu cầu, ngân sách và tín hiệu từ deal.",
+            entityLabel: currentDeal.client,
+            status: "running",
+            remote: true, // job thật của BE → Task Center huỷ được bằng API
+          });
+          toast.info("AI đang đánh giá deal ở nền. Bạn có thể tiếp tục thao tác màn hình khác.");
+        },
+        onError: (error) => {
+          const hint = getErrorHint(error);
+          setCreateError(hint);
+          toast.error("Không tạo được tác vụ AI. Vui lòng thử lại.");
+        },
+      }
+    );
   }
 
   useEffect(() => {
-    if (!open || !deal) return;
+    // Mở để XEM LẠI job cũ (viewJobId) → không chạy AI lại, tránh tốn quota và tránh
+    // đè mất kết quả mà người dùng đang muốn xem. jobId và minimized đã được suy ra
+    // từ viewJobId ở trên nên không cần set gì ở đây.
+    if (!open || !deal || viewJobId) return;
+
     runQualification(deal);
-    // Mutation object thay đổi theo render nên chỉ bám theo deal/open.
+    // Mutation object thay đổi theo render nên chỉ bám theo deal/open/viewJobId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal?.id, open]);
+  }, [deal?.id, open, viewJobId]);
+
+  // Đồng bộ trạng thái job thật sang Task Center (store ngoài React) mỗi khi
+  // backend báo job đổi trạng thái.
+  const loggedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!job || !deal) return;
+
+    if (job.status === "succeeded" && result) {
+      updateJob(job.id, {
+        status: "success",
+        description: `Đã có kết quả ${result.score}/100. Bấm Xem để kiểm tra và lưu đánh giá.`,
+      });
+
+      // Chỉ ghi lịch sử một lần cho mỗi job, không thì mỗi lần poll lại ghi thêm.
+      if (loggedJobRef.current !== job.id) {
+        loggedJobRef.current = job.id;
+        const levelLabel = result.level === "hot" ? "Nóng" : result.level === "cold" ? "Lạnh" : "Ấm";
+        addDealHistoryEntry(deal.id, {
+          date: new Date().toISOString(),
+          text: `AI đánh giá deal: ${result.score}/100 (${levelLabel}). ${result.rationale}`.slice(0, 500),
+          channel: "message",
+        });
+      }
+    } else if (job.status === "failed") {
+      updateJob(job.id, {
+        status: "error",
+        description: "Không thể đánh giá deal bằng AI.",
+        error: getAiJobErrorMessage(job) ?? undefined,
+      });
+    } else if (job.status === "cancelled") {
+      removeJob(job.id);
+    }
+  }, [job, deal, result, updateJob, removeJob]);
 
   useEffect(() => {
     if (!open || !deal || !jobId || viewRequestId !== jobId) return;
@@ -231,11 +294,21 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
 
   function confirmCancelAI() {
     if (!jobId) return;
-    cancelledJobsRef.current.add(jobId);
-    cancelJob(jobId);
     setCancelDialogOpen(false);
     setMinimized(true);
-    toast.info("Đã hủy tác vụ AI trên giao diện. Nếu backend trả kết quả muộn, FE sẽ bỏ qua.");
+
+    // Huỷ THẬT ở backend, không chỉ giấu đi trên giao diện như trước.
+    cancelJobApi.mutate(jobId, {
+      onSuccess: () => {
+        removeJob(jobId);
+        // BE nói rõ: huỷ là best-effort. Worker đang gọi LLM thì không kill giữa
+        // chừng được — nó chỉ kiểm tra cờ rồi bỏ qua kết quả. Đừng hứa "dừng ngay".
+        toast.info("Đã yêu cầu hủy tác vụ AI. Kết quả (nếu có) sẽ bị bỏ qua.");
+      },
+      onError: () => {
+        toast.error("Không hủy được tác vụ. Có thể nó vừa chạy xong.");
+      },
+    });
     onClose();
   }
 
@@ -259,7 +332,7 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {qualify.isPending && (
+            {isRunning && (
               <button
                 type="button"
                 onClick={() => setCancelDialogOpen(true)}
@@ -278,7 +351,7 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
             </button>
             <button
               type="button"
-              onClick={qualify.isPending ? () => setMinimized(true) : handleClose}
+              onClick={isRunning ? () => setMinimized(true) : handleClose}
               className="rounded-md p-1.5 hover:bg-secondary"
               aria-label="Đóng"
             >
@@ -300,7 +373,7 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
             </div>
           </div>
 
-          {qualify.isPending && (
+          {isRunning && (
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
               <div className="flex items-center gap-3">
                 <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -314,7 +387,7 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
             </div>
           )}
 
-          {errorHint && !qualify.isPending && (
+          {errorHint && !isRunning && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
               <div className="font-semibold text-destructive">Chưa đánh giá được deal</div>
               <p className="mt-1 text-muted-foreground">{errorHint}</p>
@@ -381,16 +454,16 @@ export function AIPanel({ open, deal, onClose }: { open: boolean; deal?: Deal | 
                 <button
                   type="button"
                   onClick={() => runQualification(deal)}
-                  disabled={qualify.isPending || transitionStage.isPending}
+                  disabled={isRunning || transitionStage.isPending}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {qualify.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Đánh giá lại
                 </button>
                 <button
                   type="button"
                   onClick={saveAndMoveNext}
-                  disabled={qualify.isPending || transitionStage.isPending}
+                  disabled={isRunning || transitionStage.isPending}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {transitionStage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}

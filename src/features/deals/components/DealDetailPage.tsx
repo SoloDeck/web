@@ -30,6 +30,7 @@ import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
 import { AIPanel } from "@/features/ai/components/AIPanel";
+import { DealAiJobHistory } from "@/features/ai/components/DealAiJobHistory";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
@@ -175,6 +176,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [proposalDeal, setProposalDeal] = useState<Deal | null>(null);
   const [aiEvaluateOpen, setAiEvaluateOpen] = useState(false);
+  // Khác null = mở AIPanel để XEM LẠI job cũ, thay vì chạy đánh giá mới.
+  const [aiViewJobId, setAiViewJobId] = useState<string | null>(null);
   const [viewContractId, setViewContractId] = useState<string | null>(null);
   const [viewProposalId, setViewProposalId] = useState<string | null>(null);
   const [viewQualificationDoc, setViewQualificationDoc] = useState<DealQualificationDocument | null>(null);
@@ -941,7 +944,16 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   <DealReminderPanel deal={deal} />
                 </TabsContent>
 
-                <TabsContent value="history" className="min-w-0 pt-4">
+                <TabsContent value="history" className="min-w-0 space-y-5 pt-4">
+                  {/* Kết quả AI lấy thẳng từ backend nên xem lại được kể cả sau F5 —
+                      trước đây reload xong là mất, không mò lại được. */}
+                  <DealAiJobHistory
+                    dealId={deal?.id}
+                    onView={(jobId) => {
+                      setAiViewJobId(jobId);
+                      setAiEvaluateOpen(true);
+                    }}
+                  />
                   <HistoryTab historyItems={historyItems} isLoading={false} />
                 </TabsContent>
               </Tabs>
@@ -949,7 +961,10 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
             <ActionsPanel
               deal={deal}
-              onEvaluate={() => setAiEvaluateOpen(true)}
+              onEvaluate={() => {
+                setAiViewJobId(null);
+                setAiEvaluateOpen(true);
+              }}
               onProposal={() => setProposalDeal(dealForProposal ?? deal)}
               onContract={handleGenerateContract}
               onReminder={() => setTab("reminders")}
@@ -967,7 +982,15 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <ProposalModal deal={proposalDeal} onClose={() => setProposalDeal(null)} />
-      <AIPanel open={aiEvaluateOpen} deal={deal} onClose={() => setAiEvaluateOpen(false)} />
+      <AIPanel
+        open={aiEvaluateOpen}
+        deal={deal}
+        viewJobId={aiViewJobId}
+        onClose={() => {
+          setAiEvaluateOpen(false);
+          setAiViewJobId(null); // đóng xong thì lần sau bấm "Đánh giá Deal" phải chạy job MỚI
+        }}
+      />
       <AIActivityCenter />
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
       {viewProposalId && <ProposalViewModal proposalId={viewProposalId} onClose={() => setViewProposalId(null)} />}
