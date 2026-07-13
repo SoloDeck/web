@@ -218,12 +218,10 @@ function applyIntakeFallback(deal: Deal, intake?: DealIntake): Deal {
 // Service functions
 // ---------------------------------------------------------------------------
 
-/** GET /deals — fetches all user deals, enriched with client names/contact. */
-export async function getDeals(): Promise<Deal[]> {
+/** GET /deals — enriched với tên/liên hệ khách và dữ liệu bù từ phiếu intake. */
+async function fetchDeals(params: Record<string, unknown>): Promise<Deal[]> {
   const [dealsRes, clientsRes, intakes] = await Promise.all([
-    axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
-      params: { page_size: 100 },
-    }),
+    axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", { params }),
     axiosClient
       .get<PaginatedEnvelope<ClientHint>>("/clients", {
         params: { page_size: 100 },
@@ -242,10 +240,14 @@ export async function getDeals(): Promise<Deal[]> {
   );
 }
 
-/** GET /deals — BE chưa có filter theo client_id, nên FE tạm lọc local ở một nơi duy nhất. */
+/** GET /deals — toàn bộ deal của user (dùng cho Kanban). */
+export async function getDeals(): Promise<Deal[]> {
+  return fetchDeals({ page_size: 100 });
+}
+
+/** GET /deals?client_id= — BE lọc sẵn theo khách, không cần tải hết deal rồi lọc ở FE nữa. */
 export async function getDealsByClient(clientId: string): Promise<Deal[]> {
-  const deals = await getDeals();
-  return deals.filter((deal) => deal.clientId === clientId);
+  return fetchDeals({ page_size: 100, client_id: clientId });
 }
 
 /** GET /deals/{id} — load detail trực tiếp để refresh route /deals/$dealId vẫn hoạt động. */

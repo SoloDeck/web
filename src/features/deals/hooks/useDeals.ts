@@ -72,7 +72,7 @@ export function useDealHistory(dealId: string | undefined) {
   );
 }
 
-/** Danh sách dự án theo khách hàng; đang dùng fallback FE cho đến khi BE có API filter client_id. */
+/** Danh sách dự án theo khách hàng — BE lọc qua `GET /deals?client_id=`. */
 export function useClientDeals(clientId: string | undefined) {
   return useQuery({
     queryKey: dealKeys.byClient(clientId ?? ""),
