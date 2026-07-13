@@ -17,7 +17,7 @@ function ForgotPasswordPage() {
   return (
     <AuthLayout
       title="Quên mật khẩu"
-      subtitle="Nhập email của bạn, chúng tôi sẽ gửi liên kết đặt lại mật khẩu."
+      subtitle="Nhập email của bạn, chúng tôi sẽ gửi mã OTP để đặt lại mật khẩu."
       footer={
         <>
           Nhớ ra mật khẩu rồi?{" "}

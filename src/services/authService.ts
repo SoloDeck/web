@@ -171,8 +171,27 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<AuthSessi
   }
 }
 
+/**
+ * POST /auth/password-reset/request — gửi mã OTP 6 số về email.
+ *
+ * BE cố tình **luôn trả thành công**, kể cả khi email không tồn tại, để không lộ
+ * ra email nào đã đăng ký. Nên FE cũng không được suy ra gì từ kết quả này.
+ */
 export async function requestPasswordReset(email: string): Promise<void> {
-  void email;
+  await axiosClient.post("/auth/password-reset/request", { email });
+}
+
+/**
+ * POST /auth/password-reset/confirm — đổi mật khẩu bằng mã OTP.
+ *
+ * BE chỉ nhận `otp` + `new_password`, KHÔNG cần email: mã OTP tự định danh người
+ * dùng (BE tra theo hash của mã). OTP sai hoặc hết hạn (15 phút) → 401.
+ */
+export async function confirmPasswordReset(otp: string, newPassword: string): Promise<void> {
+  await axiosClient.post("/auth/password-reset/confirm", {
+    otp,
+    new_password: newPassword,
+  });
 }
 
 /** Maps to `POST /auth/logout`. Clears both storages regardless of API result. */

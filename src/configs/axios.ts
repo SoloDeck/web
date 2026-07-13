@@ -69,7 +69,25 @@ type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => 
 // Auth endpoints must never go through refresh-retry: a 401 here means bad
 // credentials / invalid refresh token, not an expired access token. Letting
 // them in causes /auth/refresh to re-enter this interceptor and deadlock.
-const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
+/**
+ * Các endpoint mà 401 KHÔNG có nghĩa là "access token hết hạn".
+ *
+ * Chúng là endpoint không cần đăng nhập: 401 ở đây nghĩa là sai thông tin xác thực
+ * (sai mật khẩu, sai/hết hạn mã OTP, id_token Google không hợp lệ). Nếu không liệt
+ * kê ở đây, interceptor bên dưới sẽ tưởng nhầm là token hết hạn → đi refresh →
+ * không có refresh token → xoá phiên và đá người dùng về /login.
+ *
+ * Cụ thể đã gặp: gõ SAI mã OTP ở màn Quên mật khẩu → bị văng thẳng về trang đăng
+ * nhập, không hiện lỗi gì, người dùng không hiểu chuyện gì vừa xảy ra.
+ */
+const AUTH_PATHS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/google",
+  "/auth/password-reset",
+];
 
 function isAuthPath(url?: string): boolean {
   return !!url && AUTH_PATHS.some((p) => url.includes(p));
