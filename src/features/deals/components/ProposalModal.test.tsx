@@ -10,12 +10,14 @@ const mockGenerateMutate = vi.fn();
 const mockCreateMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 const mockSendMutate = vi.fn();
+const mockDownloadPdfMutate = vi.fn();
 
 vi.mock("@/features/deals/hooks/useProposals", () => ({
   useAiGenerateProposal: () => ({ mutate: mockGenerateMutate }),
   useCreateProposal: () => ({ mutate: mockCreateMutate }),
   useUpdateProposal: () => ({ mutate: mockUpdateMutate, isPending: false }),
   useSendProposal: () => ({ mutate: mockSendMutate, isPending: false }),
+  useDownloadProposalPdf: () => ({ mutate: mockDownloadPdfMutate, isPending: false }),
 }));
 
 vi.mock("@/features/auth/hooks/useAuthStore", () => ({
@@ -173,6 +175,34 @@ describe("ProposalModal", () => {
     );
     expect(toast.success).toHaveBeenCalledWith("Đã gửi báo giá cho khách hàng.");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("lưu bản nháp TRƯỚC khi tải PDF", async () => {
+    const user = userEvent.setup();
+    mockGenerateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: (res: unknown) => void }) => {
+      callbacks.onSuccess({
+        id: "proposal-456",
+        content: { title: "Logo", pricing: { total: 5_000_000, currency: "VND" } },
+      });
+    });
+    mockUpdateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await user.click(await screen.findByRole("button", { name: /tải pdf/i }));
+
+    // BE render PDF từ nội dung ĐÃ LƯU trên server. Tải thẳng mà không lưu trước thì
+    // người dùng nhận về bản PDF thiếu đúng phần họ vừa gõ trong editor.
+    expect(mockUpdateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ proposalId: "proposal-456" }),
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    );
+    expect(mockDownloadPdfMutate).toHaveBeenCalledWith(
+      // Tên khách "Nguyễn Văn A" phải được bỏ dấu để tên file không vỡ trên Windows.
+      { proposalId: "proposal-456", filename: "bao-gia-nguyen-van-a.pdf" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
+    );
   });
 
   it("closes modal when close button is clicked", async () => {

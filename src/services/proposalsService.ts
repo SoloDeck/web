@@ -170,6 +170,29 @@ export async function deleteProposal(proposalId: string): Promise<void> {
   await axiosClient.delete(`/proposals/${proposalId}`);
 }
 
+/**
+ * GET /proposals/{id}/pdf — BE render PDF (WeasyPrint) và trả file đính kèm.
+ * Trả blob thay vì tự tải để component quyết định tên file và thời điểm tải.
+ */
+export async function getProposalPdf(proposalId: string): Promise<Blob> {
+  const { data } = await axiosClient.get<Blob>(`/proposals/${proposalId}/pdf`, {
+    responseType: "blob",
+  });
+  return data;
+}
+
+/** Đẩy blob PDF xuống máy người dùng bằng một thẻ <a download> tạm. */
+export function saveBlobAsFile(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** POST /proposals/{id}/send — lock content and send share link to client. */
 export async function sendProposal(proposalId: string): Promise<ProposalResponse> {
   const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
