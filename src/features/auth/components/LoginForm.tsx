@@ -28,7 +28,10 @@ export function LoginForm() {
     e.preventDefault();
     try {
       await login({ email, password }, rememberMe);
-      const targetRoute = useAuthStore.getState().user?.role === "admin" ? "/admin" : "/";
+      // Freelancer đi qua /onboarding: route đó tự đẩy sang "/" nếu hồ sơ chuyên môn
+      // đã có, nên người dùng cũ không bị hỏi lại — chỉ ai còn trống mới thấy wizard.
+      const targetRoute =
+        useAuthStore.getState().user?.role === "admin" ? "/admin" : "/onboarding";
       setIsRedirecting(true);
       toast.success("Đăng nhập thành công!", {
         description:
@@ -147,7 +150,7 @@ export function LoginForm() {
       </div>
 
       {/* Google */}
-      <GoogleButton onDone={() => navigate({ to: "/" })} />
+      <GoogleButton onDone={() => navigate({ to: "/onboarding" })} />
     </form>
   );
 }

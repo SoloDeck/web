@@ -18,6 +18,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
@@ -68,6 +69,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BieuMauTokenRoute = BieuMauTokenRouteImport.update({
   id: '/bieu-mau/$token',
   path: '/bieu-mau/$token',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  OnboardingRoute: typeof OnboardingRoute
   BieuMauTokenRoute: typeof BieuMauTokenRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
@@ -264,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/bieu-mau/$token': {
       id: '/bieu-mau/$token'
       path: '/bieu-mau/$token'
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  OnboardingRoute: OnboardingRoute,
   BieuMauTokenRoute: BieuMauTokenRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,

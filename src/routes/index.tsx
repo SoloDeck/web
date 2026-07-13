@@ -25,7 +25,9 @@ import { SubscriptionPage } from "@/features/subscriptions/components/Subscripti
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { updateMe, updateFreelancerProfile } from "@/services/usersService";
+import { getMe, updateMe, updateFreelancerProfile, updateProfessionalProfile } from "@/services/usersService";
+import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { wasOnboardingSkipped } from "@/features/onboarding/skip";
 import type { Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
@@ -50,13 +52,30 @@ export const Route = createFileRoute("/")({
     const tab = search.tab as NavKey | undefined;
     return { tab: tab && NAV_KEYS.includes(tab) ? tab : undefined };
   },
-  beforeLoad: () => {
+  beforeLoad: async () => {
     const { isAuthenticated, user } = useAuthStore.getState();
     if (!isAuthenticated) {
       throw redirect({ to: "/home", replace: true });
     }
     if (user?.role === "admin") {
       throw redirect({ to: "/admin", replace: true });
+    }
+
+    // Chặn ở đây chứ không chỉ ở cửa đăng nhập: người đang có sẵn phiên đăng nhập
+    // mở thẳng app sẽ không đi qua /login, nên nếu chỉ gác ở đó thì họ không bao
+    // giờ được hỏi. Ai bấm "Bỏ qua" trong phiên này thì để yên.
+    if (wasOnboardingSkipped()) return;
+
+    let me = null;
+    try {
+      me = await getMe();
+    } catch {
+      // Lỗi mạng: đừng chặn người dùng ở cửa, cứ cho vào workspace.
+    }
+
+    // redirect() điều hướng bằng cách ném — phải nằm ngoài try/catch ở trên.
+    if (me && !me.professional_profile?.specialization) {
+      throw redirect({ to: "/onboarding", replace: true });
     }
   },
   component: Index,
@@ -101,8 +120,12 @@ function Index() {
   const handleSaveProfile = useCallback(async (p: Profile) => {
     setProfile(p);
     try {
+      // Ghi tên + SĐT trước rồi mới tới phần còn lại: SĐT là UNIQUE ở BE, gộp hết
+      // vào Promise.all thì SĐT trùng (409) nhưng bio/kỹ năng/mức giá vẫn được lưu
+      // — hồ sơ rơi vào trạng thái nửa vời mà người dùng không hề biết.
+      await updateMe({ full_name: p.fullName, phone: p.phone || undefined });
+
       await Promise.all([
-        updateMe({ full_name: p.fullName, phone: p.phone || undefined }),
         updateFreelancerProfile({
           professional_title: p.professionalTitle || undefined,
           bio: p.bio || undefined,
@@ -112,9 +135,25 @@ function Index() {
           portfolio_url: p.portfolioUrl || undefined,
           is_listed: p.isListed,
         }),
+        // Mức giá theo giờ lưu lên server để không mất khi đổi máy (trước đây chỉ
+        // nằm ở localStorage). Lưu ý: hiện KHÔNG module AI nào đọc trường này —
+        // lead_qualifier tự ước lượng giá thị trường từ mô tả dự án.
+        updateProfessionalProfile({
+          default_hourly_rate: p.hourlyRate > 0 ? p.hourlyRate : undefined,
+          currency: "VND",
+        }),
       ]);
       updateUser({ fullName: p.fullName });
-    } catch {
+      toast.success("Đã lưu hồ sơ.");
+    } catch (err) {
+      // BE nay ràng buộc UNIQUE trên email/phone → 409 kèm thông điệp cụ thể.
+      // Hiện đúng thông điệp đó, thay vì nuốt vào một câu chung chung.
+      if (getApiErrorStatus(err) === 409) {
+        toast.error(
+          getApiErrorMessage(err, "Số điện thoại đã được tài khoản khác sử dụng.")
+        );
+        return;
+      }
       toast.error("Không thể lưu hồ sơ lên server. Thay đổi vẫn được lưu cục bộ.");
     }
   }, [setProfile, updateUser]);

@@ -64,7 +64,9 @@ export function RegisterForm() {
         description: "Chào mừng bạn đến với SoloDesk!",
         duration: 2000,
       });
-      setTimeout(() => navigate({ to: "/" }), 2000);
+      // Đưa thẳng vào onboarding để hồ sơ chuyên môn có dữ liệu ngay từ đầu —
+      // AI chấm điểm lead và gợi giá đều đọc từ đó.
+      setTimeout(() => navigate({ to: "/onboarding" }), 2000);
     } catch {
       /* error surfaced via store */
     }
@@ -156,7 +158,7 @@ export function RegisterForm() {
         <span className="absolute inset-x-0 top-1/2 h-px bg-border" />
       </div>
 
-      <GoogleButton onDone={() => navigate({ to: "/" })} />
+      <GoogleButton onDone={() => navigate({ to: "/onboarding" })} />
     </form>
   );
 }

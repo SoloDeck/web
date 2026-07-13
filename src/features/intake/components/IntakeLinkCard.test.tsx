@@ -17,7 +17,22 @@ function makeMe(overrides: Partial<UserResponse> = {}): UserResponse {
     status: "active",
     phone: null,
     avatar_url: null,
+    bio: null,
     intake_share_token: "tok-abc123",
+    professional_profile: {
+      skills: null,
+      specialization: null,
+      default_hourly_rate: null,
+      currency: "VND",
+      portfolio_url: null,
+      business_name: null,
+    },
+    preferences: {
+      locale: "vi",
+      timezone: "Asia/Ho_Chi_Minh",
+      notification_channel: "email",
+      theme: "light",
+    },
     created_at: "2026-06-15T00:00:00Z",
     ...overrides,
   };

@@ -1,25 +1,28 @@
 import { useRef, useState } from "react";
 import {
-  AlertCircle, Briefcase, Camera, Check, CreditCard, Eye, EyeOff, ExternalLink,
+  AlertCircle, Briefcase, Check, CreditCard, Eye, EyeOff, ExternalLink,
   FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save,
-  ShieldCheck, Tag, Trash2, User, X,
+  ShieldCheck, Tag, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   type Profile,
   type PricingTier,
   type ContractClause,
+  type ServiceCategory,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
+import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 
-const SERVICE_CATEGORIES = [
+// Gắn kiểu ServiceCategory để danh sách ở đây không âm thầm lệch khỏi union gốc
+// (trước đây là string[] nên thừa/thiếu một nhóm nghề cũng không ai báo).
+const SERVICE_CATEGORIES: ServiceCategory[] = [
   "Brand & Content Designer",
   "Web Developer",
   "Marketing Consultant",
   "Photographer / Videographer",
   "Copywriter / SEO",
-  "Business Coach",
 ];
 
 const PRICING_TIERS: { id: PricingTier; label: string; hint: string }[] = [
@@ -680,83 +683,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs font-medium text-muted-foreground mb-1.5">{label}</div>
       {children}
     </label>
-  );
-}
-
-function AvatarUpload({
-  value,
-  name,
-  onChange,
-}: {
-  value: string;
-  name: string;
-  onChange: (url: string) => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const initials = name
-    .split(" ")
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase())
-    .slice(0, 2)
-    .join("");
-
-  const handleFile = (file: File) => {
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Ảnh quá lớn. Vui lòng chọn file dưới 2MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result;
-      if (typeof result === "string") onChange(result);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="group relative cursor-pointer" onClick={() => fileRef.current?.click()}>
-        {value ? (
-          <img
-            src={value}
-            alt={name}
-            className="h-20 w-20 rounded-full object-cover ring-2 ring-border"
-          />
-        ) : (
-          <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-primary to-primary-glow text-2xl font-bold text-primary-foreground ring-2 ring-border">
-            {initials}
-          </div>
-        )}
-        {/* Hover overlay */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-          <Camera className="h-5 w-5 text-white" />
-          <span className="text-[10px] font-semibold text-white">Thay ảnh</span>
-        </div>
-      </div>
-
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="h-3 w-3" /> Xóa ảnh
-        </button>
-      )}
-
-      <input
-        ref={fileRef}
-        type="file"
-        hidden
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
-          e.target.value = "";
-        }}
-      />
-    </div>
   );
 }
 
