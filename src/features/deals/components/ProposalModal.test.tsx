@@ -18,6 +18,9 @@ vi.mock("@/features/deals/hooks/useProposals", () => ({
   useUpdateProposal: () => ({ mutate: mockUpdateMutate, isPending: false }),
   useSendProposal: () => ({ mutate: mockSendMutate, isPending: false }),
   useDownloadProposalPdf: () => ({ mutate: mockDownloadPdfMutate, isPending: false }),
+  // Chỉ dùng khi mở lại một báo giá ĐÃ có (existingProposalId). Các test ở đây đều là
+  // luồng tạo mới nên không có dữ liệu.
+  useProposal: () => ({ data: undefined, isLoading: false }),
 }));
 
 vi.mock("@/features/auth/hooks/useAuthStore", () => ({

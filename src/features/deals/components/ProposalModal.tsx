@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2, X, Send, Download,
   Bold, Italic, Underline,
@@ -11,24 +11,22 @@ import type { Deal } from "@/features/deals/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
-import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf } from "@/features/deals/hooks/useProposals";
+import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO } from "@/services/proposalsService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
+import {
+  backendContentToHtml,
+  isBackendContent,
+  proposalContentToHtml,
+  proposalToHtml,
+  type BackendProposalContent,
+} from "@/features/deals/proposalHtml";
 
 // ---------------------------------------------------------------------------
 // Schema thật mà Gemini (qua /proposals/ai-generate) trả về
 // ---------------------------------------------------------------------------
-type BackendProposalContent = {
-  project_overview: string;
-  scope_of_work: string[];
-  deliverables: string[];
-  timeline: string;
-  pricing: string;
-  payment_terms: string;
-  assumptions?: string;
-};
 
 /**
  * Cờ chặn nút "Tải PDF". `null` = cho phép tải.
@@ -60,165 +58,20 @@ function slugifyFilename(name: string): string {
   return slug || "khach-hang";
 }
 
-function isBackendContent(c: unknown): c is BackendProposalContent {
-  return typeof c === "object" && c !== null && "project_overview" in c;
-}
 
-type QuoteLineItem = {
-  description: string;
-  quantity?: number;
-  unitPrice?: number;
-  amount?: number;
-};
-
-type QuoteHtmlInput = {
-  title: string;
-  clientName: string;
-  clientContact?: string;
-  summary?: string;
-  lineItems: QuoteLineItem[];
-  total: number;
-  timeline?: string;
-  paymentTerms?: string;
-  note?: string;
-};
-
-function renderQuoteHtml(input: QuoteHtmlInput): string {
-  const today = new Date().toLocaleDateString("vi-VN");
-  const total = input.total > 0 ? input.total : input.lineItems.reduce((sum, item) => sum + (item.amount ?? 0), 0);
-  const deposit = Math.round(total * 0.5);
-  const remain = Math.max(total - deposit, 0);
-  const rows = input.lineItems.length
-    ? input.lineItems
-    : [{ description: input.title, quantity: 1, unitPrice: total, amount: total }];
-
-  const rowHtml = rows
-    .map((item) => {
-      const quantity = item.quantity ?? 1;
-      const amount = item.amount ?? item.unitPrice ?? 0;
-      return `<tr style="border-bottom:1px solid hsl(var(--border));">
-        <td style="padding:10px 12px;color:hsl(var(--foreground));">${item.description}</td>
-        <td style="padding:10px 12px;text-align:center;color:hsl(var(--muted-foreground));">${quantity}</td>
-        <td style="padding:10px 12px;text-align:right;font-weight:600;color:hsl(var(--foreground));">${formatVND(amount)}</td>
-      </tr>`;
-    })
-    .join("");
-
-  return `
-    <div style="border-bottom:1px solid hsl(var(--border));padding-bottom:16px;margin-bottom:18px;">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:hsl(var(--primary));font-weight:700;">BÁO GIÁ DỊCH VỤ</div>
-      <div style="font-size:24px;font-weight:800;margin-top:6px;color:hsl(var(--foreground));line-height:1.25;">${input.title}</div>
-      <div style="font-size:12px;color:hsl(var(--muted-foreground));margin-top:6px;">Ngày lập: ${today} · Hiệu lực 7 ngày</div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;font-size:13px;">
-      <div style="border:1px solid hsl(var(--border));border-radius:10px;padding:12px;">
-        <div style="font-size:10px;font-weight:700;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:4px;">Bên cung cấp</div>
-        <div style="font-weight:700;color:hsl(var(--foreground));">Freelancer</div>
-      </div>
-      <div style="border:1px solid hsl(var(--border));border-radius:10px;padding:12px;">
-        <div style="font-size:10px;font-weight:700;color:hsl(var(--muted-foreground));text-transform:uppercase;margin-bottom:4px;">Khách hàng</div>
-        <div style="font-weight:700;color:hsl(var(--foreground));">${input.clientName}</div>
-        ${input.clientContact ? `<div style="font-size:12px;color:hsl(var(--muted-foreground));margin-top:2px;">${input.clientContact}</div>` : ""}
-      </div>
-    </div>
-
-    ${input.summary ? `
-      <div style="margin-bottom:18px;">
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-bottom:6px;">Tóm tắt yêu cầu</div>
-        <p style="margin:0;color:hsl(var(--foreground)/0.85);line-height:1.6;white-space:pre-line;">${input.summary}</p>
-      </div>
-    ` : ""}
-
-    <div style="margin-bottom:18px;">
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-bottom:8px;">Hạng mục & chi phí</div>
-      <table style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid hsl(var(--border));border-radius:10px;overflow:hidden;font-size:13px;">
-        <tr style="background:hsl(var(--muted));">
-          <td style="padding:10px 12px;font-weight:700;color:hsl(var(--foreground));">Hạng mục</td>
-          <td style="padding:10px 12px;text-align:center;font-weight:700;color:hsl(var(--foreground));width:72px;">SL</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:700;color:hsl(var(--foreground));width:150px;">Thành tiền</td>
-        </tr>
-        ${rowHtml}
-        <tr style="background:hsl(var(--primary)/0.06);">
-          <td colspan="2" style="padding:12px;font-weight:800;color:hsl(var(--foreground));">Tổng báo giá</td>
-          <td style="padding:12px;text-align:right;font-size:18px;font-weight:900;color:hsl(var(--primary));">${formatVND(total)}</td>
-        </tr>
-      </table>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;font-size:13px;">
-      <div style="border:1px solid hsl(var(--border));border-radius:10px;padding:12px;">
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-bottom:6px;">Tiến độ dự kiến</div>
-        <div style="color:hsl(var(--foreground)/0.85);line-height:1.6;">${input.timeline || "Thống nhất sau khi chốt phạm vi chi tiết."}</div>
-      </div>
-      <div style="border:1px solid hsl(var(--border));border-radius:10px;padding:12px;">
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-bottom:6px;">Thanh toán</div>
-        <div style="color:hsl(var(--foreground)/0.85);line-height:1.6;">
-          ${input.paymentTerms || `Tạm ứng ${formatVND(deposit)} khi bắt đầu, thanh toán ${formatVND(remain)} khi nghiệm thu.`}
-        </div>
-      </div>
-    </div>
-
-    <div style="border-top:1px solid hsl(var(--border));padding-top:14px;font-size:12px;color:hsl(var(--muted-foreground));line-height:1.6;">
-      ${input.note || "Báo giá này là ước tính ban đầu, có thể điều chỉnh nếu phạm vi công việc thay đổi."}
-    </div>
-  `;
-}
-
-// ---------------------------------------------------------------------------
-// Render nội dung AI mới (flat strings / string[]) → HTML
-// ---------------------------------------------------------------------------
-function backendContentToHtml(content: BackendProposalContent, deal: Deal): string {
-  return renderQuoteHtml({
-    title: deal.projectType,
-    clientName: deal.client,
-    clientContact: deal.contact,
-    summary: content.project_overview || deal.notes,
-    lineItems: [{ description: content.pricing || deal.projectType, quantity: 1, amount: deal.value }],
-    total: deal.value,
-    timeline: content.timeline,
-    paymentTerms: content.payment_terms,
-    note: content.assumptions,
-  });
-
-}
-
-// ---------------------------------------------------------------------------
-// Render nội dung thủ công / fallback (ProposalContentDTO) → HTML
-// ---------------------------------------------------------------------------
-function proposalContentToHtml(content: ProposalContentDTO, deal: Deal): string {
-  const quoteItems = content.pricing?.line_items?.map((item) => ({
-    description: item.description,
-    quantity: item.quantity,
-    unitPrice: item.unit_price,
-    amount: item.amount,
-  })) ?? [];
-  const timelineText =
-    content.timeline?.start_date || content.timeline?.end_date
-      ? `Từ ${content.timeline.start_date ?? "?"} đến ${content.timeline.end_date ?? "?"}.`
-      : content.timeline?.milestones?.map((m) => m.title).filter(Boolean).join("; ");
-
-  return renderQuoteHtml({
-    title: content.title ?? deal.projectType,
-    clientName: deal.client,
-    clientContact: deal.contact,
-    summary: content.executive_summary || deal.notes,
-    lineItems: quoteItems,
-    total: content.pricing?.total ?? deal.value,
-    timeline: timelineText,
-    paymentTerms: content.terms?.payment_terms,
-    note: content.notes,
-  });
-
-}
 
 function normalizeProposalContentForApi(
   content: ProposalContentDTO | BackendProposalContent | null,
   deal: Deal,
-  editedText?: string
+  editedText?: string,
+  renderedHtml?: string
 ): ProposalContentDTO {
   if (content && isBackendContent(content)) {
     return {
+      // Bản HTML người dùng đã chỉnh tay. DTO vốn có sẵn trường này ("FE lưu bản
+      // rich text đã chỉnh...") nhưng chưa ai điền — nên màn Xem lại ở tab Tài liệu
+      // phải tự dựng lại theo kiểu khác, và hiện ra khác hẳn modal soạn thảo.
+      rendered_html: renderedHtml,
       title: `Báo giá ${deal.projectType}`,
       executive_summary: content.project_overview || deal.notes,
       scope_of_work: content.scope_of_work?.join("\n") || deal.projectType,
@@ -239,6 +92,7 @@ function normalizeProposalContentForApi(
 
   const source = content ?? buildManualProposalContent(deal);
   return {
+    rendered_html: renderedHtml,
     title: source.title,
     executive_summary: source.executive_summary,
     scope_of_work: source.scope_of_work,
@@ -285,16 +139,45 @@ function buildManualProposalContent(deal: Deal): ProposalContentDTO {
 
 const RETRY_DELAY_MS = 2500;
 
-export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: () => void }) {
+export function ProposalModal({
+  deal,
+  onClose,
+  /**
+   * Có = mở để XEM LẠI một báo giá đã sinh. Nạp lại bản đó, KHÔNG gọi AI sinh bản mới —
+   * bấm "Xem" mà nó đẻ thêm một bản nháp nữa thì vừa tốn quota vừa đè mất nội dung
+   * người dùng đang muốn xem.  #Huynh
+   */
+  existingProposalId = null,
+  /** Đổi mỗi lần người dùng bấm mở/Xem — dùng để bung lại panel đã thu nhỏ. */
+  openNonce = 0,
+}: {
+  deal: Deal | null;
+  onClose: () => void;
+  existingProposalId?: string | null;
+  openNonce?: number;
+}) {
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [proposalHtml, setProposalHtml] = useState("");
   const [proposalContent, setProposalContent] = useState<ProposalContentDTO | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [minimized, setMinimized] = useState(true);
+  // Cờ thu nhỏ gắn với LẦN MỞ, không phải boolean trần: thu nhỏ không xoá panel khỏi
+  // store, nên nếu cờ dính dai thì bấm "Xem" lại panel vẫn nằm im. Nonce đổi = lần mở
+  // mới = bung ra.  #Huynh
+  const [minimizedOverride, setMinimizedOverride] = useState<{
+    nonce: number;
+    value: boolean;
+  } | null>(null);
+  const minimized = minimizedOverride?.nonce === openNonce ? minimizedOverride.value : false;
+  const setMinimized = useCallback(
+    (value: boolean) => setMinimizedOverride({ nonce: openNonce, value }),
+    [openNonce]
+  );
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const cancelRef = useRef(false);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  const existing = useProposal(existingProposalId ?? undefined);
 
   const qc = useQueryClient();
   const freelancerName = useAuthStore((s) => s.user?.fullName ?? "Freelancer");
@@ -308,8 +191,6 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const updateJob = useAIActivityStore((state) => state.updateJob);
   const removeJob = useAIActivityStore((state) => state.removeJob);
   const cancelJob = useAIActivityStore((state) => state.cancelJob);
-  const viewRequestId = useAIActivityStore((state) => state.viewRequestId);
-  const consumeViewRequest = useAIActivityStore((state) => state.consumeViewRequest);
   const jobId = deal ? `ai-proposal-${deal.id}` : "";
 
   function createManualDraft(d: NonNullable<typeof deal>, status?: number) {
@@ -324,6 +205,14 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
           setIsGenerating(false);
           setProposalId(res.id);
           setProposalContent(res.content);
+          // Nhớ id bản nháp vào thẻ job: bấm "Xem" sau này sẽ nạp lại ĐÚNG bản này thay
+          // vì gọi AI sinh bản mới.  #Huynh
+          updateJob(currentJobId, { resultId: res.id });
+          addDealHistoryEntry(d.id, {
+            date: new Date().toISOString(),
+            text: `Đã tạo bản nháp báo giá thủ công cho "${d.client}" (AI không dùng được).`,
+            channel: "message",
+          });
           setProposalHtml(proposalContentToHtml(res.content, d));
           updateJob(currentJobId, {
             status: "success",
@@ -376,6 +265,14 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
           setIsGenerating(false);
           setProposalId(res.id);
           setProposalContent(res.content);
+          // Nhớ id bản nháp vào thẻ job: bấm "Xem" sau này sẽ nạp lại ĐÚNG bản này thay
+          // vì gọi AI sinh bản mới.  #Huynh
+          updateJob(currentJobId, { resultId: res.id });
+          addDealHistoryEntry(d.id, {
+            date: new Date().toISOString(),
+            text: `AI đã soạn bản nháp báo giá cho "${d.client}".`,
+            channel: "message",
+          });
           const html = isBackendContent(res.content)
             ? backendContentToHtml(res.content, d)
             : proposalContentToHtml(res.content, d);
@@ -410,13 +307,24 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
   useEffect(() => {
     if (!deal) return;
     cancelRef.current = false;
-    setMinimized(true);
+
+    // Mở để XEM LẠI: nạp bản nháp đã có, mở sẵn ra, không gọi AI.
+    if (existingProposalId) {
+      setProposalId(existingProposalId);
+      setIsGenerating(false);
+      return;
+    }
+
+    // Bấm "Tạo Báo Giá AI" thì phải THẤY cửa sổ đang chạy (mặc định của `minimized` là
+    // false). Trước đây nó tự thu nhỏ ngay nên bấm xong không thấy gì, tưởng nút hỏng.
+    // Muốn làm việc khác thì bấm ra ngoài — panel thu nhỏ, job vẫn chạy nền.  #Huynh
     upsertJob({
       id: `ai-proposal-${deal.id}`,
       kind: "proposal_generation",
       title: `Tạo báo giá cho ${deal.client}`,
       description: "AI đang soạn bản nháp báo giá. Bạn có thể tiếp tục làm việc khác.",
       entityLabel: deal.projectType,
+      entityId: deal.id, // để bấm "Xem" ở màn hình khác vẫn mở lại được
       status: "running",
     });
     setIsGenerating(true);
@@ -425,13 +333,16 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
     triggerGenerate(deal, 0);
     return () => { cancelRef.current = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal?.id]);
+  }, [deal?.id, existingProposalId]);
 
+  // Nạp nội dung của bản nháp đã có (khi mở để xem lại).
   useEffect(() => {
-    if (!deal || !jobId || viewRequestId !== jobId) return;
-    setMinimized(false);
-    consumeViewRequest(jobId);
-  }, [consumeViewRequest, deal, jobId, viewRequestId]);
+    if (!existingProposalId || !existing.data || !deal) return;
+    const content = existing.data.content as ProposalContentDTO | null;
+    if (!content) return;
+    setProposalContent(content);
+    setProposalHtml(proposalToHtml(content, deal));
+  }, [existing.data, existingProposalId, deal]);
 
   if (!deal || minimized) return null;
 
@@ -443,7 +354,12 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const handleSend = () => {
     if (!proposalId) return;
     const editedText = editorRef.current?.innerText ?? "";
-    const contentToSave = normalizeProposalContentForApi(proposalContent, deal, editedText);
+    const contentToSave = normalizeProposalContentForApi(
+      proposalContent,
+      deal,
+      editedText,
+      editorRef.current?.innerHTML
+    );
 
     setPendingAction("send");
     // Backend Swagger hiện chỉ nhận ProposalContentDTO chuẩn, nên FE chuẩn hóa payload trước khi khóa và gửi.
@@ -482,7 +398,12 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const handleDownloadPdf = () => {
     if (!proposalId) return;
     const editedText = editorRef.current?.innerText ?? "";
-    const contentToSave = normalizeProposalContentForApi(proposalContent, deal, editedText);
+    const contentToSave = normalizeProposalContentForApi(
+      proposalContent,
+      deal,
+      editedText,
+      editorRef.current?.innerHTML
+    );
 
     setPendingAction("pdf");
     updateDraft.mutate({ proposalId, payload: { deal_id: deal.id, content: contentToSave } }, {
@@ -492,6 +413,11 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
           {
             onSuccess: () => {
               setPendingAction(null);
+              addDealHistoryEntry(deal.id, {
+                date: new Date().toISOString(),
+                text: `Đã tải báo giá dạng PDF cho "${deal.client}".`,
+                channel: "message",
+              });
               toast.success("Đã tải báo giá PDF.");
             },
             onError: () => {
@@ -543,8 +469,18 @@ export function ProposalModal({ deal, onClose }: { deal: Deal | null; onClose: (
 
   return (
     <>
-    <div className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in">
-      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-card rounded-2xl shadow-2xl border border-border overflow-hidden">
+    // Bấm ra ngoài = thu nhỏ (giữ nội dung), không đóng hẳn.  #Huynh
+    <div
+      className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in"
+      onClick={() => setMinimized(true)}
+    >
+      {/* CHẶN nổi bọt: mọi click bên trong khung (kể cả gõ vào trình soạn thảo) đều nổi
+          lên tới nền, nên thiếu dòng này là bấm vào đâu cũng bị hiểu là "bấm ra ngoài"
+          rồi panel tự thu nhỏ — không sửa nội dung được chữ nào.  #Huynh */}
+      <div
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-card rounded-2xl shadow-2xl border border-border overflow-hidden"
+        onClick={(event) => event.stopPropagation()}
+      >
 
         {/* Header */}
         <div className="bg-card/95 backdrop-blur border-b border-border px-6 py-4 flex items-center justify-between shrink-0">

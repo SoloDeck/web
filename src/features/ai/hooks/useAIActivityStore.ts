@@ -10,6 +10,10 @@ export type AIJob = {
   description: string;
   status: AIJobStatus;
   entityLabel?: string;
+  /** id của deal mà job này thuộc về — để mở lại đúng panel khi bấm "Xem". */
+  entityId?: string;
+  /** Kết quả job đã tạo ra (ví dụ proposal_id) — mở lại thì nạp bản này, không sinh bản mới. */
+  resultId?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -25,9 +29,40 @@ export type AIJob = {
 
 type UpsertAIJobInput = Omit<AIJob, "createdAt" | "updatedAt"> & Partial<Pick<AIJob, "createdAt" | "updatedAt">>;
 
+/**
+ * Panel AI nào đang mở, cho deal nào.
+ *
+ * Trước đây AIPanel và ProposalModal được mount NGAY TRONG trang chi tiết deal. Hậu quả:
+ * đứng ở bảng Kanban bấm "Xem" trên thẻ job thì không có gì xảy ra — panel của deal đó
+ * còn chưa được dựng. Tệ hơn, trang chi tiết mở panel theo `viewRequestId` mà KHÔNG xét
+ * loại job, nên bấm "Tạo Báo Giá AI" lại bật ra cửa sổ "Đánh giá deal bằng AI".
+ *
+ * Giờ panel sống ở tầng gốc (__root) và được điều khiển qua store này, nên bấm ở đâu
+ * cũng mở được.  #Huynh
+ */
+export type AIPanelRequest = {
+  kind: AIJobKind;
+  dealId: string;
+  /** Có = mở để XEM LẠI job cũ. Không có = chạy job MỚI. */
+  jobId?: string;
+  /** Báo giá đã tạo sẵn — mở để xem thì nạp lại bản này, không sinh bản mới. */
+  proposalId?: string;
+  /**
+   * Mốc thời điểm của LẦN MỞ này.
+   *
+   * Cần thiết vì thu nhỏ KHÔNG xoá panel khỏi store (người dùng phải mở lại được).
+   * Bấm "Xem" lần nữa mà store set lại y nguyên giá trị cũ thì không có gì đổi, panel
+   * vẫn giữ cờ thu nhỏ của nó → bấm hoài không lên. Đổi mốc này là báo cho panel biết
+   * "đây là một lần mở MỚI, bung ra đi".  #Huynh
+   */
+  openedAt: number;
+};
+
 type AIActivityState = {
   jobs: AIJob[];
   viewRequestId: string | null;
+  /** Panel đang mở (toàn cục). */
+  panel: AIPanelRequest | null;
   cancelledJobIds: string[];
   dismissedJobIds: string[];
   upsertJob: (job: UpsertAIJobInput) => void;
@@ -37,6 +72,9 @@ type AIActivityState = {
   clearFinished: () => void;
   requestView: (id: string) => void;
   consumeViewRequest: (id: string) => void;
+  /** Mở panel AI (chạy job mới hoặc xem lại job cũ). `openedAt` do store tự đặt. */
+  openPanel: (request: Omit<AIPanelRequest, "openedAt">) => void;
+  closePanel: () => void;
   isJobCancelled: (id: string) => boolean;
   /** Job đã bị người dùng ẩn đi — đừng dựng lại sau F5. */
   isJobDismissed: (id: string) => boolean;
@@ -81,6 +119,7 @@ function saveDismissed(ids: string[]): void {
 export const useAIActivityStore = create<AIActivityState>((set, get) => ({
   jobs: [],
   viewRequestId: null,
+  panel: null,
   cancelledJobIds: [],
   dismissedJobIds: loadDismissed(),
   upsertJob: (job) =>
@@ -153,7 +192,27 @@ export const useAIActivityStore = create<AIActivityState>((set, get) => ({
         dismissedJobIds: dismissed,
       };
     }),
-  requestView: (id) => set({ viewRequestId: id }),
+  // Bấm "Xem" trên thẻ job: tra ra job đó thuộc loại gì, của deal nào, rồi mở đúng
+  // panel. Trước đây chỉ ghi một cái id rồi hy vọng có ai đó đang lắng nghe.
+  requestView: (id) =>
+    set((state) => {
+      const job = state.jobs.find((item) => item.id === id);
+      if (!job?.entityId) return { viewRequestId: id };
+
+      return {
+        viewRequestId: id,
+        panel: {
+          kind: job.kind,
+          dealId: job.entityId,
+          jobId: job.id,
+          proposalId: job.resultId,
+          openedAt: Date.now(),
+        },
+      };
+    }),
+
+  openPanel: (request) => set({ panel: { ...request, openedAt: Date.now() } }),
+  closePanel: () => set({ panel: null, viewRequestId: null }),
   consumeViewRequest: (id) =>
     set((state) => ({
       viewRequestId: state.viewRequestId === id ? null : state.viewRequestId,

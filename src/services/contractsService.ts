@@ -194,22 +194,6 @@ export async function generateContractContent(
   return data.data;
 }
 
-/**
- * POST /ai/contracts/generate — AI-generate contract content.
- * Synchronous — returns generated content immediately. Requires AI subscription.
- */
-export async function aiGenerateContract(payload: {
-  contract_id: string;
-  template_id?: string;
-  language?: "vi" | "en";
-}): Promise<ContractGenerationResponse> {
-  const { data } = await axiosClient.post<ApiResponse<ContractGenerationResponse>>(
-    "/ai/contracts/generate",
-    { language: "vi", ...payload }
-  );
-  return data.data;
-}
-
 /** POST /contracts/{id}/amend — create an amendment (new version) of an active contract. */
 export async function amendContract(
   contractId: string,

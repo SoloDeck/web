@@ -8,7 +8,6 @@ import {
   signContract,
   signContractAsClient,
   generateContractContent,
-  aiGenerateContract,
   amendContract,
   terminateContract,
   listMilestones,
@@ -150,19 +149,6 @@ export function useGenerateContractContent() {
   });
 }
 
-/**
- * AI-generate contract content (global endpoint).
- * POST /ai/contracts/generate — synchronous, no polling needed.
- */
-export function useAiGenerateContract() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: aiGenerateContract,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: contractKeys.all });
-    },
-  });
-}
 
 /** Create an amendment (new version) of an active contract. */
 export function useAmendContract() {

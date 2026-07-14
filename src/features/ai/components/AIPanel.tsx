@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, BadgeCheck, Bot, CheckCircle2, Flame, Loader2, Minus, RefreshCw, Snowflake, Sun, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, CheckCircle2, Loader2, Minus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import type { Deal, LeadScore } from "@/features/deals/types";
 import { useTransitionDealStage } from "@/features/deals/hooks/useDeals";
-import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { addDealQualificationDocument } from "@/features/deals/dealQualificationStorage";
-import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
 import { getAiJobErrorMessage, isTerminal } from "@/services/aiJobsService";
+import {
+  QualificationResultView,
+  type QualificationView,
+  type ScoreItem,
+} from "@/features/ai/components/QualificationResult";
+import { LEVEL_UI } from "@/features/ai/qualificationUi";
 
 type EvaluationResult = {
   level: LeadScore;
@@ -21,7 +25,13 @@ type EvaluationResult = {
   recommendation: string;
   priceLow: number;
   priceHigh: number;
+  /** Khoảng giá do AI ước lượng thật, không phải FE nhân giá người dùng nhập. */
+  priceFromAi: boolean;
   nextActions: string[];
+  /** Điểm sẵn sàng báo giá được cộng từ 5 tiêu chí — người dùng đọc để tự kiểm chứng. */
+  breakdown: ScoreItem[];
+  win: { score: number; level: string; factors: ScoreItem[] } | null;
+  redFlags: string[];
 };
 
 type ApiQualificationResult = {
@@ -34,35 +44,18 @@ type ApiQualificationResult = {
   reasoning?: string | null;
   ai_qualification_score?: number | null;
   ai_qualification_recommendation?: string | null;
-};
-
-const LEVEL_UI: Record<
-  LeadScore,
-  {
-    label: string;
-    icon: typeof Flame;
-    badgeClass: string;
-    scoreClass: string;
-  }
-> = {
-  hot: {
-    label: "Nóng",
-    icon: Flame,
-    badgeClass: "border-red-200 bg-red-50 text-red-600",
-    scoreClass: "text-red-600",
-  },
-  warm: {
-    label: "Ấm",
-    icon: Sun,
-    badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
-    scoreClass: "text-amber-700",
-  },
-  cold: {
-    label: "Lạnh",
-    icon: Snowflake,
-    badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
-    scoreClass: "text-blue-700",
-  },
+  // Ba trường dưới đây backend VẪN LUÔN trả về, nhưng trước giờ FE không khai nên
+  // vứt đi hết rồi tự hardcode câu tiếng Việt chung chung. Giờ dùng đúng của AI.
+  next_step?: string | null;
+  suggested_actions?: string[] | null;
+  detected_signals?: Array<{ text?: string | null; is_positive?: boolean | null }> | null;
+  /** Bảng phân rã điểm: backend cộng tổng từ 5 tiêu chí do AI chấm. */
+  score_breakdown?: ScoreItem[] | null;
+  /** Khả năng chốt deal — backend tính từ dữ kiện, không hỏi AI. */
+  win_likelihood?: { score?: number; level?: string; factors?: ScoreItem[] } | null;
+  /** Giá thị trường AI ước lượng cho phạm vi này (VND). */
+  price_range_min?: number | null;
+  price_range_max?: number | null;
 };
 
 function mapApiQualification(deal: Deal, data: ApiQualificationResult): EvaluationResult {
@@ -70,47 +63,77 @@ function mapApiQualification(deal: Deal, data: ApiQualificationResult): Evaluati
   const rawLevel = (data.suggested_lead_score ?? "").toLowerCase();
   const level: LeadScore =
     rawLevel === "hot" || score >= 75 ? "hot" : rawLevel === "cold" || score < 45 ? "cold" : "warm";
+
+  // Khoảng giá: dùng ước lượng THẬT của AI (price_range_min/max). Trước đây FE lấy
+  // chính giá trị người dùng tự nhập rồi nhân 0.9 và 1.25 — nghĩa là "khoảng giá AI
+  // gợi ý" thực chất là giá của họ ± vài phần trăm, AI không đóng góp gì.  #Huynh
+  const aiLow = data.price_range_min ?? 0;
+  const aiHigh = data.price_range_max ?? 0;
+  const priceFromAi = aiLow > 0 && aiHigh > 0;
   const base = deal.value > 0 ? deal.value : 8_000_000;
   // Gom tín hiệu backend thành danh sách ngắn để Freelancer dễ đọc.
-  const signals = [
-    data.project_type ? `Loại dự án: ${data.project_type}` : null,
-    data.budget_signal ? `Ngân sách: ${data.budget_signal}` : null,
-    data.timeline_signal ? `Timeline: ${data.timeline_signal}` : null,
-    data.urgency_signal ? `Độ gấp: ${data.urgency_signal}` : null,
-    ...(data.red_flags?.length ? data.red_flags.map((flag) => `Lưu ý: ${flag}`) : []),
-  ].filter(Boolean) as string[];
+  // detected_signals đã là câu tiếng Việt hoàn chỉnh do AI viết → dùng thẳng.
+  // Không có thì mới ghép từ các trường lẻ.
+  const aiSignals = (data.detected_signals ?? [])
+    .map((signal) => signal?.text?.trim())
+    .filter((text): text is string => Boolean(text));
+
+  const signals = aiSignals.length
+    ? [...aiSignals, ...(data.red_flags ?? []).map((flag) => `Lưu ý: ${flag}`)]
+    : ([
+        data.project_type ? `Loại dự án: ${data.project_type}` : null,
+        data.budget_signal ? `Ngân sách: ${data.budget_signal}` : null,
+        data.timeline_signal ? `Thời gian: ${data.timeline_signal}` : null,
+        data.urgency_signal ? `Độ gấp: ${data.urgency_signal}` : null,
+        ...(data.red_flags?.length ? data.red_flags.map((flag) => `Lưu ý: ${flag}`) : []),
+      ].filter(Boolean) as string[]);
 
   return {
     level,
     score,
     label: LEVEL_UI[level].label,
-    rationale: data.reasoning || "Backend đã đánh giá deal nhưng chưa trả phần giải thích chi tiết.",
-    signals: signals.length ? signals : ["Backend chưa trả tín hiệu chi tiết cho deal này."],
+    rationale: data.reasoning || "AI đã chấm điểm nhưng chưa đưa ra phần giải thích chi tiết.",
+    signals: signals.length ? signals : ["AI chưa tìm thấy tín hiệu nào đáng chú ý ở deal này."],
+    // next_step do AI viết, bám sát chính deal này — sát hơn hẳn câu chung chung theo
+    // recommendation. Chỉ khi AI không trả mới rơi về câu mặc định.
     recommendation:
-      data.ai_qualification_recommendation === "pass"
+      data.next_step?.trim() ||
+      (data.ai_qualification_recommendation === "pass"
         ? "Nên tiếp tục tư vấn và chuyển sang bước báo giá khi đã xác nhận phạm vi."
         : data.ai_qualification_recommendation === "reject"
           ? "Nên cân nhắc loại bỏ hoặc hỏi lại để tránh mất thời gian tư vấn sai nhu cầu."
-          : "Nên hỏi thêm phạm vi, ngân sách và timeline trước khi tạo báo giá.",
-    priceLow: Math.round(base * 0.9),
-    priceHigh: Math.round(base * 1.25),
+          : "Nên hỏi thêm phạm vi, ngân sách và thời gian trước khi tạo báo giá."),
+    priceLow: priceFromAi ? aiLow : Math.round(base * 0.9),
+    priceHigh: priceFromAi ? aiHigh : Math.round(base * 1.25),
+    priceFromAi,
+    breakdown: data.score_breakdown ?? [],
+    win: data.win_likelihood?.factors?.length
+      ? {
+          score: data.win_likelihood.score ?? 0,
+          level: data.win_likelihood.level ?? "medium",
+          factors: data.win_likelihood.factors,
+        }
+      : null,
+    redFlags: (data.red_flags ?? []).filter(Boolean),
     nextActions:
-      level === "hot"
-        ? ["Nhắn Zalo hoặc email trong hôm nay", "Xác nhận scope chính", "Tạo báo giá sau khi đủ thông tin"]
-        : ["Hỏi thêm phạm vi công việc", "Xác nhận ngân sách và timeline", "Cập nhật deal sau khi khách phản hồi"],
+      data.suggested_actions?.length
+        ? data.suggested_actions.filter(Boolean)
+        : level === "hot"
+          ? ["Nhắn Zalo hoặc email trong hôm nay", "Xác nhận phạm vi chính", "Tạo báo giá sau khi đủ thông tin"]
+          : ["Hỏi thêm phạm vi công việc", "Xác nhận ngân sách và thời gian", "Cập nhật deal sau khi khách phản hồi"],
   };
 }
 
 function getErrorHint(error: unknown): string {
   const err = error as { code?: string; response?: { status?: number; data?: { message?: string; detail?: string } } };
   if (err.code === "ECONNABORTED") {
-    return "FE đã chờ quá lâu và request bị timeout. Hãy kiểm tra backend AI hoặc thử lại sau.";
+    return "Chờ quá lâu mà chưa có phản hồi. Bạn thử lại sau ít phút nhé.";
   }
   if (err.response?.status) {
     const message = err.response.data?.message || err.response.data?.detail;
-    return `Backend trả lỗi ${err.response.status}${message ? `: ${message}` : "."}`;
+    return `Hệ thống báo lỗi ${err.response.status}${message ? `: ${message}` : "."}`;
   }
-  return "Request bị hủy hoặc backend không phản hồi. Hãy mở Network để xem dòng qualify.";
+  return "Không kết nối được tới máy chủ. Bạn kiểm tra mạng rồi thử lại nhé.";
 }
 
 export function AIPanel({
@@ -124,11 +147,14 @@ export function AIPanel({
    * kể cả sau khi F5 — trước đây reload là mất, không mò lại được.
    */
   viewJobId,
+  /** Đổi mỗi lần người dùng bấm mở/Xem — dùng để bung lại panel đã thu nhỏ. */
+  openNonce = 0,
 }: {
   open: boolean;
   deal?: Deal | null;
   onClose: () => void;
   viewJobId?: string | null;
+  openNonce?: number;
 }) {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -141,9 +167,29 @@ export function AIPanel({
 
   // Chạy job mới → thu nhỏ để người dùng làm việc khác. Xem lại job cũ → mở sẵn,
   // vì họ bấm "Xem" chính là để nhìn kết quả ngay.
-  const [minimizedOverride, setMinimizedOverride] = useState<boolean | null>(null);
-  const minimized = minimizedOverride ?? !viewJobId;
-  const setMinimized = setMinimizedOverride;
+  //
+  // Lựa chọn thu nhỏ phải GẮN VỚI job đang xem, không được là một cờ boolean trần.
+  // Bug cũ: bấm "Đánh giá Deal" -> runQualification() gọi setMinimized(true) -> cờ đó
+  // DÍNH LUÔN. Sau đó bấm "Xem" chỉ đổi viewJobId, cờ vẫn true, nên panel mở ra mà
+  // vẫn thu nhỏ — người dùng thấy như bấm không ăn gì.
+  // Cờ thu nhỏ gắn với LẦN MỞ (openNonce), không phải một boolean trần.
+  //
+  // Thu nhỏ KHÔNG xoá panel khỏi store — người dùng phải mở lại được, vì có khi họ chỉ
+  // muốn ẩn đi một lát rồi xem kỹ hơn. Nhưng nếu cờ này là boolean trần thì bấm "Xem"
+  // lần nữa panel vẫn thấy cờ = true và cứ nằm im. Gắn theo openNonce thì mỗi lần bấm
+  // "Xem" là một nonce mới → lựa chọn thu nhỏ cũ hết hiệu lực → panel bung ra.  #Huynh
+  const [minimizedOverride, setMinimizedOverride] = useState<{
+    nonce: number;
+    value: boolean;
+  } | null>(null);
+
+  const minimized =
+    minimizedOverride?.nonce === openNonce ? minimizedOverride.value : !viewJobId;
+
+  const setMinimized = useCallback(
+    (value: boolean) => setMinimizedOverride({ nonce: openNonce, value }),
+    [openNonce]
+  );
 
   const createJob = useCreateAiJob();
   const cancelJobApi = useCancelAiJob();
@@ -153,8 +199,6 @@ export function AIPanel({
   const upsertJob = useAIActivityStore((state) => state.upsertJob);
   const updateJob = useAIActivityStore((state) => state.updateJob);
   const removeJob = useAIActivityStore((state) => state.removeJob);
-  const viewRequestId = useAIActivityStore((state) => state.viewRequestId);
-  const consumeViewRequest = useAIActivityStore((state) => state.consumeViewRequest);
 
   // Kết quả và lỗi được SUY RA từ job, không lưu thành state riêng. Nhờ vậy sau khi
   // F5 và khôi phục lại job, màn hình tự hiện đúng — không cần đồng bộ tay.
@@ -187,6 +231,7 @@ export function AIPanel({
             title: `Đánh giá ${currentDeal.projectType}`,
             description: "AI đang phân tích nhu cầu, ngân sách và tín hiệu từ deal.",
             entityLabel: currentDeal.client,
+            entityId: currentDeal.id, // để Task Center điều hướng về đúng deal khi bấm "Xem"
             status: "running",
             remote: true, // job thật của BE → Task Center huỷ được bằng API
           });
@@ -214,7 +259,6 @@ export function AIPanel({
 
   // Đồng bộ trạng thái job thật sang Task Center (store ngoài React) mỗi khi
   // backend báo job đổi trạng thái.
-  const loggedJobRef = useRef<string | null>(null);
   useEffect(() => {
     if (!job || !deal) return;
 
@@ -224,16 +268,10 @@ export function AIPanel({
         description: `Đã có kết quả ${result.score}/100. Bấm Xem để kiểm tra và lưu đánh giá.`,
       });
 
-      // Chỉ ghi lịch sử một lần cho mỗi job, không thì mỗi lần poll lại ghi thêm.
-      if (loggedJobRef.current !== job.id) {
-        loggedJobRef.current = job.id;
-        const levelLabel = result.level === "hot" ? "Nóng" : result.level === "cold" ? "Lạnh" : "Ấm";
-        addDealHistoryEntry(deal.id, {
-          date: new Date().toISOString(),
-          text: `AI đánh giá deal: ${result.score}/100 (${levelLabel}). ${result.rationale}`.slice(0, 500),
-          channel: "message",
-        });
-      }
+      // KHÔNG ghi vào lịch sử localStorage nữa. Tab Lịch sử giờ đã liệt kê các lần
+      // chấm điểm AI lấy thẳng từ backend (kèm nút Xem để mở lại kết quả), nên ghi
+      // thêm ở đây là kể cùng một chuyện hai lần — người dùng thấy hai danh sách
+      // trùng nhau.
     } else if (job.status === "failed") {
       updateJob(job.id, {
         status: "error",
@@ -244,12 +282,6 @@ export function AIPanel({
       removeJob(job.id);
     }
   }, [job, deal, result, updateJob, removeJob]);
-
-  useEffect(() => {
-    if (!open || !deal || !jobId || viewRequestId !== jobId) return;
-    setMinimized(false);
-    consumeViewRequest(jobId);
-  }, [consumeViewRequest, deal, jobId, open, viewRequestId]);
 
   function saveAndMoveNext() {
     if (!deal) return;
@@ -265,6 +297,11 @@ export function AIPanel({
         rationale: result.rationale,
         recommendation: result.recommendation,
         signals: result.signals,
+        // Lưu luôn căn cứ chấm điểm: mở lại trong tab Tài liệu phải thấy ĐÚNG những gì
+        // đã thấy lúc đánh giá, không phải một bản rút gọn khác.  #Huynh
+        breakdown: result.breakdown,
+        win: result.win,
+        redFlags: result.redFlags,
       });
     };
     if (deal.stage !== "new_lead") {
@@ -312,16 +349,42 @@ export function AIPanel({
     onClose();
   }
 
-  const levelUi = useMemo(() => (result ? LEVEL_UI[result.level] : LEVEL_UI.warm), [result]);
-  const ScoreIcon = levelUi.icon;
+  // Đổ về shape dùng chung với tab Tài liệu — MỘT bộ mã hiển thị duy nhất, nên bản vừa
+  // chạy xong và bản lưu lại không thể vẽ ra hai kiểu khác nhau.  #Huynh
+  const resultView: QualificationView | null = result
+    ? {
+        level: result.level,
+        score: result.score,
+        label: result.label,
+        rationale: result.rationale,
+        recommendation: result.recommendation,
+        signals: result.signals,
+        breakdown: result.breakdown,
+        win: result.win,
+        redFlags: result.redFlags,
+        price: result.priceFromAi ? { low: result.priceLow, high: result.priceHigh } : null,
+      }
+    : null;
+
 
   if (!open || !deal || minimized) return null;
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center p-4 animate-in fade-in">
-        <div className="pointer-events-auto max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card/95 px-6 py-4 backdrop-blur">
+      {/* Bấm ra ngoài panel = thu nhỏ, không phải đóng. Đóng hẳn thì mất kết quả đang
+          xem; thu nhỏ giữ nguyên và vẫn mở lại được từ Task Center.  #Huynh */}
+      <div
+        className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm animate-in fade-in"
+        onClick={() => setMinimized(true)}
+      >
+        <div
+          className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+        {/* z-20 là BẮT BUỘC: vòng tròn điểm dùng SVG có transform (-rotate-90), mà transform
+            tạo stacking context mới nên nó được vẽ ĐÈ LÊN header sticky nếu header không
+            có z-index. Cuộn xuống là thấy hai vòng tròn nổi lù lù trên tiêu đề.  #Huynh */}
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/95 px-6 py-4 backdrop-blur">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
               <Bot className="h-4 w-4" />
@@ -361,15 +424,21 @@ export function AIPanel({
         </div>
 
         <div className="space-y-5 p-6">
-          <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4 md:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deal đang đánh giá</div>
-              <h2 className="mt-1 text-lg font-bold text-foreground">{deal.projectType}</h2>
-              <div className="mt-1 text-sm text-muted-foreground">{deal.client}</div>
+          {/* Dải thông tin deal — gọn một dòng. Bỏ ô "Kênh": nó không liên quan gì tới
+              việc chấm điểm, chỉ chiếm chỗ. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Deal đang đánh giá
+              </div>
+              <h2 className="mt-0.5 truncate text-base font-bold text-foreground">{deal.projectType}</h2>
+              <div className="text-sm text-muted-foreground">{deal.client}</div>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <InfoBlock label="Ngân sách" value={deal.budgetLabel || formatVND(deal.value)} />
-              <InfoBlock label="Kênh" value={deal.channel} />
+            <div className="shrink-0 text-right">
+              <div className="text-[11px] font-medium text-muted-foreground">Ngân sách khách đưa</div>
+              <div className="text-lg font-bold text-foreground">
+                {deal.budgetLabel || formatVND(deal.value)}
+              </div>
             </div>
           </div>
 
@@ -381,7 +450,9 @@ export function AIPanel({
                 </div>
                 <div>
                   <div className="font-semibold text-foreground">AI đang đánh giá deal...</div>
-                  <div className="text-sm text-muted-foreground">Quá trình này có thể mất vài chục giây nếu AI đang xử lý chậm.</div>
+                  <div className="text-sm text-muted-foreground">
+                    Thường mất vài giây. Bạn có thể thu nhỏ và làm việc khác.
+                  </div>
                 </div>
               </div>
             </div>
@@ -392,65 +463,17 @@ export function AIPanel({
               <div className="font-semibold text-destructive">Chưa đánh giá được deal</div>
               <p className="mt-1 text-muted-foreground">{errorHint}</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Nơi xem lỗi: DevTools → Network → request tên `qualify` → tab Response/Timing, hoặc terminal Docker backend.
+                Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.
               </p>
             </div>
           )}
 
           {result && (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-              <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Điểm đánh giá</div>
-                    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold", levelUi.badgeClass)}>
-                      <ScoreIcon className="h-3.5 w-3.5" />
-                      {result.label}
-                    </span>
-                  </div>
-                  <div className={cn("mt-4 text-5xl font-black leading-none", levelUi.scoreClass)}>{result.score}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">/ 100 điểm tiềm năng</div>
-                </div>
+              <QualificationResultView view={resultView!} />
 
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <BadgeCheck className="h-4 w-4 text-primary" />
-                    Kết luận AI
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{result.rationale}</p>
-                  <div className="mt-4 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
-                    {result.recommendation}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <div className="text-sm font-semibold">Tín hiệu backend phát hiện</div>
-                  <div className="mt-3 space-y-2">
-                    {result.signals.map((signal) => (
-                      <div key={signal} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-                        <span>{signal}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <div className="text-sm font-semibold">Hành động đề xuất</div>
-                  <div className="mt-3 space-y-2">
-                    {result.nextActions.map((action) => (
-                      <div key={action} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <ArrowRight className="h-4 w-4 shrink-0 text-primary" />
-                        <span>{action}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2 rounded-xl border border-border bg-muted/30 p-4">
+              {/* Nút hành động dính đáy — không phải cuộn hết trang mới bấm được. */}
+              <div className="sticky bottom-0 z-20 -mx-6 -mb-6 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-card/95 px-6 py-4 backdrop-blur">
                 <button
                   type="button"
                   onClick={() => runQualification(deal)}
@@ -469,13 +492,6 @@ export function AIPanel({
                   {transitionStage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   {deal.stage === "new_lead" ? "Lưu & chuyển sang Đã đánh giá" : "Lưu đánh giá"}
                 </button>
-              </div>
-
-              <div className="hidden rounded-xl border border-border bg-muted/30 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Khoảng giá gợi ý</div>
-                <div className="mt-1 text-xl font-bold text-primary">
-                  {formatVND(result.priceLow)} - {formatVND(result.priceHigh)}
-                </div>
               </div>
             </div>
           )}
@@ -496,11 +512,5 @@ export function AIPanel({
   );
 }
 
-function InfoBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-background px-3 py-2">
-      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{value}</div>
-    </div>
-  );
-}
+
+/** Khung thẻ chung — trước đây mỗi chỗ lặp lại một bản border/padding riêng. */

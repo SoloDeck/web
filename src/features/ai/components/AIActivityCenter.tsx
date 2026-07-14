@@ -33,6 +33,15 @@ export function AIActivityCenter() {
   const requestView = useAIActivityStore((state) => state.requestView);
   const removeJob = useAIActivityStore((state) => state.removeJob);
   const cancelJob = useAIActivityStore((state) => state.cancelJob);
+
+  /**
+   * Bấm "Xem": chỉ cần báo cho store biết. Panel được mount ở tầng gốc (AIJobViewer)
+   * nên nó bật lên ngay TẠI màn hình hiện tại — không phải nhảy sang trang chi tiết,
+   * cũng không còn cảnh bấm ở bảng Kanban thì không có gì xảy ra.  #Huynh
+   */
+  function handleView(job: AIJob) {
+    requestView(job.id);
+  }
   const clearFinished = useAIActivityStore((state) => state.clearFinished);
   const cancelAiJobApi = useCancelAiJob();
 
@@ -67,6 +76,7 @@ export function AIActivityCenter() {
           description: "AI đang phân tích nhu cầu, ngân sách và tín hiệu từ deal.",
           status: "running",
           remote: true,
+          entityId: job.entity_id,
         });
         continue;
       }
@@ -83,6 +93,7 @@ export function AIActivityCenter() {
           description: "",
           status: job.status === "succeeded" ? "success" : "error",
           remote: true,
+          entityId: job.entity_id,
         });
       } else if (!known) {
         continue;
@@ -203,7 +214,7 @@ export function AIActivityCenter() {
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
-                    onClick={() => requestView(job.id)}
+                    onClick={() => handleView(job)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold hover:bg-secondary"
                   >
                     <Eye className="h-3.5 w-3.5" />

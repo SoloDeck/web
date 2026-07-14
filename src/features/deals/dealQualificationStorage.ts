@@ -1,6 +1,15 @@
 import { useSyncExternalStore } from "react";
 import type { LeadScore } from "@/features/deals/types";
 
+export type QualificationScoreItem = {
+  key?: string;
+  label: string;
+  points: number;
+  max_points: number;
+  reason?: string | null;
+  impact?: "positive" | "neutral" | "negative" | null;
+};
+
 export type DealQualificationDocument = {
   id: string;
   createdAt: string;
@@ -10,6 +19,11 @@ export type DealQualificationDocument = {
   rationale: string;
   recommendation: string;
   signals: string[];
+  // Ba trường dưới đây thêm sau. Bản lưu cũ KHÔNG có, nên đều optional — đọc bản cũ
+  // vẫn phải chạy, không được nổ.  #Huynh
+  breakdown?: QualificationScoreItem[];
+  win?: { score: number; level: string; factors: QualificationScoreItem[] } | null;
+  redFlags?: string[];
 };
 
 const STORAGE_PREFIX = "solodesk.deal-qualification-docs.";

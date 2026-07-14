@@ -29,10 +29,9 @@ import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
-import { AIPanel } from "@/features/ai/components/AIPanel";
-import { DealAiJobHistory } from "@/features/ai/components/DealAiJobHistory";
+import { proposalToHtml } from "@/features/deals/proposalHtml";
+import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
-import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
 import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
@@ -76,6 +75,9 @@ import type { ProposalContentDTO, ProposalDecisionStatus } from "@/services/prop
 import type { PaymentMilestoneResponse } from "@/services/contractsService";
 import type { InvoicePayload, InvoiceResponse, InvoiceUpdatePayload } from "@/services/invoicesService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
+import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
+import { QualificationResultView } from "@/features/ai/components/QualificationResult";
 import { useDealQualificationDocuments, type DealQualificationDocument } from "@/features/deals/dealQualificationStorage";
 
 type DetailTab = "overview" | "tasks" | "documents" | "reminders" | "history";
@@ -138,9 +140,41 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
-function getApiErrorMessage(error: unknown): string {
-  const response = (error as { response?: { data?: { error?: { message?: string }; message?: string } } })?.response;
-  return response?.data?.error?.message ?? response?.data?.message ?? "";
+/**
+ * Backend đặt recommendation = "qualify" nếu điểm >= 60, ngược lại "pass".
+ * "pass" ở đây là thuật ngữ sales — nghĩa là "BỎ QUA deal này", KHÔNG phải "đạt".
+ * Trước đây giao diện in thẳng chữ "pass" ra cho freelancer Việt đọc, mà chỗ khác lại
+ * diễn giải nó thành "nên tiếp tục tư vấn" — đúng NGƯỢC nghĩa, rất nguy hiểm.  #Huynh
+ */
+function recommendationLabel(value?: string | null): string {
+  if (value === "qualify") return "Đủ thông tin — nên tiến tới báo giá.";
+  if (value === "pass") return "Chưa đủ thông tin — nên hỏi thêm trước khi báo giá.";
+  if (value === "reject") return "Nên cân nhắc từ chối deal này.";
+  return "Chưa có đánh giá AI chi tiết cho deal này.";
+}
+
+const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  draft: "Bản nháp",
+  pending_signatures: "Chờ ký",
+  active: "Đang hiệu lực",
+  completed: "Đã hoàn thành",
+  terminated: "Đã chấm dứt",
+  expired: "Đã hết hạn",
+};
+
+/** Dịch lỗi hợp đồng từ backend sang câu người dùng hiểu được. */
+function contractErrorMessage(error: unknown): string {
+  const status = getApiErrorStatus(error);
+  // 402: tài khoản không có gói AI. Trước đây mọi lỗi đều ra "Vui lòng thử lại", nên
+  // người hết gói cứ bấm lại mãi mà không biết vì sao.
+  if (status === 402) {
+    return "Gói của bạn chưa có tính năng AI. Hãy nâng cấp để tạo hợp đồng tự động.";
+  }
+  // 409: báo giá chưa được chấp nhận, hoặc hợp đồng không còn là bản nháp.
+  if (status === 409) {
+    return getApiErrorMessage(error, "Hợp đồng không còn ở trạng thái nháp.");
+  }
+  return "Không thể tạo hợp đồng. Vui lòng thử lại.";
 }
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
@@ -174,10 +208,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [newDealOpen, setNewDealOpen] = useState(false);
-  const [proposalDeal, setProposalDeal] = useState<Deal | null>(null);
-  const [aiEvaluateOpen, setAiEvaluateOpen] = useState(false);
   // Khác null = mở AIPanel để XEM LẠI job cũ, thay vì chạy đánh giá mới.
-  const [aiViewJobId, setAiViewJobId] = useState<string | null>(null);
+
+  // Mở panel AI qua store — panel được mount ở tầng gốc (AIJobViewer) nên bấm "Xem" ở
+  // màn hình nào cũng dùng chung một đường.  #Huynh
+  const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [viewContractId, setViewContractId] = useState<string | null>(null);
   const [viewProposalId, setViewProposalId] = useState<string | null>(null);
   const [viewQualificationDoc, setViewQualificationDoc] = useState<DealQualificationDocument | null>(null);
@@ -209,6 +244,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
   const latestProposal = proposalItems[0];
   const latestContract = contractItems[0];
+  // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
+  const draftContract = contractItems.find((contract) => contract.status === "draft");
   const hasActiveContract = contractItems.some((contract) => contract.status === "active");
   const hasDeploymentReadyContract = hasActiveContract || contractItems.some((contract) => clientSignedContractIds.has(contract.id));
   const historyItems = useMemo(() => {
@@ -319,6 +356,31 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       toast.error("Cần có báo giá đã được khách chấp nhận trước khi tạo hợp đồng.");
       return;
     }
+
+    function fillContent(contractId: string) {
+      generateContract.mutate(contractId, {
+        onSuccess: () => {
+          toast.success("Đã tạo nội dung hợp đồng bằng AI.");
+          addDealHistoryEntry(deal!.id, {
+            date: new Date().toISOString(),
+            text: "Hợp đồng AI đã được tạo và điền nội dung.",
+            channel: "message",
+          });
+          setViewContractId(contractId);
+        },
+        onError: (error) => toast.error(contractErrorMessage(error)),
+      });
+    }
+
+    // Đã có bản nháp thì sinh lại nội dung trên CHÍNH nó, không tạo hợp đồng mới.
+    // POST /contracts luôn tạo một hàng mới và tự tăng version_number, nên bấm nút
+    // lần hai là đẻ ra "Hợp đồng lần 2" nằm chình ình trong tab Tài liệu. BE cũng chỉ
+    // cho generate trên hợp đồng còn draft, nên tái dùng bản nháp là đúng luật của nó.
+    if (draftContract) {
+      fillContent(draftContract.id);
+      return;
+    }
+
     createContract.mutate(
       {
         deal_id: deal.id,
@@ -327,20 +389,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         content: {},
       },
       {
-        onSuccess: (contract) => {
-          generateContract.mutate(contract.id, {
-            onSuccess: () => {
-              toast.success("Đã tạo nội dung hợp đồng bằng AI.");
-              addDealHistoryEntry(deal.id, {
-                date: new Date().toISOString(),
-                text: "Hợp đồng AI đã được tạo và điền nội dung.",
-                channel: "message",
-              });
-              setViewContractId(contract.id);
-            },
-          });
-        },
-        onError: () => toast.error("Không thể tạo hợp đồng. Vui lòng thử lại."),
+        onSuccess: (contract) => fillContent(contract.id),
+        onError: (error) => toast.error(contractErrorMessage(error)),
       }
     );
   }
@@ -439,7 +489,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       });
       setCompleteDialogOpen(false);
     } catch (error) {
-      const message = getApiErrorMessage(error);
+      const message = getApiErrorMessage(error, "");
       if (message.toLowerCase().includes("linked invoice")) {
         toast.error("Cần có hóa đơn đã thanh toán trong Tài liệu trước khi hoàn thành dự án.");
         setTab("documents");
@@ -475,7 +525,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode("edit");
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể tạo hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -497,7 +547,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           setInvoiceModalMode("edit");
         },
         onError: (error) => {
-          const message = getApiErrorMessage(error);
+          const message = getApiErrorMessage(error, "");
           toast.error(message || "Không thể chỉnh sửa hóa đơn. Vui lòng thử lại.");
         },
       }
@@ -527,7 +577,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode(null);
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể xóa hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -547,7 +597,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode("view");
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể hủy hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -565,7 +615,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         });
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể gửi hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -603,7 +653,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           });
         },
         onError: (error) => {
-          const message = getApiErrorMessage(error);
+          const message = getApiErrorMessage(error, "");
           toast.error(message || "Không thể ghi nhận thanh toán. Vui lòng thử lại.");
         },
       }
@@ -944,17 +994,19 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   <DealReminderPanel deal={deal} />
                 </TabsContent>
 
-                <TabsContent value="history" className="min-w-0 space-y-5 pt-4">
-                  {/* Kết quả AI lấy thẳng từ backend nên xem lại được kể cả sau F5 —
-                      trước đây reload xong là mất, không mò lại được. */}
-                  <DealAiJobHistory
+                <TabsContent value="history" className="min-w-0 pt-4">
+                  {/* MỘT dòng thời gian: các lần AI chấm điểm (lấy thẳng từ backend nên
+                      xem lại được kể cả sau F5) trộn chung với hoạt động khác, xếp theo
+                      thời gian. Trước đây tách hai danh sách, người dùng phải nhìn hai
+                      chỗ mới dựng lại được câu chuyện của deal. */}
+                  <DealActivityTimeline
                     dealId={deal?.id}
-                    onView={(jobId) => {
-                      setAiViewJobId(jobId);
-                      setAiEvaluateOpen(true);
+                    historyItems={historyItems}
+                    onViewJob={(jobId) => {
+                      if (!deal) return;
+                      openAiPanel({ kind: "deal_qualification", dealId: deal.id, jobId });
                     }}
                   />
-                  <HistoryTab historyItems={historyItems} isLoading={false} />
                 </TabsContent>
               </Tabs>
             </section>
@@ -962,10 +1014,14 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             <ActionsPanel
               deal={deal}
               onEvaluate={() => {
-                setAiViewJobId(null);
-                setAiEvaluateOpen(true);
+                if (!deal) return;
+                openAiPanel({ kind: "deal_qualification", dealId: deal.id });
               }}
-              onProposal={() => setProposalDeal(dealForProposal ?? deal)}
+              onProposal={() => {
+                const target = dealForProposal ?? deal;
+                if (!target) return;
+                openAiPanel({ kind: "proposal_generation", dealId: target.id });
+              }}
               onContract={handleGenerateContract}
               onReminder={() => setTab("reminders")}
               onStartProject={handleStartProject}
@@ -974,6 +1030,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
               stageTransitionLoading={transitionDealStage.isPending || completePending}
               hasAcceptedProposal={Boolean(acceptedProposal)}
               hasContract={contractItems.length > 0}
+              hasDraftContract={Boolean(draftContract)}
               hasActiveContract={hasDeploymentReadyContract}
             />
           </div>
@@ -981,19 +1038,15 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
-      <ProposalModal deal={proposalDeal} onClose={() => setProposalDeal(null)} />
-      <AIPanel
-        open={aiEvaluateOpen}
-        deal={deal}
-        viewJobId={aiViewJobId}
-        onClose={() => {
-          setAiEvaluateOpen(false);
-          setAiViewJobId(null); // đóng xong thì lần sau bấm "Đánh giá Deal" phải chạy job MỚI
-        }}
-      />
       <AIActivityCenter />
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
-      {viewProposalId && <ProposalViewModal proposalId={viewProposalId} onClose={() => setViewProposalId(null)} />}
+      {viewProposalId && (
+        <ProposalViewModal
+          proposalId={viewProposalId}
+          deal={deal ?? null}
+          onClose={() => setViewProposalId(null)}
+        />
+      )}
       {viewQualificationDoc && <QualificationViewModal document={viewQualificationDoc} onClose={() => setViewQualificationDoc(null)} />}
       {invoiceModalMode && (
         <InvoiceComposerModal
@@ -1290,6 +1343,7 @@ function ActionsPanel({
   stageTransitionLoading,
   hasAcceptedProposal,
   hasContract,
+  hasDraftContract,
   hasActiveContract,
 }: {
   deal: Deal;
@@ -1303,6 +1357,7 @@ function ActionsPanel({
   stageTransitionLoading: boolean;
   hasAcceptedProposal: boolean;
   hasContract: boolean;
+  hasDraftContract: boolean;
   hasActiveContract: boolean;
 }) {
   const stage = deal.stage;
@@ -1315,7 +1370,7 @@ function ActionsPanel({
         </div>
         <div className="mt-3 text-3xl font-bold text-primary">{deal.aiQualificationScore ?? 50}</div>
         <p className="mt-1 text-xs text-muted-foreground">
-          {deal.aiQualificationRecommendation ?? "Chưa có đánh giá AI chi tiết, hệ thống đang hiển thị điểm tạm để bạn tiếp tục theo dõi."}
+          {recommendationLabel(deal.aiQualificationRecommendation)}
         </p>
       </div>
 
@@ -1353,8 +1408,17 @@ function ActionsPanel({
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-            {contractLoading ? "Đang tạo hợp đồng..." : "Tạo Hợp Đồng AI"}
+            {contractLoading
+              ? "Đang tạo hợp đồng..."
+              : hasDraftContract
+                ? "Tạo Lại Hợp Đồng AI"
+                : "Tạo Hợp Đồng AI"}
           </button>
+          {hasDraftContract && (
+            <p className="-mt-1 text-center text-xs text-muted-foreground">
+              Sẽ viết lại nội dung bản nháp hiện có, không tạo hợp đồng mới.
+            </p>
+          )}
           <button
             onClick={onStartProject}
             disabled={stageTransitionLoading || !hasActiveContract}
@@ -2265,7 +2329,7 @@ function DocumentsTab({
       {qualificationDocs.map((item, index) => (
         <div key={`qualification-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Đánh giá AI v{qualificationDocs.length - index}</div>
+            <div className="text-sm font-semibold">Đánh giá Deal lần {qualificationDocs.length - index}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
               Điểm {item.score}/100 · {item.label} · {formatDate(item.createdAt)}
             </div>
@@ -2288,7 +2352,7 @@ function DocumentsTab({
       {proposals.map((item) => (
         <div key={`proposal-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Báo giá v{item.version_number}</div>
+            <div className="text-sm font-semibold">Báo giá lần {item.version_number}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
               {item.content?.title || "Báo giá cho yêu cầu hiện tại"} · {formatDate(item.created_at)}
             </div>
@@ -2331,7 +2395,7 @@ function DocumentsTab({
       {contracts.map((item) => (
         <div key={`contract-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Hợp đồng v{item.version_number}</div>
+            <div className="text-sm font-semibold">Hợp đồng lần {item.version_number}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2433,37 +2497,6 @@ function DocumentsTab({
   );
 }
 
-function HistoryTab({
-  historyItems,
-  isLoading,
-}: {
-  historyItems: Array<{ id?: string; date: string; text: string; channel?: string }>;
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Đang tải lịch sử...</div>;
-  }
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      {historyItems.length > 0 ? (
-        <ol className="space-y-4 border-l-2 border-border pl-4">
-          {historyItems.map((item, index) => (
-            <li key={item.id ?? index} className="relative">
-              <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-card" />
-              <div className="text-xs text-muted-foreground">{formatDate(item.date)} · {item.channel ?? "Ghi chú"}</div>
-              <div className="mt-1 text-sm">{item.text}</div>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          Chưa có lịch sử tương tác từ API comm-logs.
-        </div>
-      )}
-    </div>
-  );
-}
-
 function formatDate(value: string): string {
   const date = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
@@ -2553,32 +2586,32 @@ function QualificationViewModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
-            <div className="rounded-xl border border-border bg-muted/20 p-5">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Điểm đánh giá</div>
-              <div className="mt-3 text-5xl font-black text-primary">{document.score}</div>
-              <div className="mt-1 text-sm text-muted-foreground">/ 100 · {document.label}</div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/20 p-5">
-              <div className="text-sm font-semibold">Kết luận AI</div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">{document.rationale}</p>
-              <div className="mt-4 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
-                {document.recommendation}
-              </div>
-            </div>
-          </div>
+          {/* DÙNG CHUNG bộ mã hiển thị với panel lúc vừa chấm xong. Trước đây chỗ này tự
+              vẽ lấy, nên mở lại bản đã lưu là thấy giao diện CŨ: chỉ có điểm, kết luận và
+              vài dòng tín hiệu — không bảng phân rã, không khả năng chốt, không cờ đỏ.
+              Hai bản vẽ riêng thì kiểu gì cũng có ngày lệch nhau.  #Huynh */}
+          <QualificationResultView
+            view={{
+              level: document.level,
+              score: document.score,
+              label: document.label,
+              rationale: document.rationale,
+              recommendation: document.recommendation,
+              signals: document.signals,
+              // Bản lưu CŨ không có mấy trường này → để rỗng, giao diện tự ẩn khối tương ứng.
+              breakdown: document.breakdown ?? [],
+              win: document.win ?? null,
+              redFlags: document.redFlags ?? [],
+              price: null,
+            }}
+          />
 
-          <div className="mt-4 rounded-xl border border-border p-5">
-            <div className="text-sm font-semibold">Tín hiệu hệ thống phát hiện</div>
-            <div className="mt-3 space-y-2">
-              {document.signals.map((signal) => (
-                <div key={signal} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span>{signal}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {!document.breakdown?.length && (
+            <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+              Bản đánh giá này được lưu trước khi có bảng phân rã điểm. Chạy "Đánh giá lại" để có
+              đầy đủ căn cứ chấm điểm.
+            </p>
+          )}
         </div>
 
         <div className="shrink-0 border-t border-border px-6 py-4">
@@ -2594,10 +2627,23 @@ function QualificationViewModal({
   );
 }
 
-function ProposalViewModal({ proposalId, onClose }: { proposalId: string; onClose: () => void }) {
+function ProposalViewModal({
+  proposalId,
+  deal,
+  onClose,
+}: {
+  proposalId: string;
+  deal: Deal | null;
+  onClose: () => void;
+}) {
   const { data: proposal, isLoading } = useProposal(proposalId);
   const raw = proposal?.content as unknown as ProposalViewContent | undefined;
-  const renderedHtml = raw?.rendered_html || raw?.html;
+
+  // Dựng HTML bằng ĐÚNG hàm mà modal soạn thảo dùng, nên hai màn không thể hiện ra
+  // khác nhau nữa. Trước đây màn này tự in ra từng mục thô, còn modal dựng bản đẹp
+  // — cùng một báo giá mà trông như hai thứ khác nhau.
+  const renderedHtml =
+    proposal?.content && deal ? proposalToHtml(proposal.content, deal) : undefined;
 
   const toList = (v: string | string[] | undefined): string[] =>
     !v ? [] : Array.isArray(v) ? v : [v];
@@ -2730,7 +2776,8 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
             <h2 className="text-base font-bold">Nội dung hợp đồng</h2>
             {contract && (
               <p className="mt-0.5 text-xs text-muted-foreground">
-                v{contract.version_number} · {contract.status} · tạo {formatDate(contract.created_at)}
+                Lần {contract.version_number} · {CONTRACT_STATUS_LABELS[contract.status] ?? contract.status} · tạo{" "}
+                {formatDate(contract.created_at)}
               </p>
             )}
           </div>
@@ -2757,6 +2804,9 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
                       <div>
                         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bên cung cấp</div>
                         <div className="font-medium">{c.parties.freelancer?.name ?? "Freelancer"}</div>
+                        {c.parties.freelancer?.business_name && (
+                          <div className="text-xs text-muted-foreground">{c.parties.freelancer.business_name}</div>
+                        )}
                         {c.parties.freelancer?.email && <div className="text-xs text-muted-foreground">{c.parties.freelancer.email}</div>}
                       </div>
                       <div>

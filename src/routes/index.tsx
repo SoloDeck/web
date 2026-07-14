@@ -13,8 +13,7 @@ import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
-import { ProposalModal } from "@/features/deals/components/ProposalModal";
-import { AIPanel } from "@/features/ai/components/AIPanel";
+import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
 import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
@@ -160,8 +159,7 @@ function Index() {
 
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
-  const [proposal, setProposal] = useState<Deal | null>(null);
-  const [aiDeal, setAiDeal] = useState<Deal | null>(null);
+  const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [query, setQuery] = useState("");
   // Tab lấy từ URL (?tab=) để nút back từ trang chi tiết mở lại đúng màn hình.
   const { tab } = Route.useSearch();
@@ -199,17 +197,20 @@ function Index() {
     [filtered]
   );
 
+  // Panel AI được mount ở tầng gốc (AIJobViewer) nên ở đây chỉ cần báo store muốn mở cái
+  // gì. Trước đây trang này TỰ mount ProposalModal + AIPanel — trùng với panel của trang
+  // chi tiết, và bấm "Xem" trên thẻ job thì mỗi trang hiểu một kiểu.  #Huynh
   const handleAiAction = useCallback((deal: Deal) => {
     if (deal.stage === "new_lead") {
-      setAiDeal(deal);
+      openAiPanel({ kind: "deal_qualification", dealId: deal.id });
       return;
     }
     if (deal.stage === "in_negotiation") {
       navigate({ to: "/deals/$dealId", params: { dealId: deal.id } });
       return;
     }
-    setProposal(deal);
-  }, [navigate]);
+    openAiPanel({ kind: "proposal_generation", dealId: deal.id });
+  }, [navigate, openAiPanel]);
 
   const openDeal = useCallback(
     (deal: Deal) => {
@@ -370,8 +371,6 @@ function Index() {
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
-      <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
-      <AIPanel open={Boolean(aiDeal)} deal={aiDeal} onClose={() => setAiDeal(null)} />
       <AIActivityCenter />
       <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
     </div>
