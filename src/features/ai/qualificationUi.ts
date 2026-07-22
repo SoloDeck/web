@@ -6,24 +6,27 @@ import type { LeadScore } from "@/features/deals/types";
  * Bảng màu/nhãn cho mức đánh giá. Tách khỏi file component vì Fast Refresh chỉ hoạt
  * động khi một file chỉ export component.  #Huynh
  */
+// Nhãn giữ nguyên HOT/WARM/COLD theo yêu cầu của Phiếu đề tài — KHÔNG dịch sang tiếng Việt.
+// Đây là thuật ngữ nghiệp vụ bán hàng, cũng là giá trị backend dùng (`suggested_lead_score`),
+// nên giữ nguyên chữ thì màn hình, API và tài liệu đề tài nói cùng một ngôn ngữ.  #Huynh
 export const LEVEL_UI: Record<
   LeadScore,
   { label: string; icon: typeof Flame; badgeClass: string; scoreClass: string }
 > = {
   hot: {
-    label: "Nóng",
+    label: "HOT",
     icon: Flame,
     badgeClass: "border-red-200 bg-red-50 text-red-600",
     scoreClass: "text-red-600",
   },
   warm: {
-    label: "Ấm",
+    label: "WARM",
     icon: Sun,
     badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
     scoreClass: "text-amber-700",
   },
   cold: {
-    label: "Lạnh",
+    label: "COLD",
     icon: Snowflake,
     badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
     scoreClass: "text-blue-700",

@@ -13,6 +13,21 @@ export type ServiceCategory =
 
 export type PricingTier = "Starter" | "Professional" | "Premium";
 
+/**
+ * Nghề chuẩn hoá của freelancer — MIRROR danh mục BE
+ * (backend/src/modules/intake_form/professions.py). BE validate slug; sai slug -> 422.
+ * BE thêm/sửa nghề thì cập nhật ở ĐÂY cho khớp (chưa có GET /professions nên tạm hardcode;
+ * có endpoint rồi thì fetch thay). AI dùng nghề để ước giá đúng ngành + cảnh báo scam.
+ */
+export const PROFESSIONS: { value: string; label: string }[] = [
+  { value: "software-development", label: "Lập trình / Phát triển phần mềm" },
+  { value: "ui-ux-design", label: "Thiết kế UI/UX" },
+  { value: "graphic-design", label: "Thiết kế đồ hoạ" },
+  { value: "digital-marketing", label: "Tư vấn Digital Marketing" },
+  { value: "content-writing", label: "Viết nội dung / Copywriter" },
+  { value: "photography-videography", label: "Nhiếp ảnh & Quay dựng video" },
+];
+
 export type ContractClause = {
   id: string;
   title: string;
@@ -24,6 +39,8 @@ export type ContractClause = {
 export type Profile = {
   fullName: string;
   professionalTitle: string;
+  /** Slug nghề chuẩn hoá (một trong PROFESSIONS). "" = chưa chọn. */
+  profession: string;
   bio: string;
   avatarUrl: string;
   email: string;
@@ -56,6 +73,7 @@ export type Profile = {
 export const DEFAULT_PROFILE: Profile = {
   fullName: "Minh Nguyễn",
   professionalTitle: "Brand & Content Designer",
+  profession: "",
   bio: "",
   avatarUrl: "",
   email: "minh.nguyen@solodesk.space",

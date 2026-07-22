@@ -30,6 +30,8 @@ vi.mock("@/features/admin/hooks/useAdmin", () => ({
   useUpdateAdminUser: vi.fn(),
   useCreateAdminPlan: vi.fn(),
   useUpdateAdminPlan: vi.fn(),
+  // Admin đổi gói cho freelancer — cách DUY NHẤT để nâng gói (không có thanh toán tự động).
+  useOverrideSubscription: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 const adminUser: AdminUser = {

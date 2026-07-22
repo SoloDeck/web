@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { getClients, createClient, type ClientRecord } from "@/services/clientsService";
 import { createDeal, updateDeal, type DealPayload } from "@/services/dealsService";
+import { uploadDealAttachment } from "@/services/dealAttachmentsService";
+import { dealAttachmentKeys } from "@/features/deals/hooks/useDealAttachments";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { dealKeys } from "@/features/deals/hooks/useDeals";
 import { DEAL_SOURCE_LABELS, type Deal } from "@/features/deals/types";
@@ -274,6 +276,31 @@ export function NewDealModal({
           client
         );
         addDeal(created);
+
+        // Upload file SAU khi tạo deal, vì endpoint là POST /deals/{id}/attachments —
+        // phải có deal.id trước. Trước đây khối này KHÔNG tồn tại: ô kéo-thả gom file vào
+        // state, vẽ danh sách ra cho đẹp, rồi vứt đi. Không request nào rời khỏi trình
+        // duyệt, nên AI chẳng có PDF nào mà đọc.
+        //
+        // Upload lỗi thì KHÔNG rollback deal: deal đã tạo là thật, mất file thì báo cho
+        // người dùng đính kèm lại ở tab Tài liệu, chứ xoá deal của họ đi thì tệ hơn.  #Huynh
+        if (attachments.length > 0) {
+          const failed: string[] = [];
+          for (const file of attachments) {
+            try {
+              await uploadDealAttachment(created.id, file);
+            } catch {
+              failed.push(file.name);
+            }
+          }
+          if (failed.length > 0) {
+            toast.error(
+              `Không tải lên được: ${failed.join(", ")}. Hãy đính kèm lại ở tab Tài liệu.`
+            );
+          }
+          queryClient.invalidateQueries({ queryKey: dealAttachmentKeys.forDeal(created.id) });
+        }
+
         toast.success(`Đã tạo yêu cầu "${created.projectType}" cho ${created.client}.`);
       }
 

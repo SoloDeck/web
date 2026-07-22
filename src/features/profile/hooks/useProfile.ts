@@ -28,6 +28,7 @@ export function useProfile() {
           phone: me.phone ?? prev.phone,
           avatarUrl: me.avatar_url ?? prev.avatarUrl,
           bio: me.bio ?? prev.bio,
+          profession: me.profession ?? prev.profession,
           hourlyRate: Number.isFinite(rate) && rate > 0 ? rate : prev.hourlyRate,
           portfolioUrl: me.professional_profile?.portfolio_url ?? prev.portfolioUrl,
           skills: me.professional_profile?.skills?.length

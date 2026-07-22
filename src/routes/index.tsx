@@ -1,7 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bell,
   Filter,
   Loader2,
   Menu,
@@ -22,7 +21,7 @@ import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard
 import { IntakeFormConfig } from "@/features/intake/components/IntakeFormConfig";
 import { SubscriptionPage } from "@/features/subscriptions/components/SubscriptionPage";
 import { useDeals } from "@/features/deals/hooks/useDeals";
-import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
+import { useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { getMe, updateMe, updateFreelancerProfile, updateProfessionalProfile } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
@@ -30,6 +29,7 @@ import { wasOnboardingSkipped } from "@/features/onboarding/skip";
 import type { Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
+import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 import type { ClientRecord } from "@/services/clientsService";
 
 type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription";
@@ -112,7 +112,6 @@ function Index() {
   const navigate = useNavigate();
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
-  const { clauses, setClauses } = useClauses();
   const currentUser = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
 
@@ -127,6 +126,7 @@ function Index() {
       await Promise.all([
         updateFreelancerProfile({
           professional_title: p.professionalTitle || undefined,
+          profession: p.profession || undefined,
           bio: p.bio || undefined,
           skills: p.skills.length > 0 ? p.skills : undefined,
           service_categories: p.serviceCategories.length > 0 ? p.serviceCategories : undefined,
@@ -288,10 +288,7 @@ function Index() {
                   <Filter className="h-4 w-4" />
                 </button>
               )}
-              <button className="relative rounded-md border border-border p-2 hover:bg-secondary" title="Thông báo">
-                <Bell className="h-4 w-4" />
-                <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
-              </button>
+              <NotificationBell />
               <button
                 onClick={() => setReminderOpen(true)}
                 className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary sm:inline-flex"
@@ -361,8 +358,6 @@ function Index() {
                 <ProfileSettings
                   profile={profile}
                   onSave={handleSaveProfile}
-                  clauses={clauses}
-                  onSaveClauses={setClauses}
                 />
               )}
             </>

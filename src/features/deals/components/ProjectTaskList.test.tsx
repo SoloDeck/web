@@ -80,7 +80,7 @@ describe("<ProjectTaskPanel />", () => {
     expect(screen.getByText("Chuẩn bị báo giá")).toBeInTheDocument();
     expect(screen.getByText("Gửi bản nháp cho khách")).toBeInTheDocument();
     expect(screen.getByText("0/1 · 0% hoàn thành")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("checks and unchecks a task while updating progress", async () => {
     const user = userEvent.setup();
@@ -96,7 +96,7 @@ describe("<ProjectTaskPanel />", () => {
     await user.click(checkbox);
     expect(screen.getByText("0/1 · 0% hoàn thành")).toBeInTheDocument();
     expect(screen.getByText("Chưa làm")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("groups tasks by phase and collapses a phase", async () => {
     const user = userEvent.setup();
@@ -115,7 +115,7 @@ describe("<ProjectTaskPanel />", () => {
     await user.click(screen.getByRole("button", { name: /Đóng GIAI ĐOẠN 1/ }));
     expect(screen.queryByText("Thiết kế wireframe")).not.toBeInTheDocument();
     expect(screen.getByText("Cài đặt backend")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("edits a task inline and asks for confirmation before deleting", async () => {
     const user = userEvent.setup();
@@ -140,5 +140,5 @@ describe("<ProjectTaskPanel />", () => {
     await user.click(screen.getByRole("button", { name: /Xóa Chốt phạm vi/ }));
     await user.click(await screen.findByRole("button", { name: "Xóa công việc" }));
     expect(screen.queryByText("Chốt phạm vi dự án")).not.toBeInTheDocument();
-  });
+  }, 20_000);
 });

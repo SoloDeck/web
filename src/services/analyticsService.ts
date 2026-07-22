@@ -40,6 +40,13 @@ export type TopClient = {
 export type AiUsageSummary = {
   generations_used: number;
   estimated_cost_usd: number;
+  // Bốn trường dưới BE mới bổ sung. Trước đây chỉ có generations_used — mà nó LUÔN LÀ 0,
+  // vì không ai ghi vào bảng usage_records. Giờ đếm thật, và có cả hạn mức để nói được
+  // "3/50" thay vì "đã dùng 3 lượt" (3 trên bao nhiêu?).
+  limit?: number;
+  remaining?: number;
+  can_use_ai?: boolean;
+  period_end?: string | null;
 };
 
 export type RevenuePeriodType = "day" | "week" | "month" | "year";

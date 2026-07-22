@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import type { Deal, LeadScore } from "@/features/deals/types";
 import { useTransitionDealStage } from "@/features/deals/hooks/useDeals";
-import { addDealQualificationDocument } from "@/features/deals/dealQualificationStorage";
+import { useQueryClient } from "@tanstack/react-query";
+import { dealQualificationKeys } from "@/features/deals/hooks/useDealQualifications";
 import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
@@ -58,8 +59,16 @@ type ApiQualificationResult = {
   price_range_max?: number | null;
 };
 
-function mapApiQualification(deal: Deal, data: ApiQualificationResult): EvaluationResult {
-  const score = data.ai_qualification_score ?? deal.aiQualificationScore ?? 50;
+function mapApiQualification(deal: Deal, data: ApiQualificationResult): EvaluationResult | null {
+  // KHÔNG bịa điểm. Trước đây là `?? deal.aiQualificationScore ?? 50`: nếu backend trả về
+  // kết quả thiếu điểm thì panel hiện "50" — một con số không ai chấm, đội lốt kết quả AI.
+  // Rơi về điểm CŨ của deal cũng sai không kém: đây là kết quả của lần chạy MỚI.
+  //
+  // Backend luôn trả `ai_qualification_score`, nên nhánh này chỉ chạy khi hợp đồng API vỡ —
+  // và lúc đó thà không hiện gì còn hơn hiện số bịa.  #Huynh
+  const score = data.ai_qualification_score;
+  if (typeof score !== "number") return null;
+
   const rawLevel = (data.suggested_lead_score ?? "").toLowerCase();
   const level: LeadScore =
     rawLevel === "hot" || score >= 75 ? "hot" : rawLevel === "cold" || score < 45 ? "cold" : "warm";
@@ -129,6 +138,13 @@ function getErrorHint(error: unknown): string {
   if (err.code === "ECONNABORTED") {
     return "Chờ quá lâu mà chưa có phản hồi. Bạn thử lại sau ít phút nhé.";
   }
+  if (err.response?.status === 402) {
+    return "Gói của bạn chưa có tính năng AI. Hãy nâng cấp để dùng.";
+  }
+  // 429 = hết hạn mức AI trong kỳ. Nói rõ, đừng để họ bấm lại mãi.  #Huynh
+  if (err.response?.status === 429) {
+    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức và nâng cấp.";
+  }
   if (err.response?.status) {
     const message = err.response.data?.message || err.response.data?.detail;
     return `Hệ thống báo lỗi ${err.response.status}${message ? `: ${message}` : "."}`;
@@ -196,6 +212,7 @@ export function AIPanel({
   const { data: job } = useAiJob(jobId ?? undefined);
 
   const transitionStage = useTransitionDealStage();
+  const qc = useQueryClient();
   const upsertJob = useAIActivityStore((state) => state.upsertJob);
   const updateJob = useAIActivityStore((state) => state.updateJob);
   const removeJob = useAIActivityStore((state) => state.removeJob);
@@ -219,7 +236,23 @@ export function AIPanel({
     setMinimized(true);
 
     createJob.mutate(
-      { entity_id: currentDeal.id, type: "lead_qualifier", entity_type: "deal" },
+      {
+        entity_id: currentDeal.id,
+        type: "lead_qualifier",
+        entity_type: "deal",
+        // CHỐNG CHẤM ĐIỂM 2 LẦN CHO MỘT CÚ BẤM.
+        //
+        // Effect này gọi mutation, mà React StrictMode (dev) chạy effect HAI LẦN khi mount
+        // → hai POST bay đi gần như đồng thời. Backend có chặn job trùng, nhưng bằng cách
+        // "tìm job đang chạy rồi mới tạo" — kinh điển bị đua: cả hai cùng tìm, cùng không
+        // thấy, cùng tạo. Kết quả: 2 job, 2 lần chấm, và ĐỐT 2 LƯỢT AI THẬT cho một cú bấm.
+        //
+        // `idempotency_key` đã có sẵn ở backend VÀ có ràng buộc UNIQUE dưới DB
+        // (`uq_ai_jobs_owner_idempotency_key`) — chỉ là chưa ai gửi. Khoá lấy theo
+        // `openNonce`: cùng MỘT lần mở panel thì cùng khoá (hai lần bắn của StrictMode gộp
+        // làm một), mở lại lần sau là khoá mới nên "Đánh giá lại" vẫn chạy bình thường.
+        idempotency_key: `lead_qualifier:${currentDeal.id}:${openNonce}`,
+      },
       {
         onSuccess: (created) => {
           // BE tự trả lại job đang chạy nếu deal này đã có job cùng loại — nên gọi
@@ -289,23 +322,17 @@ export function AIPanel({
       toast.error("Chưa có kết quả đánh giá để lưu.");
       return;
     }
-    const saveDocument = () => {
-      addDealQualificationDocument(deal.id, {
-        score: result.score,
-        level: result.level,
-        label: result.label,
-        rationale: result.rationale,
-        recommendation: result.recommendation,
-        signals: result.signals,
-        // Lưu luôn căn cứ chấm điểm: mở lại trong tab Tài liệu phải thấy ĐÚNG những gì
-        // đã thấy lúc đánh giá, không phải một bản rút gọn khác.  #Huynh
-        breakdown: result.breakdown,
-        win: result.win,
-        redFlags: result.redFlags,
-      });
-    };
+    // KHÔNG còn ghi localStorage ở đây. Backend đã lưu bản chấm vào lịch sử NGAY LÚC chấm
+    // (`/deals/{id}/qualify` ghi một dòng `lead_scores` kèm bảng căn cứ). Chỉ cần làm mới
+    // cache để tab Tài liệu đọc lại từ server.
+    //
+    // Lợi thêm: đóng panel giữa chừng cũng không mất kết quả nữa — trước đây chưa bấm nút
+    // này là kết quả bay sạch, dù đã tốn một lượt AI.  #Huynh
+    const refreshHistory = () =>
+      qc.invalidateQueries({ queryKey: dealQualificationKeys.forDeal(deal.id) });
+
     if (deal.stage !== "new_lead") {
-      saveDocument();
+      refreshHistory();
       toast.success("Đánh giá đã được lưu vào tab Tài liệu.");
       if (jobId) removeJob(jobId);
       onClose();
@@ -315,7 +342,7 @@ export function AIPanel({
       { id: deal.id, stage: "qualified" },
       {
         onSuccess: () => {
-          saveDocument();
+          refreshHistory();
           toast.success("Đã lưu đánh giá AI vào tab Tài liệu.");
           if (jobId) removeJob(jobId);
           onClose();
@@ -415,10 +442,11 @@ export function AIPanel({
             <button
               type="button"
               onClick={isRunning ? () => setMinimized(true) : handleClose}
-              className="rounded-md p-1.5 hover:bg-secondary"
-              aria-label="Đóng"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              aria-label="Hủy"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
+              Hủy
             </button>
           </div>
         </div>

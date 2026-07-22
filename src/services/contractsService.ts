@@ -129,6 +129,36 @@ export async function createContract(payload: {
   return data.data;
 }
 
+/**
+ * GET /contracts/{id}/preview — HTML xem trước, CHÍNH XÁC bản hợp đồng khách sẽ nhận/ký.
+ *
+ * Frontend nhúng HTML này vào iframe thay vì tự đổ từng trường thô. Cùng một template với
+ * bản PDF ở backend nên hai bên KHÔNG THỂ lệch — đó là gốc khiến tờ hợp đồng trên màn hình
+ * trước đây trông sơ sài, không giống hợp đồng thật. Cùng khuôn với getProposalPreview.  #Huynh
+ */
+export async function getContractPreview(
+  contractId: string,
+  /** Bản nháp truyền true: render thêm ô rỗng cho điều khoản chưa có, để sửa tại chỗ. */
+  editable = false
+): Promise<string> {
+  const { data } = await axiosClient.get<ApiResponse<{ html: string }>>(
+    `/contracts/${contractId}/preview`,
+    { params: editable ? { editable: true } : undefined }
+  );
+  return data.data?.html ?? "";
+}
+
+/**
+ * GET /contracts/{id}/pdf — tải PDF hợp đồng (render đồng bộ, weasyprint) để gửi khách.
+ * Cùng document với bản xem trước nên PDF = đúng thứ trên màn hình.  #Huynh
+ */
+export async function downloadContractPdf(contractId: string): Promise<Blob> {
+  const { data } = await axiosClient.get<Blob>(`/contracts/${contractId}/pdf`, {
+    responseType: "blob",
+  });
+  return data;
+}
+
 /** GET /contracts/{id} — get contract detail. */
 export async function getContract(contractId: string): Promise<ContractResponse> {
   const { data } = await axiosClient.get<ApiResponse<ContractResponse>>(
@@ -137,13 +167,20 @@ export async function getContract(contractId: string): Promise<ContractResponse>
   return data.data;
 }
 
-/** PATCH /contracts/{id} — update contract content (draft only). */
+/**
+ * PATCH /contracts/{id} — update contract content (draft only).
+ *
+ * Backend `ContractRequest` BẮT BUỘC cả deal_id/proposal_id/client_id (service chỉ dùng
+ * `content`, nhưng schema vẫn đòi đủ) — thiếu là 422. Nên payload phải mang theo các id
+ * lấy thẳng từ chính contract.  #Huynh
+ */
 export async function updateContract(
   contractId: string,
   payload: {
-    content?: ContractContentDTO;
-    effective_date?: string;
-    end_date?: string;
+    deal_id: string;
+    proposal_id: string;
+    client_id: string;
+    content: ContractContentDTO;
   }
 ): Promise<ContractResponse> {
   const { data } = await axiosClient.patch<ApiResponse<ContractResponse>>(
@@ -169,14 +206,20 @@ export async function signContract(contractId: string): Promise<ContractResponse
   return data.data;
 }
 
-/** POST /contracts/public/{share_token}/sign — khách ký qua link public, không cần đăng nhập. */
-export async function signContractAsClient(
-  shareToken: string,
-  signerName: string
-): Promise<unknown> {
-  const { data } = await axiosClient.post<ApiResponse<unknown>>(
-    `/contracts/public/${shareToken}/sign`,
-    { signer_name: signerName }
+/**
+ * Freelancer GHI NHẬN rằng khách đã ký — hợp đồng chuyển sang `active`.
+ *
+ * Khách của freelancer KHÔNG có tài khoản SoloDesk, nên họ ký ngoài hệ thống (giấy, scan,
+ * Zalo) và freelancer vào đánh dấu lại. SoloDesk là SỔ THEO DÕI, không phải nền tảng chữ
+ * ký số — đừng gọi đây là "khách ký", nó không xác thực danh tính ai cả.
+ *
+ * Thay cho `signContractAsClient()` cũ gọi `/contracts/public/{token}/sign` — endpoint đó
+ * KHÔNG TỒN TẠI trên backend (curl trả 404). Code chết, và là bẫy cho người sửa sau.  #Huynh
+ */
+export async function recordClientSignature(contractId: string): Promise<ContractResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ContractResponse>>(
+    `/contracts/${contractId}/status`,
+    { status: "active" }
   );
   return data.data;
 }

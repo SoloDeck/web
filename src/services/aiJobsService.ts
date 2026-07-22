@@ -8,9 +8,9 @@ import type { ApiResponse } from "@/features/auth/types";
 // poll cho tới khi job vào trạng thái kết thúc. Nhờ vậy job sống sót qua F5 và
 // chạy nhiều job song song được — đúng NFR "không chặn ứng dụng chính".
 //
-// ⚠️ Trên BE main hiện chỉ `lead_qualifier` chạy được:
-//    - proposal_generator → BE dựng Gemini client rồi gọi API Groq → 500
-//    - contract_generator → chain còn là stub, raise NotImplementedError
+// Cả 4 module AI của BE giờ đều chạy thật: lead_qualifier, proposal_generator,
+// contract_generator, followup_generator. (Ghi chú cũ ở đây nói proposal 500 và
+// contract còn là stub — đã sửa xong, không còn đúng nữa.)
 // ---------------------------------------------------------------------------
 
 export type AiJobType = "lead_qualifier" | "proposal_generator" | "contract_generator";

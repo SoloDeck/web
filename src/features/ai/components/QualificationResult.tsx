@@ -1,10 +1,18 @@
-import { AlertTriangle, ArrowRight, BadgeCheck, CheckCircle2, Flame, Target } from "lucide-react";
-import { useMemo } from "react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ArrowUpRight,
+  BadgeCheck,
+  CheckCircle2,
+  ChevronRight,
+  Flame,
+  SearchX,
+  } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { LeadScore } from "@/features/deals/types";
 import { cn } from "@/lib/utils";
-import { formatVND } from "@/utils/format";
-import { LEVEL_UI, WIN_UI } from "@/features/ai/qualificationUi";
+import { LEVEL_UI } from "@/features/ai/qualificationUi";
 
 export type ScoreItem = {
   key?: string;
@@ -13,6 +21,17 @@ export type ScoreItem = {
   max_points: number;
   reason?: string | null;
   impact?: "positive" | "neutral" | "negative" | null;
+  /**
+   * DỮ KIỆN THẬT trích từ lời khách — "trước 30/09/2026", "120 triệu".
+   *
+   * Khác `reason`: `reason` là NHẬN XÉT của AI ("Khách nêu mốc cụ thể"), `evidence` là
+   * THÔNG TIN khách đã nói. Freelancer đọc evidence để nắm được các mốc quan trọng mà
+   * KHÔNG phải mở file PDF ra đọc lại.
+   *
+   * `null` = khách không hề nhắc tới. Giao diện phải NÓI THẲNG điều đó, không để trống —
+   * ô trống thì người dùng không biết là "không có" hay là "hệ thống lỗi".  #Huynh
+   */
+  evidence?: string | null;
 };
 
 /**
@@ -41,9 +60,33 @@ type MergedRow = {
   key: string;
   label: string;
   readiness: { points: number; max: number } | null;
-  win: { points: number; max: number; impact: ScoreItem["impact"] } | null;
   reason: string;
-  winReason: string | null;
+  evidence: string | null;
+};
+
+/**
+ * Câu hiển thị khi KHÔNG tìm thấy dữ kiện cho tiêu chí đó.
+ *
+ * Phải nói rõ THIẾU CÁI GÌ, không phải một câu chung chung "không có dữ liệu". Người dùng
+ * đọc xong phải biết ngay việc tiếp theo cần làm: hỏi khách về hạn bàn giao.  #Huynh
+ */
+const EMPTY_EVIDENCE: Record<string, string> = {
+  scope: "Không tìm thấy mô tả phạm vi công việc — chưa rõ khách cần làm những hạng mục gì.",
+  budget: "Không tìm thấy con số ngân sách nào khách đưa ra.",
+  timeline: "Không tìm thấy mốc thời gian nào — chưa rõ khách cần bàn giao khi nào.",
+  detail: "Khách chưa mô tả chi tiết yêu cầu.",
+  context: "Không có thông tin về ngành nghề, quy mô hay hiện trạng của khách.",
+  source: "Chưa rõ deal này đến từ đâu.",
+};
+
+/** Nhãn cho khối dữ kiện, nói đúng thứ người dùng đang tìm. */
+const EVIDENCE_LABEL: Record<string, string> = {
+  scope: "Khách cần làm gì",
+  budget: "Ngân sách khách đưa ra",
+  timeline: "Mốc thời gian khách nêu",
+  detail: "Yêu cầu cụ thể ghi nhận được",
+  context: "Bối cảnh khách hàng",
+  source: "Deal đến từ đâu",
 };
 
 /**
@@ -60,52 +103,36 @@ export function QualificationResultView({ view }: { view: QualificationView }) {
 
   const mergedRows = useMemo<MergedRow[]>(() => {
     const readiness = new Map(view.breakdown.map((item) => [item.key ?? item.label, item]));
-    const win = new Map((view.win?.factors ?? []).map((item) => [item.key ?? item.label, item]));
 
     return CRITERION_ORDER.map((key): MergedRow | null => {
       const r = readiness.get(key);
-      const w = win.get(key);
-      if (!r && !w) return null;
-
-      const readinessReason = r?.reason?.trim() || "";
-      const winReason = w?.reason?.trim() || "";
+      if (!r) return null;
 
       return {
         key,
-        label: r?.label ?? w?.label ?? key,
-        readiness: r ? { points: r.points, max: r.max_points } : null,
-        win: w ? { points: w.points, max: w.max_points, impact: w.impact ?? null } : null,
-        reason: readinessReason || winReason,
-        winReason: extraWinReason(key, r, winReason),
+        label: r.label ?? key,
+        readiness: { points: r.points, max: r.max_points },
+        reason: r.reason?.trim() || "",
+        evidence: r.evidence?.trim() || null,
       };
     }).filter((row): row is MergedRow => row !== null);
   }, [view]);
 
   return (
     <div className="space-y-4">
-      {/* Hai con số chủ đạo — nắm được tình hình trong 2 giây. */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ScoreCard
-          title="Sẵn sàng báo giá"
-          hint="Yêu cầu của khách đã đủ rõ để bạn báo giá chưa"
-          score={view.score}
-          badge={view.label}
-          badgeClass={levelUi.badgeClass}
-          scoreClass={levelUi.scoreClass}
-          Icon={ScoreIcon}
-        />
-        {view.win && (
-          <ScoreCard
-            title="Khả năng chốt"
-            hint="Suy ra từ dữ kiện có thật trong deal"
-            score={view.win.score}
-            badge={WIN_UI[view.win.level]?.label ?? "Trung bình"}
-            badgeClass={WIN_UI[view.win.level]?.badgeClass ?? WIN_UI.medium.badgeClass}
-            scoreClass={WIN_UI[view.win.level]?.scoreClass ?? WIN_UI.medium.scoreClass}
-            Icon={Target}
-          />
-        )}
-      </div>
+      {/* Một con số chủ đạo — mức độ sẵn sàng để báo giá.
+          Trước đây có thêm thẻ "Khả năng chốt", nhưng nó suy đoán về khả năng thắng deal
+          từ vài dữ kiện mỏng — người dùng thấy không giúp ích cho quyết định thực tế, nên
+          đã bỏ. Giữ lại một con số RÕ RÀNG còn hơn hai con số làm loãng.  #Huynh */}
+      <ScoreCard
+        title="Sẵn sàng báo giá"
+        hint="Yêu cầu của khách đã đủ rõ để bạn báo giá chưa"
+        score={view.score}
+        badge={view.label}
+        badgeClass={levelUi.badgeClass}
+        scoreClass={levelUi.scoreClass}
+        Icon={ScoreIcon}
+      />
 
       {/* Cờ đỏ ngay dưới điểm số — thứ có thể khiến freelancer mất tiền, để cuối trang
           thì đọc tới nơi đã muộn. */}
@@ -132,12 +159,11 @@ export function QualificationResultView({ view }: { view: QualificationView }) {
             <div>
               <div className="text-sm font-semibold">Căn cứ chấm điểm</div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Mọi điểm số đều nêu rõ lý do để bạn tự kiểm chứng.
+                Bấm vào từng dòng để xem dữ kiện thật — bạn không cần mở file ra đọc lại.
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <span>Sẵn sàng</span>
-              <span>Chốt</span>
+            <div className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Điểm
             </div>
           </div>
 
@@ -146,13 +172,6 @@ export function QualificationResultView({ view }: { view: QualificationView }) {
               <CriterionRow key={row.key} row={row} />
             ))}
           </div>
-
-          {view.win && (
-            <p className="mt-4 border-t border-border pt-3 text-[11px] leading-4 text-muted-foreground">
-              Cột "Chốt" tính từ dữ kiện có thật (ngân sách so với giá thị trường, thời hạn, nguồn
-              khách, độ chi tiết) — không phải AI phán đoán về con người khách hàng.
-            </p>
-          )}
         </div>
       )}
 
@@ -174,22 +193,6 @@ export function QualificationResultView({ view }: { view: QualificationView }) {
           <span>{view.recommendation}</span>
         </div>
       </PanelCard>
-
-      {view.price && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Giá thị trường AI ước lượng
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Mức freelancer Việt nên tính cho khối lượng này — không phải ngân sách khách đưa.
-            </p>
-          </div>
-          <div className="text-xl font-bold text-primary">
-            {formatVND(view.price.low)} - {formatVND(view.price.high)}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -290,35 +293,92 @@ function PanelCard({
  * mà không kiểm chứng được thì không đáng tin.
  */
 function CriterionRow({ row }: { row: MergedRow }) {
-  const bar = row.readiness ?? row.win;
+  const [open, setOpen] = useState(false);
+
+  const bar = row.readiness;
   const ratio = bar && bar.max > 0 ? bar.points / bar.max : 0;
-  const tone = row.win?.impact ?? (ratio >= 0.7 ? "positive" : ratio >= 0.4 ? "neutral" : "negative");
+  const tone = ratio >= 0.7 ? "positive" : ratio >= 0.4 ? "neutral" : "negative";
+  const hasEvidence = Boolean(row.evidence);
+
+  // Tách "Để lên tối đa: ..." ra dòng riêng, nhấn màu — người dùng thấy NGAY cần làm gì
+  // để lên điểm, không lẫn trong câu giải thích vì sao.
+  const improveIdx = row.reason.indexOf("Để lên tối đa");
+  const whyText = improveIdx >= 0 ? row.reason.slice(0, improveIdx).trim() : row.reason;
+  const improveText = improveIdx >= 0 ? row.reason.slice(improveIdx).trim() : "";
 
   return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="min-w-0 truncate text-sm font-medium">{row.label}</span>
-        <div className="flex shrink-0 items-baseline gap-4 text-xs tabular-nums">
-          <PointCell value={row.readiness} />
-          <PointCell value={row.win} />
+    <div className="first:pt-0 last:pb-0">
+      {/* Cả dòng là một nút. Bấm đâu cũng mở — bắt người dùng nhắm vào đúng cái mũi tên
+          nhỏ xíu bên phải là thiết kế hành hạ người ta. */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full rounded-lg px-2 py-3 text-left transition-colors hover:bg-secondary/60"
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ChevronRight
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-90"
+              )}
+            />
+            <span className="min-w-0 truncate text-sm font-medium">{row.label}</span>
+            {/* Chấm màu báo trước là bên trong CÓ dữ kiện hay không, để người dùng không
+                phải bấm mở từng dòng mới biết dòng nào rỗng. */}
+            <span
+              className={cn(
+                "ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                hasEvidence ? "bg-primary/70" : "bg-muted-foreground/25"
+              )}
+            />
+          </span>
+          <div className="flex shrink-0 items-baseline text-xs tabular-nums">
+            <PointCell value={row.readiness} />
+          </div>
         </div>
-      </div>
 
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all",
-            tone === "positive" ? "bg-emerald-500" : tone === "negative" ? "bg-rose-500" : "bg-amber-500"
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all",
+              tone === "positive"
+                ? "bg-emerald-500"
+                : tone === "negative"
+                  ? "bg-rose-500"
+                  : "bg-amber-500"
+            )}
+            style={{ width: `${Math.round(ratio * 100)}%` }}
+          />
+        </div>
+
+        {whyText && (
+          <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{whyText}</p>
+        )}
+        {improveText && (
+          <p className="mt-1 flex items-start gap-1 text-xs font-medium leading-4 text-primary">
+            <ArrowUpRight className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>{improveText}</span>
+          </p>
+        )}
+      </button>
+
+      {open && (
+        <div className="mx-2 mb-3 rounded-lg border border-border bg-muted/40 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {EVIDENCE_LABEL[row.key] ?? "Dữ kiện ghi nhận được"}
+          </div>
+
+          {hasEvidence ? (
+            <p className="mt-1 text-sm leading-5 text-foreground">{row.evidence}</p>
+          ) : (
+            <p className="mt-1 flex items-start gap-1.5 text-sm leading-5 text-muted-foreground">
+              <SearchX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+              <span>{EMPTY_EVIDENCE[row.key] ?? "Không tìm thấy thông tin cho mục này."}</span>
+            </p>
           )}
-          style={{ width: `${Math.round(ratio * 100)}%` }}
-        />
-      </div>
-
-      {row.reason && <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{row.reason}</p>}
-      {row.winReason && (
-        <p className="mt-1 text-xs leading-4 text-muted-foreground">
-          <span className="font-medium text-foreground/70">Khả năng chốt:</span> {row.winReason}
-        </p>
+        </div>
       )}
     </div>
   );
@@ -339,36 +399,3 @@ function PointCell({ value }: { value: { points: number; max: number } | null })
   );
 }
 
-/**
- * Có nên hiện thêm dòng lý do thứ hai (của thang "khả năng chốt") không.
- *
- * Mặc định: KHÔNG — mỗi tiêu chí đúng một dòng lý do.
- *
- * Lý do: ba yếu tố `timeline`, `detail`, `budget` bên thang "khả năng chốt" được QUY ĐỔI
- * thẳng từ thang "sẵn sàng báo giá" — chúng không mang thông tin mới, chỉ diễn đạt lại
- * cùng một sự thật bằng câu khác. In cả hai thì người đọc thấy:
- *
- *     Không đề cập thời gian
- *     Khả năng chốt: Khách chưa nêu thời hạn — chưa rõ mức độ cần gấp.
- *
- * Hai câu, một ý. Thừa, và nhìn nghiệp dư.
- *
- * NGOẠI LỆ DUY NHẤT: `budget` khi khách CÓ nêu ngân sách. Lúc đó thang "chốt" mới thực
- * sự nói thêm điều mới — so ngân sách đó với giá thị trường ("thấp hơn nhiều — nguy cơ
- * không chốt được"). Đó là thông tin đáng đọc, không phải nhắc lại.
- *
- * Trước đây tôi lọc bằng cách SO CHUỖI hai câu xem có giống nhau không. Sai hướng: hai
- * câu khác chữ mà cùng nghĩa thì so chuỗi không bắt được. Chặn theo CẤU TRÚC dữ liệu
- * chắc chắn hơn nhiều.  #Huynh
- */
-function extraWinReason(
-  key: string,
-  readiness: ScoreItem | undefined,
-  winReason: string
-): string | null {
-  if (!winReason) return null;
-  if (key !== "budget") return null;
-  // Khách chưa nêu ngân sách → thang "chốt" chỉ nhắc lại "chưa nêu". Không có gì mới.
-  if (!readiness || readiness.points <= 0) return null;
-  return winReason;
-}

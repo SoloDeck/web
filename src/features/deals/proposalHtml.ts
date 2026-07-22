@@ -12,6 +12,44 @@ import { formatVND } from "@/utils/format";
 // Giờ cả hai gọi cùng một hàm, nên không thể lệch nhau được nữa.
 // ---------------------------------------------------------------------------
 
+/**
+ * Khối định giá do BACKEND tính (`src/ai/proposal_generator/pricing.py`).
+ *
+ * Điểm cốt lõi: **AI không xuất ra con số tiền nào.** Nó chỉ chấm hệ số (độ phức tạp, quy
+ * mô) và tỉ trọng công sức. Backend neo vào GIÁ THẬT freelancer đã chốt ở các dự án cùng
+ * loại, nhân hệ số, rồi ra một KHOẢNG. Con số cuối cùng do FREELANCER chốt.
+ *
+ * `decided_by` phải hiện lên giao diện: người dùng có quyền biết dòng nào máy tính, dòng
+ * nào AI phán.  #Huynh
+ */
+export type PricingFactor = {
+  key: string;
+  label: string;
+  level: string;
+  factor: number;
+  reason: string;
+  decided_by: "ai" | "code";
+};
+
+export type PricingDetail = {
+  anchor: {
+    value: number;
+    /** Mốc neo đáng tin tới đâu — quyết định khoảng giá rộng hay hẹp. */
+    confidence: "high" | "medium" | "low";
+    source: string;
+    sample_size: number;
+  };
+  factors: PricingFactor[];
+  suggested: number;
+  range_min: number;
+  range_max: number;
+  line_items: { label: string; weight_percent: number; amount: number }[];
+  warnings: string[];
+  /** Giá freelancer đã chốt. Chưa chốt thì KHÔNG gửi được báo giá (BE trả 409). */
+  final_price?: number;
+  final_outside_range?: boolean;
+};
+
 export type BackendProposalContent = {
   project_overview: string;
   scope_of_work: string[];
@@ -20,6 +58,13 @@ export type BackendProposalContent = {
   pricing: string;
   payment_terms: string;
   assumptions?: string;
+  /** Phạm vi KHÔNG bao gồm — dòng phòng thủ chống scope creep, mục "10. Điều Khoản Bổ Sung". */
+  out_of_scope?: string[];
+  revision_policy?: string;
+  /** ISO "2026-08-31". Freelancer tự đặt hạn hiệu lực; trống thì backend tính mặc định. */
+  valid_until?: string;
+  /** `null` khi không neo được vào đâu (chưa chấm điểm deal, chưa có lịch sử). */
+  pricing_detail?: PricingDetail | null;
 };
 
 export function isBackendContent(c: unknown): c is BackendProposalContent {
@@ -131,18 +176,64 @@ function renderQuoteHtml(input: QuoteHtmlInput): string {
 // Render nội dung AI mới (flat strings / string[]) → HTML
 // ---------------------------------------------------------------------------
 export function backendContentToHtml(content: BackendProposalContent, deal: Deal): string {
+  const detail = content.pricing_detail;
+
+  // Đây từng là nguồn gốc của bản báo giá "0 ₫":
+  //
+  //     lineItems: [{ description: content.pricing, quantity: 1, amount: deal.value }]
+  //     total: deal.value
+  //
+  // `deal.value` là ô "Giá trị dự kiến" freelancer tự nhập. Không nhập thì bằng 0, và cả
+  // bản báo giá gửi khách ghi "Tổng báo giá: 0 ₫". Giờ tiền lấy từ bộ định giá của BE.
+  //
+  // Chưa chốt giá thì dùng giá ĐỀ XUẤT để xem trước — nhưng nút gửi bị khoá, nên bản
+  // "xem trước" này không bao giờ tới tay khách.  #Huynh
+  const total = detail?.final_price ?? detail?.suggested ?? deal.value;
+
+  const lineItems =
+    detail && detail.line_items.length > 0 && detail.suggested > 0
+      ? scaleLineItems(detail, total)
+      : [
+          {
+            description: content.pricing || deal.projectType,
+            quantity: 1,
+            amount: total,
+          },
+        ];
+
   return renderQuoteHtml({
     title: deal.projectType,
     clientName: deal.client,
     clientContact: deal.contact,
     summary: content.project_overview || deal.notes,
-    lineItems: [{ description: content.pricing || deal.projectType, quantity: 1, amount: deal.value }],
-    total: deal.value,
+    lineItems,
+    total,
     timeline: content.timeline,
     paymentTerms: content.payment_terms,
     note: content.assumptions,
   });
+}
 
+/**
+ * Chia lại hạng mục theo giá freelancer đã chốt.
+ *
+ * BE chia theo giá ĐỀ XUẤT. Freelancer kéo thanh xuống 35 triệu thì bảng phải chia lại theo
+ * 35 triệu — nếu không, bảng cộng ra một số, dòng "Tổng báo giá" ghi một số khác. Khách sẽ
+ * soi ra ngay, và đó là thứ làm mất uy tín cả bản báo giá.
+ *
+ * Đồng lẻ do làm tròn dồn vào dòng cuối để tổng KHỚP TUYỆT ĐỐI.
+ */
+function scaleLineItems(detail: PricingDetail, total: number) {
+  const ratio = total / detail.suggested;
+  const items = detail.line_items.map((item) => ({
+    description: item.label,
+    quantity: 1,
+    amount: Math.round((item.amount * ratio) / 1000) * 1000,
+  }));
+
+  const sum = items.reduce((acc, item) => acc + item.amount, 0);
+  items[items.length - 1].amount += total - sum;
+  return items;
 }
 
 // ---------------------------------------------------------------------------

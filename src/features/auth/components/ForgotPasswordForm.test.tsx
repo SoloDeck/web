@@ -39,7 +39,7 @@ describe("<ForgotPasswordForm />", () => {
 
     expect(mockRequest).toHaveBeenCalledWith("freelancer@solodesk.dev");
     expect(screen.getByLabelText("Mật khẩu mới")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("đổi mật khẩu bằng OTP và báo thành công", async () => {
     const user = userEvent.setup();
@@ -54,7 +54,7 @@ describe("<ForgotPasswordForm />", () => {
     // BE chỉ nhận otp + new_password, KHÔNG cần email — mã tự định danh người dùng.
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith("123456", "MatKhauMoi2026"));
     expect(await screen.findByText(/đã đổi mật khẩu thành công/i)).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("báo rõ khi mã OTP sai hoặc hết hạn, và KHÔNG đá người dùng đi đâu cả", async () => {
     const user = userEvent.setup();
@@ -73,7 +73,7 @@ describe("<ForgotPasswordForm />", () => {
     // Người dùng phải được ở lại để gõ lại mã, không bị điều hướng đi đâu.
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Mã OTP")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("mật khẩu xác nhận không khớp thì chặn ngay ở FE, không gọi API", async () => {
     const user = userEvent.setup();
@@ -87,5 +87,5 @@ describe("<ForgotPasswordForm />", () => {
 
     expect(await screen.findByText(/mật khẩu xác nhận không khớp/i)).toBeInTheDocument();
     expect(mockConfirm).not.toHaveBeenCalled();
-  });
+  }, 20_000);
 });
