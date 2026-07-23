@@ -9,7 +9,7 @@ import { dealQualificationKeys } from "@/features/deals/hooks/useDealQualificati
 import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
-import { getAiJobErrorMessage, isTerminal } from "@/services/aiJobsService";
+import { getAiJobErrorMessage, isAiJobErrorRetryable, isTerminal } from "@/services/aiJobsService";
 import {
   QualificationResultView,
   type QualificationView,
@@ -226,6 +226,10 @@ export function AIPanel({
 
   const errorHint =
     createError || (job?.status === "failed" ? (getAiJobErrorMessage(job) ?? "") : "");
+  // Lỗi do gói/hạn mức thì "thử lại" vô ích — đổi câu khuyên cho khớp. Lỗi lúc tạo job
+  // (createError, thường do mạng) coi như đáng thử lại.
+  const errorRetryable =
+    job?.status === "failed" ? isAiJobErrorRetryable(job) : Boolean(createError);
 
   // Đang chạy = đang tạo job, hoặc job có rồi nhưng chưa vào trạng thái kết thúc.
   const isRunning = createJob.isPending || Boolean(job && !isTerminal(job.status));
@@ -491,7 +495,9 @@ export function AIPanel({
               <div className="font-semibold text-destructive">Chưa đánh giá được deal</div>
               <p className="mt-1 text-muted-foreground">{errorHint}</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.
+                {errorRetryable
+                  ? 'Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.'
+                  : "Bạn cần nâng cấp gói để dùng AI. Liên hệ quản trị viên để được kích hoạt gói phù hợp."}
               </p>
             </div>
           )}

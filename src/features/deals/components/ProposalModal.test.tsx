@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import type React from "react";
 import { ProposalModal } from "./ProposalModal";
+import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import type { Deal } from "@/features/deals/types";
 
 const mockGenerateMutate = vi.fn();
@@ -27,6 +28,14 @@ vi.mock("@/features/deals/hooks/useProposals", () => ({
 vi.mock("@/features/auth/hooks/useAuthStore", () => ({
   useAuthStore: () => ({ fullName: "Freelancer Test" }),
 }));
+
+// Mặc định KHÔNG có mẫu điều khoản → modal đi thẳng đường tự sinh (đúng như các test này
+// mong đợi). Test riêng cho màn chọn mẫu tự override mock này.
+vi.mock("@/features/deals/hooks/useTermTemplates", () => ({
+  useTermTemplates: vi.fn(),
+}));
+
+const noTemplates = { data: [], isFetched: true } as unknown as ReturnType<typeof useTermTemplates>;
 
 vi.mock("@/services/dealsService", () => ({
   updateDealStage: vi.fn().mockResolvedValue({}),
@@ -93,6 +102,8 @@ describe("ProposalModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mặc định mỗi test: không có mẫu → modal tự sinh. Test chọn-mẫu override sau.
+    vi.mocked(useTermTemplates).mockReturnValue(noTemplates);
   });
 
   it("returns null when deal is null", () => {
@@ -121,6 +132,22 @@ describe("ProposalModal", () => {
 
     expect(await screen.findByRole("status", { name: /đang tạo báo giá/i })).toBeInTheDocument();
     expect(screen.getByText(/AI đang soạn báo giá/i)).toBeInTheDocument();
+  });
+
+  it("có mẫu điều khoản thì hiện màn CHỌN trước, KHÔNG tự sinh ngay", async () => {
+    // Admin có mẫu cho nghề này → phải cho freelancer chọn, không đốt lượt AI trước khi họ quyết.
+    vi.mocked(useTermTemplates).mockReturnValue({
+      data: [{ id: "tpl-1", name: "Mẫu điều khoản UX" }],
+      isFetched: true,
+    } as unknown as ReturnType<typeof useTermTemplates>);
+    mockGenerateMutate.mockImplementation(() => new Promise(() => {}));
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+
+    expect(await screen.findByText("AI tự viết")).toBeInTheDocument();
+    expect(screen.getByText("Mẫu điều khoản UX")).toBeInTheDocument();
+    // Chưa bấm "Tạo báo giá" thì chưa gọi AI.
+    expect(mockGenerateMutate).not.toHaveBeenCalled();
   });
 
   it("hiện tờ báo giá do server dựng, không dựng lại bản riêng", async () => {

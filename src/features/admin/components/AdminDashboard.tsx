@@ -30,24 +30,30 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import {
   useAdminPlans,
+  useAdminTemplates,
   useAdminUsers,
   useAiCosts,
   useAuditLogs,
   useCreateAdminPlan,
+  useCreateAdminTemplate,
   useOverrideSubscription,
   useUpdateAdminPlan,
+  useUpdateAdminTemplate,
   useUpdateAdminUser,
 } from "@/features/admin/hooks/useAdmin";
+import { PROFESSIONS } from "@/features/profile/types";
 import { cn } from "@/lib/utils";
 import type {
   AdminPlan,
   AdminPlanPayload,
+  AdminTemplate,
+  AdminTemplateType,
   AdminUser,
   AdminUserRole,
   AdminUserStatus,
 } from "@/services/adminService";
 
-export type AdminPage = "dashboard" | "users" | "plans" | "ai-costs" | "audit";
+export type AdminPage = "dashboard" | "users" | "plans" | "templates" | "ai-costs" | "audit";
 
 const ADMIN_NAV_ITEMS: {
   page: AdminPage;
@@ -77,20 +83,27 @@ const ADMIN_NAV_ITEMS: {
       icon: CreditCard,
       description: "Danh mục gói và giới hạn sử dụng",
     },
-    // {
-    //   page: "ai-costs",
-    //   label: "Chi phí AI",
-    //   path: "/admin/ai-costs",
-    //   icon: Bot,
-    //   description: "Token và chi phí ước tính mỗi lần gọi AI",
-    // },
-    // {
-    //   page: "audit",
-    //   label: "Nhật ký",
-    //   path: "/admin/audit",
-    //   icon: ScrollText,
-    //   description: "Ai làm gì, cho ai, lúc nào",
-    // },
+    {
+      page: "templates",
+      label: "Thư viện mẫu",
+      path: "/admin/templates",
+      icon: FileText,
+      description: "Mẫu điều khoản báo giá / hợp đồng theo nghề",
+    },
+    {
+      page: "ai-costs",
+      label: "Chi phí AI",
+      path: "/admin/ai-costs",
+      icon: Bot,
+      description: "Token và chi phí ước tính mỗi lần gọi AI",
+    },
+    {
+      page: "audit",
+      label: "Nhật ký",
+      path: "/admin/audit",
+      icon: ScrollText,
+      description: "Ai làm gì, cho ai, lúc nào",
+    },
   ];
 
 const USER_ROLE_OPTIONS: { value: AdminUserRole; label: string }[] = [
@@ -188,6 +201,8 @@ export function AdminDashboard({ page = "dashboard" }: { page?: AdminPage }) {
             <UsersPage users={users} stats={stats} />
           ) : page === "plans" ? (
             <PlansPage plans={plans} stats={stats} />
+          ) : page === "templates" ? (
+            <TemplatesPage />
           ) : page === "ai-costs" ? (
             <AiCostsPage />
           ) : page === "audit" ? (
@@ -1335,6 +1350,294 @@ function PlanCell({ user }: { user: AdminUser }) {
         </Button>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Thư viện mẫu điều khoản theo nghề (Phiếu SU26SE083, Gói 6)
+// ---------------------------------------------------------------------------
+
+const TEMPLATE_TYPE_LABEL: Record<AdminTemplateType, string> = {
+  proposal: "Báo giá",
+  contract: "Hợp đồng",
+};
+
+/** Nhãn nghề tra từ PROFESSIONS (dùng chung với hồ sơ freelancer). null = mẫu dùng chung. */
+function professionLabel(slug: string | null): string {
+  if (!slug) return "Dùng chung";
+  return PROFESSIONS.find((p) => p.value === slug)?.label ?? slug;
+}
+
+function TemplatesPage() {
+  const [typeFilter, setTypeFilter] = useState<AdminTemplateType | "">("");
+  const [professionFilter, setProfessionFilter] = useState<string>("");
+  const [showCreate, setShowCreate] = useState(false);
+
+  const filter = {
+    ...(typeFilter ? { template_type: typeFilter } : {}),
+    ...(professionFilter ? { profession: professionFilter } : {}),
+  };
+  const templatesQuery = useAdminTemplates(filter);
+  const createTemplate = useCreateAdminTemplate();
+  const templates = templatesQuery.data ?? [];
+
+  const activeCount = templates.filter((t) => t.is_active).length;
+  const byProfession = new Set(templates.map((t) => t.profession).filter(Boolean)).size;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricCard compact icon={FileText} label="Tổng mẫu" value={String(templates.length)} hint="Theo bộ lọc hiện tại" tone="primary" />
+        <MetricCard compact icon={CheckCircle2} label="Đang bật" value={String(activeCount)} hint="Mẫu đang dùng được" tone="success" />
+        <MetricCard compact icon={Users} label="Nghề có mẫu riêng" value={String(byProfession)} hint="Chưa tính mẫu dùng chung" tone="default" />
+      </div>
+
+      <PanelShell
+        title="Thư viện mẫu điều khoản"
+        icon={FileText}
+        action={
+          <Button type="button" size="sm" onClick={() => setShowCreate((c) => !c)}>
+            {showCreate ? <X className="size-4" /> : <Plus className="size-4" />}
+            {showCreate ? "Đóng form" : "Tạo mẫu"}
+          </Button>
+        }
+      >
+        {/* Bộ lọc theo loại + nghề — đúng cách admin duyệt thư viện "theo nhóm nghề". */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as AdminTemplateType | "")}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Tất cả loại</option>
+            <option value="proposal">Báo giá</option>
+            <option value="contract">Hợp đồng</option>
+          </select>
+          <select
+            value={professionFilter}
+            onChange={(e) => setProfessionFilter(e.target.value)}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Tất cả nghề</option>
+            {PROFESSIONS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {showCreate && (
+          <div className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <TemplateForm
+              submitLabel="Tạo mẫu mới"
+              isSubmitting={createTemplate.isPending}
+              onCancel={() => setShowCreate(false)}
+              onSubmit={(payload) =>
+                createTemplate.mutate(payload, { onSuccess: () => setShowCreate(false) })
+              }
+            />
+          </div>
+        )}
+
+        {templatesQuery.isLoading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Đang tải thư viện mẫu...
+          </div>
+        ) : templates.length === 0 ? (
+          <EmptyState text="Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm." />
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {templates.map((template) => (
+              <TemplateCard key={template.id} template={template} />
+            ))}
+          </div>
+        )}
+      </PanelShell>
+    </div>
+  );
+}
+
+function TemplateCard({ template }: { template: AdminTemplate }) {
+  const updateTemplate = useUpdateAdminTemplate();
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <article className="rounded-xl border border-primary/25 bg-primary/5 p-4">
+        <TemplateForm
+          template={template}
+          submitLabel="Lưu mẫu"
+          isSubmitting={updateTemplate.isPending}
+          onCancel={() => setEditing(false)}
+          onSubmit={(payload) =>
+            updateTemplate.mutate(
+              { id: template.id, payload },
+              { onSuccess: () => setEditing(false) }
+            )
+          }
+        />
+      </article>
+    );
+  }
+
+  const body = typeof template.content?.body === "string" ? template.content.body : "";
+
+  return (
+    <article className="rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-bold">{template.name}</h3>
+            <PlanStatePill active={template.is_active} />
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="rounded-full bg-secondary px-2 py-0.5 font-semibold text-muted-foreground">
+              {TEMPLATE_TYPE_LABEL[template.template_type]}
+            </span>
+            <span className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 font-medium text-primary">
+              {professionLabel(template.profession)}
+            </span>
+            <span className="text-muted-foreground">v{template.version_number}</span>
+          </div>
+          {body && (
+            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{body}</p>
+          )}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
+          <Pencil className="size-4" /> Sửa
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+type TemplateDraft = {
+  name: string;
+  template_type: AdminTemplateType;
+  profession: string;
+  body: string;
+  is_active: boolean;
+};
+
+function TemplateForm({
+  template,
+  submitLabel,
+  isSubmitting,
+  onSubmit,
+  onCancel,
+}: {
+  template?: AdminTemplate;
+  submitLabel: string;
+  isSubmitting: boolean;
+  onSubmit: (payload: {
+    name: string;
+    template_type: AdminTemplateType;
+    profession: string | null;
+    content: Record<string, unknown>;
+    is_active: boolean;
+  }) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<TemplateDraft>(() => ({
+    name: template?.name ?? "",
+    template_type: template?.template_type ?? "proposal",
+    profession: template?.profession ?? "",
+    body: typeof template?.content?.body === "string" ? template.content.body : "",
+    is_active: template?.is_active ?? false,
+  }));
+
+  const canSubmit = draft.name.trim().length > 0 && draft.body.trim().length > 0;
+
+  function set(field: keyof TemplateDraft, value: string | boolean) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    onSubmit({
+      name: draft.name.trim(),
+      template_type: draft.template_type,
+      // "" = mẫu dùng chung → gửi null cho backend lưu NULL.
+      profession: draft.profession || null,
+      content: { body: draft.body.trim() },
+      is_active: draft.is_active,
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Tên mẫu</span>
+          <input
+            value={draft.name}
+            onChange={(e) => set("name", e.target.value)}
+            placeholder="VD: Điều khoản thanh toán chuẩn"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Loại</span>
+          <select
+            value={draft.template_type}
+            onChange={(e) => set("template_type", e.target.value as AdminTemplateType)}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="proposal">Báo giá</option>
+            <option value="contract">Hợp đồng</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Áp dụng cho nghề</span>
+        <select
+          value={draft.profession}
+          onChange={(e) => set("profession", e.target.value)}
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">Dùng chung cho mọi nghề</option>
+          {PROFESSIONS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Nội dung điều khoản</span>
+        <textarea
+          value={draft.body}
+          onChange={(e) => set("body", e.target.value)}
+          rows={6}
+          placeholder="Nội dung mẫu điều khoản (tiếng Việt)..."
+          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+        />
+      </label>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={draft.is_active}
+          onChange={(e) => set("is_active", e.target.checked)}
+          className="size-4 rounded border-input"
+        />
+        Bật mẫu này (cho phép dùng)
+      </label>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={!canSubmit || isSubmitting}>
+          {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {submitLabel}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Hủy
+        </Button>
+      </div>
+    </form>
   );
 }
 

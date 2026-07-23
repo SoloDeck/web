@@ -30,7 +30,10 @@ import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
+import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { proposalToHtml } from "@/features/deals/proposalHtml";
 import { getProposalPreview } from "@/services/proposalsService";
 import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
@@ -189,9 +192,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const generateContract = useGenerateContractContent();
   const recordSignature = useRecordClientSignature();
   const sendContract = useSendContract();
+  const contractTemplates = useTermTemplates("contract");
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [contractChooserOpen, setContractChooserOpen] = useState(false);
+  const [contractTemplateId, setContractTemplateId] = useState<string | null>(null);
   // Khác null = mở AIPanel để XEM LẠI job cũ, thay vì chạy đánh giá mới.
 
   // Mở panel AI qua store — panel được mount ở tầng gốc (AIJobViewer) nên bấm "Xem" ở
@@ -349,25 +355,37 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
+  // Bấm "Tạo hợp đồng": LUÔN mở hộp chọn (AI tự viết / mẫu thư viện) trước khi sinh —
+  // đồng nhất với luồng báo giá, thay vì lặng lẽ sinh rồi nhảy vào Detail. Chưa có mẫu cho
+  // nghề này thì hộp chọn chỉ có "AI tự viết" kèm chú thích.  #Huynh
   function handleGenerateContract() {
     if (!deal || !acceptedProposal) {
       toast.error("Cần có báo giá đã được khách chấp nhận trước khi tạo hợp đồng.");
       return;
     }
+    setContractTemplateId(null);
+    setContractChooserOpen(true);
+  }
+
+  function runGenerateContract(templateId: string | null) {
+    if (!deal || !acceptedProposal) return;
 
     function fillContent(contractId: string) {
-      generateContract.mutate(contractId, {
-        onSuccess: () => {
-          toast.success("Đã tạo nội dung hợp đồng bằng AI.");
-          addDealHistoryEntry(deal!.id, {
-            date: new Date().toISOString(),
-            text: "Hợp đồng AI đã được tạo và điền nội dung.",
-            channel: "message",
-          });
-          setViewContractId(contractId);
-        },
-        onError: (error) => toast.error(contractErrorMessage(error)),
-      });
+      generateContract.mutate(
+        { contractId, templateId },
+        {
+          onSuccess: () => {
+            toast.success("Đã tạo nội dung hợp đồng bằng AI.");
+            addDealHistoryEntry(deal!.id, {
+              date: new Date().toISOString(),
+              text: "Hợp đồng AI đã được tạo và điền nội dung.",
+              channel: "message",
+            });
+            setViewContractId(contractId);
+          },
+          onError: (error) => toast.error(contractErrorMessage(error)),
+        }
+      );
     }
 
     // Đã có bản nháp thì sinh lại nội dung trên CHÍNH nó, không tạo hợp đồng mới.
@@ -1087,6 +1105,40 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <AIActivityCenter />
+
+      <Dialog open={contractChooserOpen} onOpenChange={setContractChooserOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tạo hợp đồng</DialogTitle>
+          </DialogHeader>
+          <DocTemplateChooser
+            templates={contractTemplates.data ?? []}
+            value={contractTemplateId}
+            onChange={setContractTemplateId}
+            docLabel="hợp đồng"
+          />
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setContractChooserOpen(false)}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setContractChooserOpen(false);
+                runGenerateContract(contractTemplateId);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            >
+              Tạo hợp đồng
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
       {viewProposalId && (
         <ProposalViewModal

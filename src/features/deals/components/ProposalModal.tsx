@@ -11,6 +11,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { PricingPanel } from "@/features/deals/components/PricingPanel";
+import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { getProposalPreview, setProposalPrice } from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
@@ -379,6 +381,12 @@ export function ProposalModal({
   const cancelRef = useRef(false);
   /** (deal, lần mở) đã sinh bản nháp — chặn StrictMode chạy effect 2 lần. */
   const generatedKeyRef = useRef<string | null>(null);
+  /** Mẫu điều khoản freelancer chọn ở màn đầu — ref để lần "Tạo lại"/retry dùng lại. */
+  const templateIdRef = useRef<string | null>(null);
+  /** Đang hiện màn chọn mẫu (báo giá MỚI, có mẫu khớp nghề), chưa sinh. */
+  const [choosing, setChoosing] = useState(false);
+  const [chosenTemplateId, setChosenTemplateId] = useState<string | null>(null);
+  const termTemplates = useTermTemplates("proposal", !existingProposalId);
 
   const existing = useProposal(existingProposalId ?? undefined);
 
@@ -556,6 +564,8 @@ export function ProposalModal({
         service_category: d.serviceCategory ?? d.projectType,
         pricing_tier: d.pricingTier ?? "standard",
         freelancer_name: freelancerName,
+        // Mẫu điều khoản đã chọn ở màn đầu (null = AI tự viết). Ref để retry/tạo-lại dùng lại.
+        template_id: templateIdRef.current ?? undefined,
       })
       .then(
         (res) => {
@@ -650,29 +660,45 @@ export function ProposalModal({
     // vô hiệu. Ref dưới đây bám theo (deal, lần mở) — nó SỐNG QUA cả hai lần chạy vì cùng
     // một component instance, nên lần thứ hai bị chặn. Nút "Tạo lại" gọi thẳng
     // `triggerGenerate`, không qua effect này, nên vẫn tạo bản mới bình thường.  #Huynh
+    // Đợi biết có mẫu điều khoản hay không rồi mới quyết: có mẫu → hỏi chọn trước; không
+    // có → sinh thẳng. Chưa tra xong thì khoan làm gì.
+    if (!termTemplates.isFetched) return;
+
     const runKey = `${deal.id}:${openNonce}`;
     if (generatedKeyRef.current === runKey) return;
     generatedKeyRef.current = runKey;
 
-    // Bấm "Tạo Báo Giá AI" thì phải THẤY cửa sổ đang chạy (mặc định của `minimized` là
-    // false). Trước đây nó tự thu nhỏ ngay nên bấm xong không thấy gì, tưởng nút hỏng.
-    // Muốn làm việc khác thì bấm ra ngoài — panel thu nhỏ, job vẫn chạy nền.  #Huynh
+    // Admin có mẫu cho nghề này → hiện màn chọn ("AI tự viết" + các mẫu), chưa sinh.
+    if ((termTemplates.data ?? []).length > 0) {
+      setChosenTemplateId(null);
+      setChoosing(true);
+      return () => { cancelRef.current = true; };
+    }
+
+    // Không có mẫu → sinh thẳng như cũ.
+    templateIdRef.current = null;
+    startGenerate(deal);
+    return () => { cancelRef.current = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deal?.id, existingProposalId, openNonce, termTemplates.isFetched]);
+
+  // Bắt đầu sinh: mở job nền + báo đang chạy + gọi AI. Tách ra để dùng chung cho đường tự
+  // sinh (không mẫu) lẫn đường sau khi chọn mẫu.
+  function startGenerate(d: NonNullable<typeof deal>) {
     upsertJob({
-      id: `ai-proposal-${deal.id}`,
+      id: `ai-proposal-${d.id}`,
       kind: "proposal_generation",
-      title: `Tạo báo giá cho ${deal.client}`,
+      title: `Tạo báo giá cho ${d.client}`,
       description: "AI đang soạn bản nháp báo giá. Bạn có thể tiếp tục làm việc khác.",
-      entityLabel: deal.projectType,
-      entityId: deal.id, // để bấm "Xem" ở màn hình khác vẫn mở lại được
+      entityLabel: d.projectType,
+      entityId: d.id,
       status: "running",
     });
     setIsGenerating(true);
     setRetryCount(0);
     setProposalContent(null);
-    triggerGenerate(deal, 0);
-    return () => { cancelRef.current = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal?.id, existingProposalId, openNonce]);
+    triggerGenerate(d, 0);
+  }
 
   // Nạp nội dung của bản nháp đã có (khi mở để xem lại).
   //
@@ -1018,8 +1044,37 @@ export function ProposalModal({
             </div>
           </div>
 
-          {/* Loading state */}
-          {isLoading ? (
+          {/* Màn chọn mẫu điều khoản — hiện trước khi sinh khi admin có mẫu cho nghề này. */}
+          {choosing ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+              <DocTemplateChooser
+                templates={termTemplates.data ?? []}
+                value={chosenTemplateId}
+                onChange={setChosenTemplateId}
+                docLabel="báo giá"
+              />
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    templateIdRef.current = chosenTemplateId;
+                    setChoosing(false);
+                    if (deal) startGenerate(deal);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                >
+                  <Sparkles className="h-4 w-4" /> Tạo báo giá
+                </button>
+              </div>
+            </div>
+          ) : /* Loading state */ isLoading ? (
             <div className="p-16 text-center flex-1 flex flex-col justify-center items-center" role="status" aria-label="Đang tạo báo giá">
               {/* Vòng xoay ÔM QUANH logo, không nấp sau nó.
                   Trước đây nó là badge 20px ghim ở góc phải-dưới (`-bottom-1 -right-1`) và tô

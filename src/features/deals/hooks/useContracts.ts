@@ -141,8 +141,9 @@ export function useRecordClientSignature() {
 export function useGenerateContractContent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (contractId: string) => generateContractContent(contractId),
-    onSuccess: (_, contractId) => {
+    mutationFn: ({ contractId, templateId }: { contractId: string; templateId?: string | null }) =>
+      generateContractContent(contractId, templateId),
+    onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });
     },

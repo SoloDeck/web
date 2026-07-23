@@ -95,7 +95,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
       },
       {
         onSuccess: (draft) => {
-          generateContract.mutate(draft.id, {
+          generateContract.mutate({ contractId: draft.id, templateId: null }, {
             onSuccess: (generated) => {
               setContract(generated);
               setIsGenerating(false);

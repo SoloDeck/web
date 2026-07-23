@@ -1,5 +1,14 @@
 import axiosClient from "@/configs/axios";
 import type { ApiResponse } from "@/features/auth/types";
+import type { TermTemplateOption } from "@/services/proposalsService";
+
+/** GET /contracts/term-templates — mẫu điều khoản hợp đồng theo nghề của freelancer. */
+export async function listContractTermTemplates(): Promise<TermTemplateOption[]> {
+  const { data } = await axiosClient.get<ApiResponse<TermTemplateOption[]>>(
+    "/contracts/term-templates"
+  );
+  return data.data ?? [];
+}
 
 // ---------------------------------------------------------------------------
 // Types — mirror openapi.yaml schemas
@@ -229,10 +238,13 @@ export async function recordClientSignature(contractId: string): Promise<Contrac
  * Synchronous — returns updated contract immediately. Requires AI subscription.
  */
 export async function generateContractContent(
-  contractId: string
+  contractId: string,
+  templateId?: string | null
 ): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
-    `/contracts/${contractId}/generate`
+    `/contracts/${contractId}/generate`,
+    undefined,
+    { params: templateId ? { template_id: templateId } : undefined }
   );
   return data.data;
 }

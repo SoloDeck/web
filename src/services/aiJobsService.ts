@@ -87,8 +87,27 @@ export async function cancelAiJob(jobId: string): Promise<AiJob> {
 }
 
 /** Đọc thông điệp lỗi từ cột `error` (JSONB) của job. */
+// Backend trả kèm `code` (ErrorCode) trong job.error. Dịch sang câu tiếng Việt rõ ràng —
+// message thô của backend là tiếng Anh ("Your plan does not include AI features...") và
+// lọt thẳng ra màn hình thì vừa lệch ngôn ngữ vừa khó hiểu.  #Huynh
+const AI_JOB_ERROR_MESSAGES: Record<string, string> = {
+  SUBSCRIPTION_REQUIRED: "Gói của bạn chưa có tính năng AI. Hãy nâng cấp gói để dùng.",
+  AI_QUOTA_EXCEEDED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức.",
+  RATE_LIMITED: "Hệ thống AI đang bận. Bạn thử lại sau ít phút nhé.",
+};
+
 export function getAiJobErrorMessage(job: AiJob | undefined): string | null {
   if (!job?.error) return null;
+  const code = typeof job.error.code === "string" ? job.error.code : "";
+  if (code && AI_JOB_ERROR_MESSAGES[code]) return AI_JOB_ERROR_MESSAGES[code];
   const msg = job.error.message ?? job.error.detail;
   return typeof msg === "string" && msg.trim() ? msg : "AI xử lý thất bại.";
+}
+
+/**
+ * Lỗi này có đáng thử lại không? Backend đánh dấu `retryable`: false cho lỗi do gói/hạn
+ * mức (thử lại vô ích — phải nâng gói), true cho lỗi tạm (mạng, AI bận).
+ */
+export function isAiJobErrorRetryable(job: AiJob | undefined): boolean {
+  return job?.error?.retryable === true;
 }

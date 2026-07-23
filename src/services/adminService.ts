@@ -216,6 +216,79 @@ export async function listAiCosts(): Promise<AdminAiCostPage> {
   return data.data;
 }
 
+// ---------------------------------------------------------------------------
+// Templates — thư viện mẫu điều khoản báo giá / hợp đồng theo nghề
+// ---------------------------------------------------------------------------
+
+export type AdminTemplateType = "proposal" | "contract";
+
+export type AdminTemplate = {
+  id: string;
+  template_type: AdminTemplateType;
+  name: string;
+  /** Slug nghề (khớp PROFESSIONS) hoặc null = mẫu dùng chung. */
+  profession: string | null;
+  content: Record<string, unknown>;
+  plan_tier_required: string | null;
+  version_number: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type AdminTemplateCreatePayload = {
+  name: string;
+  template_type: AdminTemplateType;
+  profession?: string | null;
+  content: Record<string, unknown>;
+  plan_tier_required?: string | null;
+  is_active?: boolean;
+};
+
+export type AdminTemplateUpdatePayload = {
+  name?: string;
+  profession?: string | null;
+  content?: Record<string, unknown>;
+  is_active?: boolean;
+  plan_tier_required?: string | null;
+};
+
+export type AdminTemplateFilter = {
+  template_type?: AdminTemplateType;
+  profession?: string;
+  is_active?: boolean;
+};
+
+/** GET /admin/templates — thư viện mẫu, lọc theo loại/nghề/trạng thái. */
+export async function listAdminTemplates(
+  filter: AdminTemplateFilter = {}
+): Promise<AdminTemplate[]> {
+  const { data } = await axiosClient.get<ApiResponse<AdminTemplate[]>>("/admin/templates", {
+    params: filter,
+  });
+  return data.data ?? [];
+}
+
+export async function createAdminTemplate(
+  payload: AdminTemplateCreatePayload
+): Promise<AdminTemplate> {
+  const { data } = await axiosClient.post<ApiResponse<AdminTemplate>>(
+    "/admin/templates",
+    payload
+  );
+  return data.data;
+}
+
+export async function updateAdminTemplate(
+  id: string,
+  payload: AdminTemplateUpdatePayload
+): Promise<AdminTemplate> {
+  const { data } = await axiosClient.patch<ApiResponse<AdminTemplate>>(
+    `/admin/templates/${id}`,
+    payload
+  );
+  return data.data;
+}
+
 export type AdminAuditLog = {
   id: string;
   event_type: string;

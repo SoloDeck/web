@@ -2,6 +2,17 @@ import axiosClient from "@/configs/axios";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
 import type { ApiResponse } from "@/features/auth/types";
 
+/** Một lựa chọn mẫu điều khoản (thư viện admin) freelancer chọn trước khi sinh tài liệu. */
+export type TermTemplateOption = { id: string; name: string };
+
+/** GET /proposals/term-templates — mẫu điều khoản báo giá theo nghề của freelancer. */
+export async function listProposalTermTemplates(): Promise<TermTemplateOption[]> {
+  const { data } = await axiosClient.get<ApiResponse<TermTemplateOption[]>>(
+    "/proposals/term-templates"
+  );
+  return data.data ?? [];
+}
+
 // ---------------------------------------------------------------------------
 // Types — mirror openapi.yaml schemas
 // ---------------------------------------------------------------------------
@@ -152,6 +163,8 @@ export type AiProposalRequest = {
   service_category: string;
   pricing_tier: string;
   freelancer_name: string;
+  /** Mẫu điều khoản đã chọn (thư viện admin). Bỏ trống = "AI tự viết". */
+  template_id?: string;
 };
 
 export type ProposalDecisionStatus = "accepted" | "rejected" | "expired";

@@ -2,16 +2,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   createAdminPlan,
+  createAdminTemplate,
   listAiCosts,
   listAuditLogs,
   listAdminPlans,
+  listAdminTemplates,
   listAdminUsers,
   overrideSubscription,
   reinstateAdminUser,
   suspendAdminUser,
   updateAdminPlan,
+  updateAdminTemplate,
   updateAdminUser,
   type AdminPlanPayload,
+  type AdminTemplateCreatePayload,
+  type AdminTemplateFilter,
+  type AdminTemplateUpdatePayload,
   type AdminUpdateUserPayload,
 } from "@/services/adminService";
 
@@ -20,7 +26,40 @@ export const adminKeys = {
   plans: ["admin", "plans"] as const,
   aiCosts: ["admin", "ai-costs"] as const,
   auditLogs: ["admin", "audit-logs"] as const,
+  templates: ["admin", "templates"] as const,
 };
+
+export function useAdminTemplates(filter: AdminTemplateFilter = {}) {
+  return useQuery({
+    queryKey: [...adminKeys.templates, filter] as const,
+    queryFn: () => listAdminTemplates(filter),
+  });
+}
+
+export function useCreateAdminTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AdminTemplateCreatePayload) => createAdminTemplate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.templates });
+      toast.success("Đã tạo mẫu mới.");
+    },
+    onError: () => toast.error("Không tạo được mẫu. Vui lòng kiểm tra dữ liệu và thử lại."),
+  });
+}
+
+export function useUpdateAdminTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: AdminTemplateUpdatePayload }) =>
+      updateAdminTemplate(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.templates });
+      toast.success("Đã cập nhật mẫu.");
+    },
+    onError: () => toast.error("Không cập nhật được mẫu. Vui lòng thử lại."),
+  });
+}
 
 export function useAiCosts() {
   return useQuery({ queryKey: adminKeys.aiCosts, queryFn: listAiCosts });
