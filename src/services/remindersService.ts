@@ -2,7 +2,7 @@ import axiosClient from "@/configs/axios";
 
 export type ReminderTargetType = "deal" | "client" | "invoice" | "contract";
 export type ReminderStatus = "pending" | "sent" | "failed" | "cancelled" | "skipped";
-export type ReminderChannel = "zalo" | "email" | "in_app";
+export type ReminderChannel = "zalo" | "email" | "in_app" | "both";
 export type ReminderType =
   | "follow_up"
   | "proposal_follow_up"
@@ -65,4 +65,23 @@ export async function updateReminder(id: string, payload: ReminderPayload): Prom
 
 export async function cancelReminder(id: string): Promise<void> {
   await axiosClient.delete(`/reminders/${id}`);
+}
+
+/**
+ * Kết quả bấm "Gửi ngay". BE gửi đồng bộ ngay trong request nên đây là kết quả THẬT,
+ * không phải "đã xếp hàng".
+ */
+export type ReminderDeliveryResult = {
+  reminder: ReminderRecord;
+  status: ReminderStatus | string;
+  /** Câu tiếng Việt do BE soạn — hiện thẳng lên toast, đừng tự chế lại. */
+  detail: string;
+  delivered: boolean;
+};
+
+export async function sendReminderNow(id: string): Promise<ReminderDeliveryResult> {
+  const { data } = await axiosClient.post<ApiEnvelope<ReminderDeliveryResult>>(
+    `/reminders/${id}/send`
+  );
+  return data.data;
 }

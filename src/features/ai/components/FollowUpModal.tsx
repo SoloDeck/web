@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Check, Copy, Loader2, Mail, MessageCircle, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { CalendarClock, Check, Copy, Loader2, Mail, MessageCircle, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { useGenerateFollowUp } from "@/features/ai/hooks/useFollowUp";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import type { Deal } from "@/features/deals/types";
+import { useApproveAndSend, useCreateReminder } from "@/features/reminders/hooks/useReminders";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import type { ReminderType } from "@/services/followupsService";
@@ -28,6 +29,16 @@ const ALL_OPTIONS: Option[] = [
   { type: "payment_overdue", label: "Nhắc quá hạn", hint: "Hoá đơn đã quá hạn — vẫn lịch sự" },
   { type: "re_engagement", label: "Nối lại liên lạc", hint: "Khách im lặng đã lâu" },
 ];
+
+/** Giá trị mặc định cho ô hẹn giờ: 9 giờ sáng mai — giờ hợp lý để khách đọc email. */
+function defaultScheduleValue(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(9, 0, 0, 0);
+  // `datetime-local` cần chuỗi giờ ĐỊA PHƯƠNG; dùng toISOString() là lệch đúng 7 tiếng.
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 /** Giai đoạn deal quyết định loại nhắc nào là hợp lý. */
 function optionsForStage(stage: Deal["stage"]): Option[] {
@@ -59,8 +70,13 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
   // điểm deal: backend trả về hẳn hoi mà frontend không dùng.  #Huynh
   const [subject, setSubject] = useState("");
   const [copied, setCopied] = useState(false);
+  // Ô hẹn giờ chỉ hiện khi người dùng chọn — mặc định là gửi ngay, đó mới là việc họ
+  // đang muốn làm khi mở hộp thoại này.
+  const [scheduleAt, setScheduleAt] = useState<string | null>(null);
 
   const generate = useGenerateFollowUp();
+  const approveAndSend = useApproveAndSend(deal?.id);
+  const scheduleReminder = useCreateReminder(deal?.id);
 
   if (!deal) return null;
 
@@ -112,8 +128,43 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
     }
   }
 
-  // Mở sẵn Zalo/email với nội dung đã soạn. Vẫn KHÔNG tự gửi — người dùng bấm gửi trong
-  // ứng dụng của họ. Tin nhắn đi thẳng tới khách, phải có người đọc lại.
+  /**
+   * Gửi qua SoloDesk: tạo lịch nhắc với đúng nội dung đang hiện trên màn hình rồi gửi.
+   *
+   * Nguyên tắc "tin nhắn đi thẳng tới khách thì phải có người đọc lại" KHÔNG bị bỏ —
+   * chỉ đổi chỗ đặt: trước đây người dùng phải tự copy sang ứng dụng khác, giờ họ đọc
+   * và sửa ngay tại đây rồi bấm gửi. Hệ thống chỉ gửi thứ người dùng đã duyệt.  #Huynh
+   */
+  function buildPayload(scheduledAt: Date) {
+    if (!deal) return null;
+    return {
+      target_type: "deal",
+      target_id: deal.id,
+      reminder_type: reminderType,
+      channel: "email",
+      scheduled_at: scheduledAt.toISOString(),
+      message_preview: message.trim(),
+    } as const;
+  }
+
+  function sendNow() {
+    const payload = buildPayload(new Date());
+    if (payload) approveAndSend.mutate(payload, { onSuccess: () => onClose() });
+  }
+
+  function schedule() {
+    if (!scheduleAt) return;
+    const when = new Date(scheduleAt);
+    if (Number.isNaN(when.getTime())) {
+      toast.error("Thời gian hẹn chưa hợp lệ.");
+      return;
+    }
+    const payload = buildPayload(when);
+    if (payload) scheduleReminder.mutate(payload, { onSuccess: () => onClose() });
+  }
+
+  // Vẫn giữ đường thủ công: mở sẵn Zalo/email với nội dung đã soạn để người dùng tự gửi
+  // từ ứng dụng của họ. Zalo chưa nối được vào hệ thống nên đây là đường duy nhất.
   const zaloUrl = deal.clientPhone ? `https://zalo.me/${deal.clientPhone.replace(/\D/g, "")}` : null;
   const emailSubject = subject || `Về dự án ${deal.projectType}`;
   const mailUrl = deal.clientEmail
@@ -228,6 +279,45 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
               </p>
             </div>
           )}
+
+          {!generate.isPending && !isEmpty && scheduleAt !== null && (
+            <div className="rounded-xl border border-border bg-muted/30 p-4">
+              <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+                Gửi vào lúc
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={scheduleAt}
+                  onChange={(event) => setScheduleAt(event.target.value)}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+                <button
+                  type="button"
+                  onClick={schedule}
+                  disabled={!scheduleAt || scheduleReminder.isPending}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {scheduleReminder.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CalendarClock className="h-4 w-4" />
+                  )}
+                  Đặt lịch gửi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleAt(null)}
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
+                >
+                  Bỏ hẹn
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Tới giờ, SoloDesk sẽ tự gửi email này cho khách.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-6 py-4">
@@ -259,14 +349,42 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
           {mailUrl && (
             <a
               href={mailUrl}
+              title="Mở ứng dụng email của bạn với nội dung đã soạn sẵn"
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90",
+                "inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary",
                 isEmpty && "pointer-events-none opacity-50"
               )}
             >
               <Mail className="h-4 w-4" />
-              Soạn email
+              Tự gửi
             </a>
+          )}
+
+          {deal.clientEmail && (
+            <>
+              <button
+                type="button"
+                onClick={() => setScheduleAt(defaultScheduleValue())}
+                disabled={isEmpty || scheduleAt !== null}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <CalendarClock className="h-4 w-4" />
+                Hẹn giờ
+              </button>
+              <button
+                type="button"
+                onClick={sendNow}
+                disabled={isEmpty || approveAndSend.isPending}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {approveAndSend.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {approveAndSend.isPending ? "Đang gửi..." : "Duyệt và gửi"}
+              </button>
+            </>
           )}
 
           {!zaloUrl && !mailUrl && (

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Trash2, X } from "lucide-react";
+import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Send, Trash2, X } from "lucide-react";
 import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
@@ -8,6 +8,7 @@ import {
   useCancelReminder,
   useCreateReminder,
   useDealReminders,
+  useSendReminderNow,
   useUpdateReminder,
 } from "@/features/reminders/hooks/useReminders";
 import type { ReminderChannel, ReminderRecord, ReminderType } from "@/services/remindersService";
@@ -23,10 +24,13 @@ const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
   { value: "custom", label: "Tùy chỉnh" },
 ];
 
-const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
-  { value: "in_app", label: "Thông báo trong hệ thống" },
-  { value: "zalo", label: "Zalo" },
-  { value: "email", label: "Email" },
+// Nhãn nói rõ HỆ QUẢ, không chỉ tên kênh: "Email" không cho biết thư đi tới ai, mà chọn
+// nhầm thì hệ thống gửi thẳng cho khách hàng thật.  #Huynh
+const CHANNELS: Array<{ value: ReminderChannel; label: string; hint: string }> = [
+  { value: "in_app", label: "Chỉ nhắc tôi", hint: "Báo trong ứng dụng, không gửi gì cho khách" },
+  { value: "email", label: "Gửi email cho khách", hint: "SoloDesk tự gửi email tới khách khi tới giờ" },
+  { value: "both", label: "Gửi email + nhắc tôi", hint: "Vừa gửi khách vừa báo cho bạn" },
+  { value: "zalo", label: "Zalo (chưa hỗ trợ)", hint: "Chưa nối được Zalo OA — hệ thống sẽ chỉ nhắc bạn tự nhắn" },
 ];
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -50,6 +54,7 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const createReminder = useCreateReminder(deal.id);
   const updateReminder = useUpdateReminder(deal.id);
   const cancelReminder = useCancelReminder(deal.id);
+  const sendNow = useSendReminderNow(deal.id);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [form, setForm] = useState<ReminderForm>(() => ({
@@ -130,7 +135,6 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
 
   return (
     <div className="grid h-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      {/* API reminder đã có CRUD; worker gửi tự động qua Zalo/Email ở backend vẫn đang phát triển nên UI chỉ nói về quản lý lịch nhắc. */}
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -165,7 +169,8 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               reminder={reminder}
               onEdit={() => startEdit(reminder)}
               onCancel={() => cancel(reminder.id)}
-              busy={cancelReminder.isPending || updateReminder.isPending}
+              onSendNow={() => sendNow.mutate(reminder.id)}
+              busy={cancelReminder.isPending || updateReminder.isPending || sendNow.isPending}
             />
           ))}
         </div>
@@ -217,6 +222,9 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {CHANNELS.find((channel) => channel.value === form.channel)?.hint}
+            </p>
           </div>
 
           <div>
@@ -303,15 +311,18 @@ function ReminderRow({
   reminder,
   onEdit,
   onCancel,
+  onSendNow,
   busy,
 }: {
   reminder: ReminderRecord;
   onEdit: () => void;
   onCancel: () => void;
+  onSendNow: () => void;
   busy: boolean;
 }) {
   const typeLabel = REMINDER_TYPES.find((type) => type.value === reminder.reminder_type)?.label ?? reminder.reminder_type;
   const channel = CHANNELS.find((item) => item.value === reminder.channel);
+  const sendsToClient = reminder.channel === "email" || reminder.channel === "both";
 
   return (
     <article className="rounded-xl border border-border p-4">
@@ -329,6 +340,16 @@ function ReminderRow({
 
         {reminder.status === "pending" && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={onSendNow}
+              disabled={busy}
+              title={sendsToClient ? "Gửi email cho khách ngay bây giờ" : "Nhắc bạn ngay bây giờ"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Gửi ngay
+            </button>
             <button
               type="button"
               onClick={onEdit}
@@ -349,6 +370,12 @@ function ReminderRow({
           </div>
         )}
       </div>
+
+      {(reminder.status === "failed" || reminder.status === "skipped") && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Xem lý do ở chuông thông báo — SoloDesk đã gửi cho bạn một thông báo kèm nguyên nhân.
+        </p>
+      )}
 
       {reminder.message_preview && (
         <div className="mt-3 whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-sm leading-relaxed text-muted-foreground">
@@ -371,7 +398,9 @@ function ChannelBadge({ channel, label }: { channel: ReminderChannel; label: str
     );
   }
 
-  if (channel === "email") {
+  // "both" cũng gửi email ra ngoài cho khách — dùng chung dấu hiệu với "email" để nhìn
+  // là biết lời nhắc này có chạm tới khách hàng.
+  if (channel === "email" || channel === "both") {
     return (
       <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
         <span className="grid h-4 w-4 place-items-center rounded bg-rose-50">
@@ -475,7 +504,9 @@ function parseVietnameseDate(dateValue: string): Date | null {
 }
 
 function normalizeChannel(channel: string): ReminderChannel {
-  if (channel === "email" || channel === "in_app" || channel === "zalo") return channel;
+  if (channel === "email" || channel === "in_app" || channel === "zalo" || channel === "both") {
+    return channel;
+  }
   return "in_app";
 }
 
