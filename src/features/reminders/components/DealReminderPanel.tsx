@@ -132,6 +132,7 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   }
 
   const selectedDate = parseVietnameseDate(form.scheduled_date);
+  const plannedAt = parseVietnameseDateTime(form.scheduled_date, form.scheduled_time);
 
   return (
     <div className="grid h-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -270,6 +271,13 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
+            {/* Ô ngày mặc định sẵn là NGÀY MAI — không nói ra thì người dùng sửa mỗi giờ
+                rồi tưởng gửi hôm nay, đợi mãi không thấy email. */}
+            {plannedAt && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                → gửi {formatRelative(plannedAt.toISOString())}
+              </p>
+            )}
           </div>
 
           <div>
@@ -323,6 +331,7 @@ function ReminderRow({
   const typeLabel = REMINDER_TYPES.find((type) => type.value === reminder.reminder_type)?.label ?? reminder.reminder_type;
   const channel = CHANNELS.find((item) => item.value === reminder.channel);
   const sendsToClient = reminder.channel === "email" || reminder.channel === "both";
+  const relative = formatRelative(reminder.scheduled_at);
 
   return (
     <article className="rounded-xl border border-border p-4">
@@ -335,7 +344,14 @@ function ReminderRow({
             <ChannelBadge channel={normalizeChannel(reminder.channel)} label={channel?.label ?? reminder.channel} />
           </div>
           <h3 className="mt-2 text-sm font-semibold">{typeLabel}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(reminder.scheduled_at)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatDateTime(reminder.scheduled_at)}
+            {reminder.status === "pending" && relative && (
+              <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-xs font-medium">
+                {relative}
+              </span>
+            )}
+          </p>
         </div>
 
         {reminder.status === "pending" && (
@@ -522,4 +538,27 @@ function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${formatDateForInput(date)} ${formatTimeForInput(date)}`;
+}
+
+/**
+ * "còn bao lâu nữa" — thứ thiếu vắng khiến người dùng tưởng hệ thống hỏng.
+ *
+ * Ô ngày mặc định sẵn là NGÀY MAI, nên ai chỉ sửa giờ mà quên sửa ngày sẽ hẹn nhầm sang
+ * hôm sau. Chỉ hiện "24/07/2026 14:22" thì không ai nhận ra; hiện thêm "còn 23 giờ nữa"
+ * là thấy sai ngay lập tức.  #Huynh
+ */
+function formatRelative(value: string): string | null {
+  const target = new Date(value).getTime();
+  if (Number.isNaN(target)) return null;
+
+  const minutes = Math.round((target - Date.now()) / 60000);
+  if (minutes < 0) return "đã tới hạn, sẽ gửi trong ít phút";
+  if (minutes < 1) return "sắp gửi";
+  if (minutes < 60) return `còn ${minutes} phút nữa`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `còn ${hours} giờ nữa`;
+
+  const days = Math.round(hours / 24);
+  return days === 1 ? "còn 1 ngày nữa (ngày mai)" : `còn ${days} ngày nữa`;
 }
