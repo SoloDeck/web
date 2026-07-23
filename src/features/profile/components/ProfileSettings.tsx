@@ -16,7 +16,7 @@
 //   #Huynh
 import { useRef, useState } from "react";
 import {
-  Briefcase, Check, Eye, EyeOff, ExternalLink,
+  BellRing, Briefcase, Check, Eye, EyeOff, ExternalLink,
   FileText, Globe, Link2, Lock, Loader2, Plus, Save, Tag, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
 import { changePassword } from "@/services/usersService";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
+import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 
 // Gắn kiểu ServiceCategory để danh sách ở đây không âm thầm lệch khỏi union gốc
 // (trước đây là string[] nên thừa/thiếu một nhóm nghề cũng không ai báo).
@@ -45,7 +46,7 @@ type Props = {
 };
 
 export function ProfileSettings({ profile, onSave }: Props) {
-  const [tab, setTab] = useState<"profile" | "security">("profile");
+  const [tab, setTab] = useState<"profile" | "reminders" | "security">("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -87,6 +88,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
+    { id: "reminders" as const, label: "Nhắc nhở tự động", icon: BellRing },
     { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
 
@@ -316,6 +318,8 @@ export function ProfileSettings({ profile, onSave }: Props) {
               </div>
             )}
 
+            {tab === "reminders" && <ReminderRulesSettings />}
+
             {tab === "security" && (
               <div className="space-y-6 max-w-md">
                 <div>
@@ -407,7 +411,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
-            {tab !== "security" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
+            {tab === "profile" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                 <Check className="h-3.5 w-3.5" /> Đã lưu
@@ -415,7 +419,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {tab !== "security" && confirming ? (
+            {tab === "profile" && confirming ? (
               <>
                 <span className="text-xs text-muted-foreground">Xác nhận lưu thay đổi?</span>
                 <button
@@ -431,7 +435,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   <Check className="h-3.5 w-3.5" /> Đồng ý
                 </button>
               </>
-            ) : tab !== "security" ? (
+            ) : tab === "profile" ? (
               <button
                 disabled={!dirty}
                 onClick={() => setConfirming(true)}

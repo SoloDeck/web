@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Send, Trash2, X } from "lucide-react";
+import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Send, Sparkles, Trash2, X, Zap } from "lucide-react";
 import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
+import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
 import type { Deal } from "@/features/deals/types";
 import {
   useCancelReminder,
@@ -57,6 +58,7 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const sendNow = useSendReminderNow(deal.id);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [form, setForm] = useState<ReminderForm>(() => ({
     reminder_type: "follow_up",
     channel: "in_app",
@@ -137,13 +139,22 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   return (
     <div className="grid h-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">Lịch nhắc của dự án</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Lịch nhắc của dự án</h2>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">
+              {pendingCount} đang chờ
+            </span>
+            {/* AI soạn tin trước đây là nút riêng "Nhắc follow-up" ở sidebar deal — gộp vào
+                đây để chỉ còn MỘT chỗ lo mọi việc nhắc, thay vì hai cửa dễ lẫn.  #Huynh */}
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> AI soạn tin
+            </button>
           </div>
-          <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">
-            {pendingCount} đang chờ
-          </span>
         </div>
 
         <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
@@ -311,6 +322,10 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
           </button>
         )}
       </form>
+
+      {/* FollowUpModal tự tạo lời nhắc + gửi qua React Query, nên đóng lại là danh sách
+          bên trái tự cập nhật, không cần truyền callback. */}
+      {aiOpen && <FollowUpModal deal={deal} onClose={() => setAiOpen(false)} />}
     </div>
   );
 }
@@ -342,11 +357,26 @@ function ReminderRow({
               {statusLabel(reminder.status)}
             </span>
             <ChannelBadge channel={normalizeChannel(reminder.channel)} label={channel?.label ?? reminder.channel} />
+            {reminder.created_by_rule && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-xs font-medium text-primary">
+                <Zap className="h-3 w-3" /> Tự động
+              </span>
+            )}
+            {/* Lời nhắc chờ duyệt sẽ KHÔNG tự gửi dù đã tới giờ hẹn — không nói ra thì
+                người dùng ngồi đợi mãi không thấy email. */}
+            {reminder.requires_approval && reminder.status === "pending" && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                Chờ bạn duyệt
+              </span>
+            )}
           </div>
           <h3 className="mt-2 text-sm font-semibold">{typeLabel}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {formatDateTime(reminder.scheduled_at)}
-            {reminder.status === "pending" && relative && (
+            {/* Chờ duyệt thì KHÔNG hiện "còn X giờ nữa" — câu đó ngụ ý tới giờ là tự gửi,
+                mà lời nhắc này sẽ nằm im cho tới khi người dùng bấm. Nhãn "Chờ bạn duyệt"
+                ở trên mới là thứ nói đúng. */}
+            {reminder.status === "pending" && !reminder.requires_approval && relative && (
               <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-xs font-medium">
                 {relative}
               </span>

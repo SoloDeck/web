@@ -4,15 +4,39 @@ import {
   cancelReminder,
   createReminder,
   listDealReminders,
+  listReminderRules,
   sendReminderNow,
   updateReminder,
+  updateReminderRule,
   type ReminderPayload,
+  type ReminderRuleType,
+  type ReminderRuleUpdate,
 } from "@/services/remindersService";
 
 export const reminderKeys = {
   all: ["reminders"] as const,
   byDeal: (dealId: string) => ["reminders", "deal", dealId] as const,
+  rules: ["reminders", "rules"] as const,
 };
+
+export function useReminderRules() {
+  return useQuery({ queryKey: reminderKeys.rules, queryFn: listReminderRules });
+}
+
+export function useUpdateReminderRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ruleType, payload }: { ruleType: ReminderRuleType; payload: ReminderRuleUpdate }) =>
+      updateReminderRule(ruleType, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: reminderKeys.rules });
+      toast.success("Đã lưu quy tắc nhắc.");
+    },
+    onError: () => {
+      toast.error("Không lưu được quy tắc. Vui lòng thử lại.");
+    },
+  });
+}
 
 export function useDealReminders(dealId: string | undefined) {
   return useQuery({

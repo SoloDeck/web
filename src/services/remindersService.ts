@@ -22,9 +22,42 @@ export type ReminderRecord = {
   status: ReminderStatus | string;
   scheduled_at: string;
   message_preview: string | null;
+  /** Do quy tắc tự sinh, đang chờ người duyệt — hệ thống sẽ KHÔNG tự gửi. */
+  requires_approval?: boolean;
+  /** Do quy tắc tự sinh (khác với lời nhắc người dùng tự đặt). */
+  created_by_rule?: boolean;
   created_at: string;
   updated_at: string;
 };
+
+/** Năm quy tắc nhắc tự động. `rule_type` khớp `ReminderType` của backend. */
+export type ReminderRuleType =
+  | "proposal_follow_up"
+  | "contract_signing_nudge"
+  | "payment_due"
+  | "payment_overdue"
+  | "re_engagement";
+
+export type ReminderRule = {
+  rule_type: ReminderRuleType;
+  is_enabled: boolean;
+  offset_days: number;
+  repeat_every_days: number | null;
+  channel: ReminderChannel;
+  auto_send: boolean;
+  send_at_hour: number;
+  /** Câu mô tả do backend soạn — đừng chế lại ở FE kẻo hai nơi nói hai kiểu. */
+  label: string;
+  /** Chỉ quá hạn và tái kết nối mới lặp lại được. */
+  supports_repeat: boolean;
+};
+
+export type ReminderRuleUpdate = Partial<
+  Pick<
+    ReminderRule,
+    "is_enabled" | "offset_days" | "repeat_every_days" | "channel" | "auto_send" | "send_at_hour"
+  >
+>;
 
 export type ReminderPayload = {
   target_type: ReminderTargetType;
@@ -82,6 +115,23 @@ export type ReminderDeliveryResult = {
 export async function sendReminderNow(id: string): Promise<ReminderDeliveryResult> {
   const { data } = await axiosClient.post<ApiEnvelope<ReminderDeliveryResult>>(
     `/reminders/${id}/send`
+  );
+  return data.data;
+}
+
+/** Lần gọi đầu tiên backend tự tạo bộ 5 quy tắc mặc định. */
+export async function listReminderRules(): Promise<ReminderRule[]> {
+  const { data } = await axiosClient.get<ApiEnvelope<ReminderRule[]>>("/reminders/rules");
+  return data.data ?? [];
+}
+
+export async function updateReminderRule(
+  ruleType: ReminderRuleType,
+  payload: ReminderRuleUpdate
+): Promise<ReminderRule> {
+  const { data } = await axiosClient.patch<ApiEnvelope<ReminderRule>>(
+    `/reminders/rules/${ruleType}`,
+    payload
   );
   return data.data;
 }

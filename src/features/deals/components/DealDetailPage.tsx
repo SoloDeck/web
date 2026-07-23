@@ -93,7 +93,6 @@ import {
   MAX_FILE_SIZE_MB,
   type DealAttachment,
 } from "@/services/dealAttachmentsService";
-import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
 import { toQualificationView } from "@/features/deals/hooks/useDealQualifications";
 import type { DealQualification } from "@/services/dealsService";
 
@@ -199,7 +198,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   // màn hình nào cũng dùng chung một đường.  #Huynh
   const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [viewContractId, setViewContractId] = useState<string | null>(null);
-  const [followUpOpen, setFollowUpOpen] = useState(false);
   const [viewProposalId, setViewProposalId] = useState<string | null>(null);
   const [viewQualificationDoc, setViewQualificationDoc] = useState<DealQualification | null>(null);
   const [viewAttachment, setViewAttachment] = useState<DealAttachment | null>(null);
@@ -1074,7 +1072,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                 openAiPanel({ kind: "proposal_generation", dealId: target.id });
               }}
               onContract={handleGenerateContract}
-              onReminder={() => setFollowUpOpen(true)}
               onStartProject={handleStartProject}
               onComplete={handleCompleteProject}
               contractLoading={createContract.isPending || generateContract.isPending}
@@ -1090,7 +1087,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <AIActivityCenter />
-      {followUpOpen && <FollowUpModal deal={deal ?? null} onClose={() => setFollowUpOpen(false)} />}
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
       {viewProposalId && (
         <ProposalViewModal
@@ -1391,7 +1387,6 @@ function ActionsPanel({
   onEvaluate,
   onProposal,
   onContract,
-  onReminder,
   onStartProject,
   onComplete,
   contractLoading,
@@ -1405,7 +1400,6 @@ function ActionsPanel({
   onEvaluate: () => void;
   onProposal: () => void;
   onContract: () => void;
-  onReminder: () => void;
   onStartProject: () => void;
   onComplete: () => void;
   contractLoading: boolean;
@@ -1532,16 +1526,6 @@ function ActionsPanel({
         </div>
       )}
 
-      {stage !== "completed_and_billed" && stage !== "lost" && (
-        <div className="border-t border-border pt-4">
-          <button
-            onClick={onReminder}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary"
-          >
-            <Send className="h-4 w-4" /> Nhắc follow-up
-          </button>
-        </div>
-      )}
     </aside>
   );
 }

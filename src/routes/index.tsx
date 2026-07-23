@@ -6,7 +6,6 @@ import {
   Menu,
   Plus,
   Search,
-  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
@@ -14,7 +13,6 @@ import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
-import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
@@ -158,7 +156,6 @@ function Index() {
   }, [setProfile, updateUser]);
 
   const [newDealOpen, setNewDealOpen] = useState(false);
-  const [reminderOpen, setReminderOpen] = useState(false);
   const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [query, setQuery] = useState("");
   // Tab lấy từ URL (?tab=) để nút back từ trang chi tiết mở lại đúng màn hình.
@@ -290,12 +287,6 @@ function Index() {
               )}
               <NotificationBell />
               <button
-                onClick={() => setReminderOpen(true)}
-                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary sm:inline-flex"
-              >
-                <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
-              </button>
-              <button
                 onClick={() => setNewDealOpen(true)}
                 className="hidden items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90 sm:inline-flex"
               >
@@ -367,7 +358,6 @@ function Index() {
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <AIActivityCenter />
-      <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
     </div>
   );
 }
