@@ -24,6 +24,13 @@ export type PipelineStageStat = {
   total_value: number;
 };
 
+export type MonthlyRevenue = {
+  /** "YYYY-MM". Chuỗi liền mạch — tháng trống vẫn có mặt với số 0. */
+  month: string;
+  invoiced: number;
+  collected: number;
+};
+
 export type WinRateSummary = {
   won: number;
   lost: number;
@@ -83,6 +90,17 @@ export async function getPipeline(
 ): Promise<PipelineStageStat[]> {
   const { data } = await axiosClient.get<ApiResponse<PipelineStageStat[]>>(
     "/analytics/pipeline",
+    { params }
+  );
+  return data.data ?? [];
+}
+
+/** GET /analytics/revenue/monthly — invoiced/collected per month, continuous series. */
+export async function getMonthlyRevenue(
+  params: { months?: number } = {}
+): Promise<MonthlyRevenue[]> {
+  const { data } = await axiosClient.get<ApiResponse<MonthlyRevenue[]>>(
+    "/analytics/revenue/monthly",
     { params }
   );
   return data.data ?? [];
