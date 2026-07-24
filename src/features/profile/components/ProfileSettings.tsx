@@ -17,7 +17,7 @@
 import { useRef, useState } from "react";
 import {
   BellRing, Briefcase, Check, Eye, EyeOff, ExternalLink,
-  FileText, Globe, Link2, Lock, Loader2, Plus, Save, Tag, User, X,
+  FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save, Tag, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -29,6 +29,7 @@ import { changePassword } from "@/services/usersService";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
+import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
 
 // Gắn kiểu ServiceCategory để danh sách ở đây không âm thầm lệch khỏi union gốc
 // (trước đây là string[] nên thừa/thiếu một nhóm nghề cũng không ai báo).
@@ -46,7 +47,7 @@ type Props = {
 };
 
 export function ProfileSettings({ profile, onSave }: Props) {
-  const [tab, setTab] = useState<"profile" | "reminders" | "security">("profile");
+  const [tab, setTab] = useState<"profile" | "reminders" | "zalo" | "security">("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -89,6 +90,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
     { id: "reminders" as const, label: "Nhắc nhở tự động", icon: BellRing },
+    { id: "zalo" as const, label: "Zalo OA", icon: MessageCircle },
     { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
 
@@ -319,6 +321,8 @@ export function ProfileSettings({ profile, onSave }: Props) {
             )}
 
             {tab === "reminders" && <ReminderRulesSettings />}
+
+            {tab === "zalo" && <ZaloConnectionSettings />}
 
             {tab === "security" && (
               <div className="space-y-6 max-w-md">

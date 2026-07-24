@@ -4,6 +4,7 @@ import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
 import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
+import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import type { Deal } from "@/features/deals/types";
 import {
   useCancelReminder,
@@ -31,7 +32,7 @@ const CHANNELS: Array<{ value: ReminderChannel; label: string; hint: string }> =
   { value: "in_app", label: "Chỉ nhắc tôi", hint: "Báo trong ứng dụng, không gửi gì cho khách" },
   { value: "email", label: "Gửi email cho khách", hint: "SoloDesk tự gửi email tới khách khi tới giờ" },
   { value: "both", label: "Gửi email + nhắc tôi", hint: "Vừa gửi khách vừa báo cho bạn" },
-  { value: "zalo", label: "Zalo (chưa hỗ trợ)", hint: "Chưa nối được Zalo OA — hệ thống sẽ chỉ nhắc bạn tự nhắn" },
+  { value: "zalo", label: "Gửi Zalo cho khách", hint: "SoloDesk gửi tin nhắc qua Zalo OA của bạn (khách cần đã quan tâm OA)" },
 ];
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -56,6 +57,8 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const updateReminder = useUpdateReminder(deal.id);
   const cancelReminder = useCancelReminder(deal.id);
   const sendNow = useSendReminderNow(deal.id);
+  const { data: zaloStatus } = useZaloStatus();
+  const zaloConnected = zaloStatus?.connected ?? false;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -228,14 +231,19 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               onChange={(event) => patchForm({ channel: event.target.value as ReminderChannel })}
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             >
-              {CHANNELS.map((channel) => (
-                <option key={channel.value} value={channel.value}>
-                  {channel.label}
-                </option>
-              ))}
+              {CHANNELS.map((channel) => {
+                const zaloLocked = channel.value === "zalo" && !zaloConnected;
+                return (
+                  <option key={channel.value} value={channel.value} disabled={zaloLocked}>
+                    {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
+                  </option>
+                );
+              })}
             </select>
             <p className="mt-1 text-xs text-muted-foreground">
-              {CHANNELS.find((channel) => channel.value === form.channel)?.hint}
+              {form.channel === "zalo" && !zaloConnected
+                ? "Chưa kết nối Zalo OA. Vào Cài đặt hồ sơ › Zalo OA để kết nối."
+                : CHANNELS.find((channel) => channel.value === form.channel)?.hint}
             </p>
           </div>
 

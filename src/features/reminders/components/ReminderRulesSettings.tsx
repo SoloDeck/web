@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Zap } from "lucide-react";
 
+import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import { useReminderRules, useUpdateReminderRule } from "@/features/reminders/hooks/useReminders";
 import type { ReminderChannel, ReminderRule } from "@/services/remindersService";
 import { cn } from "@/lib/utils";
@@ -24,11 +25,14 @@ const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
   { value: "in_app", label: "Chỉ nhắc tôi" },
   { value: "email", label: "Gửi email cho khách" },
   { value: "both", label: "Gửi email + nhắc tôi" },
+  { value: "zalo", label: "Gửi Zalo cho khách" },
 ];
 
 export function ReminderRulesSettings() {
   const rulesQuery = useReminderRules();
   const updateRule = useUpdateReminderRule();
+  const { data: zaloStatus } = useZaloStatus();
+  const zaloConnected = zaloStatus?.connected ?? false;
 
   function patch(rule: ReminderRule, payload: Parameters<typeof updateRule.mutate>[0]["payload"]) {
     updateRule.mutate({ ruleType: rule.rule_type, payload });
@@ -129,11 +133,18 @@ export function ReminderRulesSettings() {
                     }
                     className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {CHANNELS.map((channel) => (
-                      <option key={channel.value} value={channel.value}>
-                        {channel.label}
-                      </option>
-                    ))}
+                    {CHANNELS.map((channel) => {
+                      const zaloLocked = channel.value === "zalo" && !zaloConnected;
+                      return (
+                        <option
+                          key={channel.value}
+                          value={channel.value}
+                          disabled={zaloLocked}
+                        >
+                          {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
+                        </option>
+                      );
+                    })}
                   </select>
                   <span className="text-muted-foreground">lúc</span>
                   <select
@@ -226,7 +237,12 @@ function Toggle({
 }
 
 function normalizeChannel(channel: string): ReminderChannel {
-  // Kênh `zalo` chưa nối được nên không bày ra ở đây; dữ liệu cũ có thì hiện như in_app.
-  if (channel === "email" || channel === "both" || channel === "in_app") return channel;
+  if (
+    channel === "email" ||
+    channel === "both" ||
+    channel === "in_app" ||
+    channel === "zalo"
+  )
+    return channel;
   return "in_app";
 }
