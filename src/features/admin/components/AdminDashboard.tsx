@@ -1679,8 +1679,9 @@ function AiCostsPage() {
           <EmptyState text="Chưa có lượt gọi AI nào được ghi nhận." />
         ) : (
           <div className="overflow-hidden rounded-xl border border-border">
-            <div className="hidden grid-cols-[150px_minmax(0,1fr)_90px_90px_110px_150px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
+            <div className="hidden grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_80px_80px_100px_130px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
               <div>Tính năng</div>
+              <div>Người dùng</div>
               <div>Model</div>
               <div className="text-right">Token vào</div>
               <div className="text-right">Token ra</div>
@@ -1689,8 +1690,11 @@ function AiCostsPage() {
             </div>
             <div className="divide-y divide-border">
               {rows.map((row) => (
-                <div key={row.id} className="grid gap-1 px-4 py-2 text-sm lg:grid-cols-[150px_minmax(0,1fr)_90px_90px_110px_150px] lg:items-center">
+                <div key={row.id} className="grid gap-1 px-4 py-2 text-sm lg:grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_80px_80px_100px_130px] lg:items-center">
                   <div className="font-medium">{AI_MODULE_LABEL[row.ai_module] ?? row.ai_module}</div>
+                  <div className="min-w-0 truncate" title={row.user_email ?? row.user_full_name ?? undefined}>
+                    {row.user_email ?? row.user_full_name ?? "—"}
+                  </div>
                   <div className="truncate text-xs text-muted-foreground">{row.model_used}</div>
                   <div className="text-right tabular-nums">{row.input_tokens.toLocaleString("vi-VN")}</div>
                   <div className="text-right tabular-nums">{row.output_tokens.toLocaleString("vi-VN")}</div>
@@ -1740,6 +1744,12 @@ function AuditLogPage() {
               <div className="min-w-0 flex-1">
                 <div className="text-sm">{log.description}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    className="max-w-[220px] truncate font-medium text-foreground"
+                    title={log.actor_email ?? log.actor_full_name ?? "Hệ thống"}
+                  >
+                    {log.actor_email ?? log.actor_full_name ?? "Hệ thống"}
+                  </span>
                   <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{log.event_type}</span>
                   <span>{formatDateTime(log.occurred_at)}</span>
                 </div>

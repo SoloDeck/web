@@ -185,6 +185,8 @@ export async function reinstateAdminUser(userId: string): Promise<AdminUser> {
 export type AdminAiCost = {
   id: string;
   user_id: string;
+  user_email: string | null;
+  user_full_name: string | null;
   ai_module: string;
   model_used: string;
   input_tokens: number;
@@ -293,6 +295,8 @@ export type AdminAuditLog = {
   id: string;
   event_type: string;
   actor_user_id: string | null;
+  actor_email: string | null;
+  actor_full_name: string | null;
   target_type: string | null;
   target_id: string | null;
   description: string;
