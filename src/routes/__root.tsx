@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { AIJobViewer } from "@/features/ai/components/AIJobViewer";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
 
@@ -37,5 +38,13 @@ function RootComponent() {
     return () => window.removeEventListener("storage", handleStorage);
   }, [syncFromStorage]);
 
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      {/* Panel AI sống ở tầng gốc nên bấm "Xem" trên thẻ job ở MÀN HÌNH NÀO cũng mở được,
+          kể cả bảng Kanban. Trước đây nó nằm trong trang chi tiết deal nên ra ngoài là
+          bấm không ăn gì.  #Huynh */}
+      <AIJobViewer />
+    </>
+  );
 }

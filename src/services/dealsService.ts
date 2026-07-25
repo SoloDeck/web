@@ -40,6 +40,8 @@ type PaginatedEnvelope<T> = {
 };
 
 type ApiIntakeResponse = {
+  /** Phiếu thuộc deal nào. Null với phiếu cũ (tạo trước khi backend có cột này). */
+  deal_id?: string | null;
   id: string;
   owner_user_id: string;
   client_id: string;
@@ -68,6 +70,8 @@ export type DealIntake = {
   id: string;
   ownerUserId: string;
   clientId: string;
+  /** Phiếu thuộc deal nào. Null với phiếu cũ. */
+  dealId: string | null;
   inquiryText: string;
   estimatedBudget: string;
   desiredTimeline: string;
@@ -145,11 +149,35 @@ export function mapDeal(d: ApiDealResponse, clientMap: Map<string, ClientHint>):
   };
 }
 
+/**
+ * Tìm phiếu tiếp nhận của ĐÚNG một deal.
+ *
+ * Bug cũ (`createLatestIntakeByClient`): ghép theo client_id, lấy phiếu MỚI NHẤT của
+ * khách. Một khách gửi Biểu mẫu tiếp nhận hai lần cho hai dự án khác nhau → hai deal,
+ * cùng một client → deal cũ hiện mô tả, ngân sách, deadline của dự án MỚI.
+ *
+ * Backend dính đúng bug này ở tầng sâu hơn: AI chấm điểm và soạn báo giá bằng brief của
+ * dự án SAI. Đã sửa và giờ trả về `deal_id`.
+ *
+ * Phiếu cũ chưa có `deal_id` → vẫn rơi về ghép theo client như trước.  #Huynh
+ */
+function findIntakeForDeal(
+  intakes: DealIntake[],
+  dealId: string,
+  clientId: string
+): DealIntake | undefined {
+  const byDeal = intakes.find((intake) => intake.dealId === dealId);
+  if (byDeal) return byDeal;
+
+  return intakes.find((intake) => intake.dealId == null && intake.clientId === clientId);
+}
+
 function mapDealIntake(intake: ApiIntakeResponse): DealIntake {
   return {
     id: intake.id,
     ownerUserId: intake.owner_user_id,
     clientId: intake.client_id,
+    dealId: intake.deal_id ?? null,
     inquiryText: intake.inquiry_text ?? "",
     estimatedBudget: intake.estimated_budget ?? "",
     desiredTimeline: intake.desired_timeline ?? "",
@@ -191,14 +219,6 @@ function formatBudgetLabel(budget: string, parsedValue: number): string {
   return parsedValue > 0 && !looksLikeRange ? formatVND(parsedValue) : trimmed;
 }
 
-function createLatestIntakeByClient(intakes: DealIntake[]): Map<string, DealIntake> {
-  const map = new Map<string, DealIntake>();
-  for (const intake of intakes) {
-    if (!map.has(intake.clientId)) map.set(intake.clientId, intake);
-  }
-  return map;
-}
-
 function applyIntakeFallback(deal: Deal, intake?: DealIntake): Deal {
   if (!intake) return deal;
 
@@ -233,10 +253,8 @@ async function fetchDeals(params: Record<string, unknown>): Promise<Deal[]> {
   const clientMap = new Map<string, ClientHint>(
     (clientsRes.data.data ?? []).map((c) => [c.id, c])
   );
-  const intakeByClient = createLatestIntakeByClient(intakes);
-
   return (dealsRes.data.data ?? []).map((d) =>
-    applyIntakeFallback(mapDeal(d, clientMap), intakeByClient.get(d.client_id))
+    applyIntakeFallback(mapDeal(d, clientMap), findIntakeForDeal(intakes, d.id, d.client_id))
   );
 }
 
@@ -266,7 +284,10 @@ export async function getDeal(id: string): Promise<Deal> {
   }
 
   const intakes = await getDealIntakes().catch(() => [] as DealIntake[]);
-  return applyIntakeFallback(mapDeal(deal, clientMap), createLatestIntakeByClient(intakes).get(deal.client_id));
+  return applyIntakeFallback(
+    mapDeal(deal, clientMap),
+    findIntakeForDeal(intakes, deal.id, deal.client_id)
+  );
 }
 
 /** GET /deals/intakes — BE lưu phiếu tiếp nhận riêng với deal, FE dùng để bổ sung mô tả/ngân sách khi deal chưa copy dữ liệu. */
@@ -319,4 +340,56 @@ export async function qualifyDeal(id: string): Promise<DealQualificationResult> 
     { timeout: 65000 }
   );
   return data.data;
+}
+
+// ---------------------------------------------------------------------------
+// Lịch sử chấm điểm — ĐỌC TỪ SERVER, không phải localStorage.
+//
+// Trước đây bảng "Căn cứ chấm điểm" chỉ nằm ở localStorage của trình duyệt: đổi máy hay xoá
+// cache là deal vẫn hiện "78/100" nhưng mất sạch căn cứ — điểm rơi từ trên trời, đúng cái
+// bệnh mà bảng căn cứ sinh ra để chữa. Đây là căn cứ ra quyết định tiền bạc, không phải
+// tuỳ chọn giao diện.
+//
+// Mỗi lần chấm là một bản ghi RIÊNG (append-only): sửa deal rồi chấm lại thì bản cũ vẫn còn
+// nguyên để đối chiếu.  #Huynh
+// ---------------------------------------------------------------------------
+
+export type QualificationScoreItem = {
+  key?: string;
+  label: string;
+  points: number;
+  max_points: number;
+  reason?: string | null;
+  impact?: "positive" | "neutral" | "negative" | null;
+  evidence?: string | null;
+};
+
+export type DealQualification = {
+  id: string;
+  score: number;
+  /** Suy từ điểm ở BE — dùng chung ngưỡng với bộ chấm điểm. */
+  level: "hot" | "warm" | "cold";
+  reasoning: string;
+  generated_at: string;
+  model_version: string;
+
+  project_type: string | null;
+  budget_signal: string | null;
+  timeline_signal: string | null;
+  urgency_signal: string | null;
+  red_flags: string[] | null;
+
+  /** Bản ghi CŨ (trước khi BE thêm cột) không có mấy trường này — phải chịu được `null`. */
+  breakdown: QualificationScoreItem[] | null;
+  next_step: string | null;
+  detected_signals: { text: string; is_positive: boolean }[] | null;
+  prompt_version: string | null;
+};
+
+/** GET /deals/{id}/qualifications — lịch sử chấm điểm, mới nhất trước. */
+export async function getDealQualifications(dealId: string): Promise<DealQualification[]> {
+  const { data } = await axiosClient.get<ApiResponse<DealQualification[]>>(
+    `/deals/${dealId}/qualifications`
+  );
+  return data.data ?? [];
 }

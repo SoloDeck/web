@@ -1,29 +1,25 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bell,
   Filter,
   Loader2,
   Menu,
   Plus,
   Search,
-  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
-import { ProposalModal } from "@/features/deals/components/ProposalModal";
-import { AIPanel } from "@/features/ai/components/AIPanel";
+import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
-import { ReminderCenter } from "@/features/reminders/components/ReminderCenter";
 import { ProfileSettings } from "@/features/profile/components/ProfileSettings";
 import { ClientRecords } from "@/features/clients/components/ClientRecords";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
 import { IntakeFormConfig } from "@/features/intake/components/IntakeFormConfig";
 import { SubscriptionPage } from "@/features/subscriptions/components/SubscriptionPage";
 import { useDeals } from "@/features/deals/hooks/useDeals";
-import { useClauses, useProfile } from "@/features/profile/hooks/useProfile";
+import { useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { getMe, updateMe, updateFreelancerProfile, updateProfessionalProfile } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
@@ -31,6 +27,7 @@ import { wasOnboardingSkipped } from "@/features/onboarding/skip";
 import type { Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import type { Profile } from "@/features/profile/types";
+import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 import type { ClientRecord } from "@/services/clientsService";
 
 type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription";
@@ -113,7 +110,6 @@ function Index() {
   const navigate = useNavigate();
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
-  const { clauses, setClauses } = useClauses();
   const currentUser = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
 
@@ -128,6 +124,7 @@ function Index() {
       await Promise.all([
         updateFreelancerProfile({
           professional_title: p.professionalTitle || undefined,
+          profession: p.profession || undefined,
           bio: p.bio || undefined,
           skills: p.skills.length > 0 ? p.skills : undefined,
           service_categories: p.serviceCategories.length > 0 ? p.serviceCategories : undefined,
@@ -159,9 +156,7 @@ function Index() {
   }, [setProfile, updateUser]);
 
   const [newDealOpen, setNewDealOpen] = useState(false);
-  const [reminderOpen, setReminderOpen] = useState(false);
-  const [proposal, setProposal] = useState<Deal | null>(null);
-  const [aiDeal, setAiDeal] = useState<Deal | null>(null);
+  const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [query, setQuery] = useState("");
   // Tab lấy từ URL (?tab=) để nút back từ trang chi tiết mở lại đúng màn hình.
   const { tab } = Route.useSearch();
@@ -199,17 +194,20 @@ function Index() {
     [filtered]
   );
 
+  // Panel AI được mount ở tầng gốc (AIJobViewer) nên ở đây chỉ cần báo store muốn mở cái
+  // gì. Trước đây trang này TỰ mount ProposalModal + AIPanel — trùng với panel của trang
+  // chi tiết, và bấm "Xem" trên thẻ job thì mỗi trang hiểu một kiểu.  #Huynh
   const handleAiAction = useCallback((deal: Deal) => {
     if (deal.stage === "new_lead") {
-      setAiDeal(deal);
+      openAiPanel({ kind: "deal_qualification", dealId: deal.id });
       return;
     }
     if (deal.stage === "in_negotiation") {
       navigate({ to: "/deals/$dealId", params: { dealId: deal.id } });
       return;
     }
-    setProposal(deal);
-  }, [navigate]);
+    openAiPanel({ kind: "proposal_generation", dealId: deal.id });
+  }, [navigate, openAiPanel]);
 
   const openDeal = useCallback(
     (deal: Deal) => {
@@ -287,16 +285,7 @@ function Index() {
                   <Filter className="h-4 w-4" />
                 </button>
               )}
-              <button className="relative rounded-md border border-border p-2 hover:bg-secondary" title="Thông báo">
-                <Bell className="h-4 w-4" />
-                <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
-              </button>
-              <button
-                onClick={() => setReminderOpen(true)}
-                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary sm:inline-flex"
-              >
-                <Sparkles className="h-4 w-4 text-primary" /> Nhắc nhở
-              </button>
+              <NotificationBell />
               <button
                 onClick={() => setNewDealOpen(true)}
                 className="hidden items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow hover:opacity-90 sm:inline-flex"
@@ -360,8 +349,6 @@ function Index() {
                 <ProfileSettings
                   profile={profile}
                   onSave={handleSaveProfile}
-                  clauses={clauses}
-                  onSaveClauses={setClauses}
                 />
               )}
             </>
@@ -370,10 +357,7 @@ function Index() {
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
-      <ProposalModal deal={proposal} onClose={() => setProposal(null)} />
-      <AIPanel open={Boolean(aiDeal)} deal={aiDeal} onClose={() => setAiDeal(null)} />
       <AIActivityCenter />
-      <ReminderCenter open={reminderOpen} onClose={() => setReminderOpen(false)} deals={deals} />
     </div>
   );
 }

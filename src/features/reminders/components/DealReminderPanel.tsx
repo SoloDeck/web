@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Trash2, X } from "lucide-react";
+import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Send, Sparkles, Trash2, X, Zap } from "lucide-react";
 import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
+import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
+import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import type { Deal } from "@/features/deals/types";
 import {
   useCancelReminder,
   useCreateReminder,
   useDealReminders,
+  useSendReminderNow,
   useUpdateReminder,
 } from "@/features/reminders/hooks/useReminders";
 import type { ReminderChannel, ReminderRecord, ReminderType } from "@/services/remindersService";
@@ -23,10 +26,13 @@ const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
   { value: "custom", label: "Tùy chỉnh" },
 ];
 
-const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
-  { value: "in_app", label: "Thông báo trong hệ thống" },
-  { value: "zalo", label: "Zalo" },
-  { value: "email", label: "Email" },
+// Nhãn nói rõ HỆ QUẢ, không chỉ tên kênh: "Email" không cho biết thư đi tới ai, mà chọn
+// nhầm thì hệ thống gửi thẳng cho khách hàng thật.  #Huynh
+const CHANNELS: Array<{ value: ReminderChannel; label: string; hint: string }> = [
+  { value: "in_app", label: "Chỉ nhắc tôi", hint: "Báo trong ứng dụng, không gửi gì cho khách" },
+  { value: "email", label: "Gửi email cho khách", hint: "SoloDesk tự gửi email tới khách khi tới giờ" },
+  { value: "both", label: "Gửi email + nhắc tôi", hint: "Vừa gửi khách vừa báo cho bạn" },
+  { value: "zalo", label: "Gửi Zalo cho khách", hint: "SoloDesk gửi tin nhắc qua Zalo OA của bạn (khách cần đã quan tâm OA)" },
 ];
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -50,8 +56,12 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const createReminder = useCreateReminder(deal.id);
   const updateReminder = useUpdateReminder(deal.id);
   const cancelReminder = useCancelReminder(deal.id);
+  const sendNow = useSendReminderNow(deal.id);
+  const { data: zaloStatus } = useZaloStatus();
+  const zaloConnected = zaloStatus?.connected ?? false;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [form, setForm] = useState<ReminderForm>(() => ({
     reminder_type: "follow_up",
     channel: "in_app",
@@ -127,18 +137,27 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   }
 
   const selectedDate = parseVietnameseDate(form.scheduled_date);
+  const plannedAt = parseVietnameseDateTime(form.scheduled_date, form.scheduled_time);
 
   return (
     <div className="grid h-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      {/* API reminder đã có CRUD; worker gửi tự động qua Zalo/Email ở backend vẫn đang phát triển nên UI chỉ nói về quản lý lịch nhắc. */}
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">Lịch nhắc của dự án</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Lịch nhắc của dự án</h2>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">
+              {pendingCount} đang chờ
+            </span>
+            {/* AI soạn tin trước đây là nút riêng "Nhắc follow-up" ở sidebar deal — gộp vào
+                đây để chỉ còn MỘT chỗ lo mọi việc nhắc, thay vì hai cửa dễ lẫn.  #Huynh */}
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> AI soạn tin
+            </button>
           </div>
-          <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">
-            {pendingCount} đang chờ
-          </span>
         </div>
 
         <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
@@ -165,7 +184,8 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               reminder={reminder}
               onEdit={() => startEdit(reminder)}
               onCancel={() => cancel(reminder.id)}
-              busy={cancelReminder.isPending || updateReminder.isPending}
+              onSendNow={() => sendNow.mutate(reminder.id)}
+              busy={cancelReminder.isPending || updateReminder.isPending || sendNow.isPending}
             />
           ))}
         </div>
@@ -211,12 +231,20 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               onChange={(event) => patchForm({ channel: event.target.value as ReminderChannel })}
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             >
-              {CHANNELS.map((channel) => (
-                <option key={channel.value} value={channel.value}>
-                  {channel.label}
-                </option>
-              ))}
+              {CHANNELS.map((channel) => {
+                const zaloLocked = channel.value === "zalo" && !zaloConnected;
+                return (
+                  <option key={channel.value} value={channel.value} disabled={zaloLocked}>
+                    {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
+                  </option>
+                );
+              })}
             </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {form.channel === "zalo" && !zaloConnected
+                ? "Chưa kết nối Zalo OA. Vào Cài đặt hồ sơ › Zalo OA để kết nối."
+                : CHANNELS.find((channel) => channel.value === form.channel)?.hint}
+            </p>
           </div>
 
           <div>
@@ -262,6 +290,13 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
+            {/* Ô ngày mặc định sẵn là NGÀY MAI — không nói ra thì người dùng sửa mỗi giờ
+                rồi tưởng gửi hôm nay, đợi mãi không thấy email. */}
+            {plannedAt && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                → gửi {formatRelative(plannedAt.toISOString())}
+              </p>
+            )}
           </div>
 
           <div>
@@ -295,6 +330,10 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
           </button>
         )}
       </form>
+
+      {/* FollowUpModal tự tạo lời nhắc + gửi qua React Query, nên đóng lại là danh sách
+          bên trái tự cập nhật, không cần truyền callback. */}
+      {aiOpen && <FollowUpModal deal={deal} onClose={() => setAiOpen(false)} />}
     </div>
   );
 }
@@ -303,15 +342,19 @@ function ReminderRow({
   reminder,
   onEdit,
   onCancel,
+  onSendNow,
   busy,
 }: {
   reminder: ReminderRecord;
   onEdit: () => void;
   onCancel: () => void;
+  onSendNow: () => void;
   busy: boolean;
 }) {
   const typeLabel = REMINDER_TYPES.find((type) => type.value === reminder.reminder_type)?.label ?? reminder.reminder_type;
   const channel = CHANNELS.find((item) => item.value === reminder.channel);
+  const sendsToClient = reminder.channel === "email" || reminder.channel === "both";
+  const relative = formatRelative(reminder.scheduled_at);
 
   return (
     <article className="rounded-xl border border-border p-4">
@@ -322,13 +365,45 @@ function ReminderRow({
               {statusLabel(reminder.status)}
             </span>
             <ChannelBadge channel={normalizeChannel(reminder.channel)} label={channel?.label ?? reminder.channel} />
+            {reminder.created_by_rule && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-xs font-medium text-primary">
+                <Zap className="h-3 w-3" /> Tự động
+              </span>
+            )}
+            {/* Lời nhắc chờ duyệt sẽ KHÔNG tự gửi dù đã tới giờ hẹn — không nói ra thì
+                người dùng ngồi đợi mãi không thấy email. */}
+            {reminder.requires_approval && reminder.status === "pending" && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                Chờ bạn duyệt
+              </span>
+            )}
           </div>
           <h3 className="mt-2 text-sm font-semibold">{typeLabel}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(reminder.scheduled_at)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatDateTime(reminder.scheduled_at)}
+            {/* Chờ duyệt thì KHÔNG hiện "còn X giờ nữa" — câu đó ngụ ý tới giờ là tự gửi,
+                mà lời nhắc này sẽ nằm im cho tới khi người dùng bấm. Nhãn "Chờ bạn duyệt"
+                ở trên mới là thứ nói đúng. */}
+            {reminder.status === "pending" && !reminder.requires_approval && relative && (
+              <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-xs font-medium">
+                {relative}
+              </span>
+            )}
+          </p>
         </div>
 
         {reminder.status === "pending" && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={onSendNow}
+              disabled={busy}
+              title={sendsToClient ? "Gửi email cho khách ngay bây giờ" : "Nhắc bạn ngay bây giờ"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Gửi ngay
+            </button>
             <button
               type="button"
               onClick={onEdit}
@@ -349,6 +424,12 @@ function ReminderRow({
           </div>
         )}
       </div>
+
+      {(reminder.status === "failed" || reminder.status === "skipped") && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Xem lý do ở chuông thông báo — SoloDesk đã gửi cho bạn một thông báo kèm nguyên nhân.
+        </p>
+      )}
 
       {reminder.message_preview && (
         <div className="mt-3 whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-sm leading-relaxed text-muted-foreground">
@@ -371,7 +452,9 @@ function ChannelBadge({ channel, label }: { channel: ReminderChannel; label: str
     );
   }
 
-  if (channel === "email") {
+  // "both" cũng gửi email ra ngoài cho khách — dùng chung dấu hiệu với "email" để nhìn
+  // là biết lời nhắc này có chạm tới khách hàng.
+  if (channel === "email" || channel === "both") {
     return (
       <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
         <span className="grid h-4 w-4 place-items-center rounded bg-rose-50">
@@ -475,7 +558,9 @@ function parseVietnameseDate(dateValue: string): Date | null {
 }
 
 function normalizeChannel(channel: string): ReminderChannel {
-  if (channel === "email" || channel === "in_app" || channel === "zalo") return channel;
+  if (channel === "email" || channel === "in_app" || channel === "zalo" || channel === "both") {
+    return channel;
+  }
   return "in_app";
 }
 
@@ -491,4 +576,27 @@ function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${formatDateForInput(date)} ${formatTimeForInput(date)}`;
+}
+
+/**
+ * "còn bao lâu nữa" — thứ thiếu vắng khiến người dùng tưởng hệ thống hỏng.
+ *
+ * Ô ngày mặc định sẵn là NGÀY MAI, nên ai chỉ sửa giờ mà quên sửa ngày sẽ hẹn nhầm sang
+ * hôm sau. Chỉ hiện "24/07/2026 14:22" thì không ai nhận ra; hiện thêm "còn 23 giờ nữa"
+ * là thấy sai ngay lập tức.  #Huynh
+ */
+function formatRelative(value: string): string | null {
+  const target = new Date(value).getTime();
+  if (Number.isNaN(target)) return null;
+
+  const minutes = Math.round((target - Date.now()) / 60000);
+  if (minutes < 0) return "đã tới hạn, sẽ gửi trong ít phút";
+  if (minutes < 1) return "sắp gửi";
+  if (minutes < 60) return `còn ${minutes} phút nữa`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `còn ${hours} giờ nữa`;
+
+  const days = Math.round(hours / 24);
+  return days === 1 ? "còn 1 ngày nữa (ngày mai)" : `còn ${days} ngày nữa`;
 }

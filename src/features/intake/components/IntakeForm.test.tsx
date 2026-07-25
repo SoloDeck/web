@@ -113,6 +113,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// Hai test dưới đây gõ 7-8 ô bằng userEvent — chậm, và khi chạy CHUNG cả bộ trên máy
+// tải nặng thì vượt testTimeout mặc định 5000ms của vitest, fail NGẪU NHIÊN.
+//
+// Test flaky là bug thật: CI đỏ lung tung, rồi người ta quen tay chạy lại cho tới khi
+// xanh — và bỏ sót lỗi thật. Nâng timeout riêng cho hai test này.  #Huynh
 describe("<IntakeForm />", () => {
   it("render biểu mẫu public từ cấu hình backend", async () => {
     await renderReady();
@@ -149,7 +154,7 @@ describe("<IntakeForm />", () => {
       desired_timeline: "Trong 3 tuần",
     });
     expect(await screen.findByText("Đã nhận yêu cầu của bạn")).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("gom field tùy chỉnh vào mô tả để backend không mất thông tin", async () => {
     vi.mocked(getPublicIntakeFormConfig).mockResolvedValue(
@@ -192,7 +197,7 @@ describe("<IntakeForm />", () => {
       name: "Lê Văn B",
       inquiry_text: "Cần website\nKênh liên hệ ưu tiên: Zalo buổi tối",
     });
-  });
+  }, 20_000);
 
   it("hiện toast lỗi và giữ form khi submit thất bại", async () => {
     vi.mocked(submitIntake).mockRejectedValue(new Error("boom"));

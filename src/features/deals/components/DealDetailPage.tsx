@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bot,
@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   CreditCard,
+  Download,
   FileText,
   Lock,
   Loader2,
@@ -23,16 +24,20 @@ import {
   Sparkles,
   Trash2,
   X,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
-import { AIPanel } from "@/features/ai/components/AIPanel";
-import { DealAiJobHistory } from "@/features/ai/components/DealAiJobHistory";
+import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
+import { proposalToHtml } from "@/features/deals/proposalHtml";
+import { getProposalPreview } from "@/services/proposalsService";
+import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
-import { ProposalModal } from "@/features/deals/components/ProposalModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
 import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
@@ -62,65 +67,43 @@ import {
   useContract,
   useCreateContract,
   useGenerateContractContent,
-  useMilestones,
-  useAddMilestone,
-  useUpdateMilestone,
-  useDeleteMilestone,
   useSendContract,
+  useRecordClientSignature,
 } from "@/features/deals/hooks/useContracts";
 import { STAGES, STAGE_BY_ID, formatDealSource, type Deal, type ProjectTask } from "@/features/deals/types";
+import { AttachmentViewerModal } from "@/features/deals/components/AttachmentViewerModal";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO, ProposalDecisionStatus } from "@/services/proposalsService";
-import type { PaymentMilestoneResponse } from "@/services/contractsService";
+import { getContractPreview, downloadContractPdf } from "@/services/contractsService";
+import { downloadProposalPdf } from "@/services/proposalsService";
+import { useContractInlineEditor } from "@/features/deals/hooks/useContractInlineEditor";
 import type { InvoicePayload, InvoiceResponse, InvoiceUpdatePayload } from "@/services/invoicesService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
-import { useDealQualificationDocuments, type DealQualificationDocument } from "@/features/deals/dealQualificationStorage";
+import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
+import { QualificationResultView } from "@/features/ai/components/QualificationResult";
+import {
+  useDealAttachments,
+  useDeleteDealAttachment,
+  useUploadDealAttachment,
+} from "@/features/deals/hooks/useDealAttachments";
+import {
+  ACCEPTED_FILE_TYPES,
+  downloadDealAttachment,
+  isViewableInApp,
+  MAX_FILE_SIZE_MB,
+  type DealAttachment,
+} from "@/services/dealAttachmentsService";
+import { toQualificationView } from "@/features/deals/hooks/useDealQualifications";
+import type { DealQualification } from "@/services/dealsService";
 
 type DetailTab = "overview" | "tasks" | "documents" | "reminders" | "history";
 type DealDetailDraft = {
   title: string;
   notes: string;
 };
-type DealAttachment = {
-  id: string;
-  name: string;
-  title?: string;
-  note?: string;
-  type: string;
-  size: number;
-  dataUrl: string;
-  createdAt: string;
-};
-
-function attachmentStorageKey(dealId: string): string {
-  return `solodesk:deal:${dealId}:attachments`;
-}
-
-function loadDealAttachments(dealId: string): DealAttachment[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(attachmentStorageKey(dealId));
-    return raw ? (JSON.parse(raw) as DealAttachment[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveDealAttachments(dealId: string, attachments: DealAttachment[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(attachmentStorageKey(dealId), JSON.stringify(attachments));
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 
 function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -138,9 +121,46 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
-function getApiErrorMessage(error: unknown): string {
-  const response = (error as { response?: { data?: { error?: { message?: string }; message?: string } } })?.response;
-  return response?.data?.error?.message ?? response?.data?.message ?? "";
+/**
+ * Backend đặt recommendation = "qualify" nếu điểm >= 60, ngược lại "pass".
+ * "pass" ở đây là thuật ngữ sales — nghĩa là "BỎ QUA deal này", KHÔNG phải "đạt".
+ * Trước đây giao diện in thẳng chữ "pass" ra cho freelancer Việt đọc, mà chỗ khác lại
+ * diễn giải nó thành "nên tiếp tục tư vấn" — đúng NGƯỢC nghĩa, rất nguy hiểm.  #Huynh
+ */
+function recommendationLabel(value?: string | null): string {
+  if (value === "qualify") return "Đủ thông tin — nên tiến tới báo giá.";
+  if (value === "pass") return "Chưa đủ thông tin — nên hỏi thêm trước khi báo giá.";
+  if (value === "reject") return "Nên cân nhắc từ chối deal này.";
+  return "Chưa có đánh giá AI chi tiết cho deal này.";
+}
+
+const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  draft: "Bản nháp",
+  pending_signatures: "Chờ ký",
+  active: "Đang hiệu lực",
+  completed: "Đã hoàn thành",
+  terminated: "Đã chấm dứt",
+  expired: "Đã hết hạn",
+};
+
+/** Dịch lỗi hợp đồng từ backend sang câu người dùng hiểu được. */
+function contractErrorMessage(error: unknown): string {
+  const status = getApiErrorStatus(error);
+  // 402: tài khoản không có gói AI. Trước đây mọi lỗi đều ra "Vui lòng thử lại", nên
+  // người hết gói cứ bấm lại mãi mà không biết vì sao.
+  if (status === 402) {
+    return "Gói của bạn chưa có tính năng AI. Hãy nâng cấp để tạo hợp đồng tự động.";
+  }
+  // 429 = hết hạn mức AI trong kỳ. Thông báo mặc định "Vui lòng thử lại" khiến người
+  // dùng bấm lại mãi mà không hiểu vì sao.  #Huynh
+  if (status === 429) {
+    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức và nâng cấp.";
+  }
+  // 409: báo giá chưa được chấp nhận, hoặc hợp đồng không còn là bản nháp.
+  if (status === 409) {
+    return getApiErrorMessage(error, "Hợp đồng không còn ở trạng thái nháp.");
+  }
+  return "Không thể tạo hợp đồng. Vui lòng thử lại.";
 }
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
@@ -170,33 +190,46 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const proposalDecision = useTransitionProposalStatus();
   const createContract = useCreateContract();
   const generateContract = useGenerateContractContent();
+  const recordSignature = useRecordClientSignature();
   const sendContract = useSendContract();
+  const contractTemplates = useTermTemplates("contract");
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [newDealOpen, setNewDealOpen] = useState(false);
-  const [proposalDeal, setProposalDeal] = useState<Deal | null>(null);
-  const [aiEvaluateOpen, setAiEvaluateOpen] = useState(false);
+  const [contractChooserOpen, setContractChooserOpen] = useState(false);
+  const [contractTemplateId, setContractTemplateId] = useState<string | null>(null);
   // Khác null = mở AIPanel để XEM LẠI job cũ, thay vì chạy đánh giá mới.
-  const [aiViewJobId, setAiViewJobId] = useState<string | null>(null);
+
+  // Mở panel AI qua store — panel được mount ở tầng gốc (AIJobViewer) nên bấm "Xem" ở
+  // màn hình nào cũng dùng chung một đường.  #Huynh
+  const openAiPanel = useAIActivityStore((state) => state.openPanel);
   const [viewContractId, setViewContractId] = useState<string | null>(null);
   const [viewProposalId, setViewProposalId] = useState<string | null>(null);
-  const [viewQualificationDoc, setViewQualificationDoc] = useState<DealQualificationDocument | null>(null);
+  const [viewQualificationDoc, setViewQualificationDoc] = useState<DealQualification | null>(null);
+  const [viewAttachment, setViewAttachment] = useState<DealAttachment | null>(null);
   const [invoiceModalMode, setInvoiceModalMode] = useState<"create" | "view" | "edit" | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceResponse | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [completePending, setCompletePending] = useState(false);
-  const [clientSignedContractIds, setClientSignedContractIds] = useState<Set<string>>(() => new Set());
-  const [dealAttachments, setDealAttachments] = useState<DealAttachment[]>([]);
+
+  // File đính kèm giờ lưu trên object storage (MinIO/S3) qua API, KHÔNG còn nhét base64
+  // vào localStorage: ~5MB là vỡ, đổi máy là mất sạch, và file không rời khỏi trình duyệt
+  // nên không gửi được cho khách.
+  //
+  // Quan trọng hơn: backend BÓC CHỮ từ PDF và đưa vào prompt chấm điểm. Khách gửi brief
+  // thì AI đọc được yêu cầu thật — deal tạo tay không còn tự động COLD.  #Huynh
+  const attachmentsQuery = useDealAttachments(deal?.id);
+  const dealAttachments = attachmentsQuery.data ?? [];
+  const uploadAttachment = useUploadDealAttachment(deal?.id);
+  const deleteAttachment = useDeleteDealAttachment(deal?.id);
   const [overviewEditing, setOverviewEditing] = useState(false);
   const [draft, setDraft] = useState<DealDetailDraft>({
     title: "",
     notes: "",
   });
   const projectStageUnlocked = deal?.stage === "active" || deal?.stage === "completed_and_billed";
-  const qualificationDocs = useDealQualificationDocuments(deal?.id);
-
   const taskQuery = useProjectTasks(deal?.id, projectStageUnlocked);
   const projectId = taskQuery.data?.projectId ?? "";
   const addTaskMutation = useAddTask(deal?.id ?? "", projectId);
@@ -209,25 +242,33 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
   const latestProposal = proposalItems[0];
   const latestContract = contractItems[0];
+  // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
+  const draftContract = contractItems.find((contract) => contract.status === "draft");
   const hasActiveContract = contractItems.some((contract) => contract.status === "active");
-  const hasDeploymentReadyContract = hasActiveContract || contractItems.some((contract) => clientSignedContractIds.has(contract.id));
+  // Chỉ tin trạng thái THẬT từ backend. Trước đây còn cộng thêm một Set trong useState —
+  // freelancer bấm "Khách đã ký" thì nút triển khai mở ra, nhưng F5 là mất sạch vì nó
+  // chưa bao giờ được gửi lên server. Giao diện nói dối chính người dùng.  #Huynh
+  const hasDeploymentReadyContract = hasActiveContract;
   const historyItems = useMemo(() => {
     return [...dealHistory, ...(deal?.history ?? [])].sort((a, b) => b.date.localeCompare(a.date));
   }, [dealHistory, deal?.history]);
 
-  useEffect(() => {
-    if (!deal?.id) {
-      setDealAttachments([]);
-      return;
-    }
-    setDealAttachments(loadDealAttachments(deal.id));
-  }, [deal?.id]);
-
   const intakeFallback = useMemo(() => {
-    if (!deal?.clientId) return undefined;
-    // Public intake hiện tạo client mới rồi mới tạo deal, nên ghép theo client_id là đủ ổn định ở FE.
-    return intakeQuery.data?.find((item) => item.clientId === deal.clientId);
-  }, [deal?.clientId, intakeQuery.data]);
+    if (!deal) return undefined;
+
+    // Ghép theo deal_id, KHÔNG phải client_id.
+    //
+    // Bug cũ: ghép theo client_id. Một khách gửi Biểu mẫu tiếp nhận hai lần cho hai dự án
+    // khác nhau → hai deal, cùng một client → deal cũ hiện mô tả của dự án MỚI. Backend
+    // dính đúng bug này (AI chấm điểm và soạn báo giá bằng brief của dự án sai), giờ đã
+    // sửa và trả về deal_id.
+    //
+    // Phiếu cũ chưa có deal_id → vẫn rơi về ghép theo client như trước.  #Huynh
+    const byDeal = intakeQuery.data?.find((item) => item.dealId === deal.id);
+    if (byDeal) return byDeal;
+
+    return intakeQuery.data?.find((item) => item.dealId == null && item.clientId === deal.clientId);
+  }, [deal, intakeQuery.data]);
   const intakeDescription = intakeFallback?.inquiryText.trim() ?? "";
   const intakeBudget = intakeFallback?.estimatedBudget.trim() ?? "";
   const intakeTimeline = intakeFallback?.desiredTimeline.trim() ?? "";
@@ -314,11 +355,48 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
+  // Bấm "Tạo hợp đồng": LUÔN mở hộp chọn (AI tự viết / mẫu thư viện) trước khi sinh —
+  // đồng nhất với luồng báo giá, thay vì lặng lẽ sinh rồi nhảy vào Detail. Chưa có mẫu cho
+  // nghề này thì hộp chọn chỉ có "AI tự viết" kèm chú thích.  #Huynh
   function handleGenerateContract() {
     if (!deal || !acceptedProposal) {
       toast.error("Cần có báo giá đã được khách chấp nhận trước khi tạo hợp đồng.");
       return;
     }
+    setContractTemplateId(null);
+    setContractChooserOpen(true);
+  }
+
+  function runGenerateContract(templateId: string | null) {
+    if (!deal || !acceptedProposal) return;
+
+    function fillContent(contractId: string) {
+      generateContract.mutate(
+        { contractId, templateId },
+        {
+          onSuccess: () => {
+            toast.success("Đã tạo nội dung hợp đồng bằng AI.");
+            addDealHistoryEntry(deal!.id, {
+              date: new Date().toISOString(),
+              text: "Hợp đồng AI đã được tạo và điền nội dung.",
+              channel: "message",
+            });
+            setViewContractId(contractId);
+          },
+          onError: (error) => toast.error(contractErrorMessage(error)),
+        }
+      );
+    }
+
+    // Đã có bản nháp thì sinh lại nội dung trên CHÍNH nó, không tạo hợp đồng mới.
+    // POST /contracts luôn tạo một hàng mới và tự tăng version_number, nên bấm nút
+    // lần hai là đẻ ra "Hợp đồng lần 2" nằm chình ình trong tab Tài liệu. BE cũng chỉ
+    // cho generate trên hợp đồng còn draft, nên tái dùng bản nháp là đúng luật của nó.
+    if (draftContract) {
+      fillContent(draftContract.id);
+      return;
+    }
+
     createContract.mutate(
       {
         deal_id: deal.id,
@@ -327,20 +405,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         content: {},
       },
       {
-        onSuccess: (contract) => {
-          generateContract.mutate(contract.id, {
-            onSuccess: () => {
-              toast.success("Đã tạo nội dung hợp đồng bằng AI.");
-              addDealHistoryEntry(deal.id, {
-                date: new Date().toISOString(),
-                text: "Hợp đồng AI đã được tạo và điền nội dung.",
-                channel: "message",
-              });
-              setViewContractId(contract.id);
-            },
-          });
-        },
-        onError: () => toast.error("Không thể tạo hợp đồng. Vui lòng thử lại."),
+        onSuccess: (contract) => fillContent(contract.id),
+        onError: (error) => toast.error(contractErrorMessage(error)),
       }
     );
   }
@@ -439,7 +505,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       });
       setCompleteDialogOpen(false);
     } catch (error) {
-      const message = getApiErrorMessage(error);
+      const message = getApiErrorMessage(error, "");
       if (message.toLowerCase().includes("linked invoice")) {
         toast.error("Cần có hóa đơn đã thanh toán trong Tài liệu trước khi hoàn thành dự án.");
         setTab("documents");
@@ -475,7 +541,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode("edit");
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể tạo hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -497,7 +563,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           setInvoiceModalMode("edit");
         },
         onError: (error) => {
-          const message = getApiErrorMessage(error);
+          const message = getApiErrorMessage(error, "");
           toast.error(message || "Không thể chỉnh sửa hóa đơn. Vui lòng thử lại.");
         },
       }
@@ -527,7 +593,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode(null);
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể xóa hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -547,7 +613,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode("view");
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể hủy hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -565,7 +631,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         });
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error);
+        const message = getApiErrorMessage(error, "");
         toast.error(message || "Không thể gửi hóa đơn. Vui lòng thử lại.");
       },
     });
@@ -603,47 +669,38 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           });
         },
         onError: (error) => {
-          const message = getApiErrorMessage(error);
+          const message = getApiErrorMessage(error, "");
           toast.error(message || "Không thể ghi nhận thanh toán. Vui lòng thử lại.");
         },
       }
     );
   }
 
-  async function handleAddAttachment(file: File, title: string, note: string) {
+  function handleAddAttachment(file: File) {
     if (!deal) return;
-    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
-      toast.error("Chỉ hỗ trợ ảnh hoặc file PDF.");
+
+    // KHÔNG chặn theo `file.type`. Trình duyệt trên Windows đôi khi trả về chuỗi RỖNG cho
+    // đúng file PDF (thiếu ánh xạ MIME trong registry) — chặn theo nó là người dùng chọn
+    // PDF thật mà bị từ chối, không hiểu vì sao.
+    //
+    // Backend đã kiểm tra định dạng rồi (ALLOWED_CONTENT_TYPES) và trả 422 kèm lý do rõ
+    // ràng. Ở đây chỉ chặn thứ chắc chắn sai: file quá lớn.  #Huynh
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      toast.error(`File quá lớn (tối đa ${MAX_FILE_SIZE_MB}MB).`);
       return;
     }
-    if (file.size > 4 * 1024 * 1024) {
-      toast.error("File đang quá lớn. Bản FE demo chỉ lưu local tối đa 4MB/file.");
-      return;
-    }
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const attachment: DealAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name,
-        title: title.trim() || file.name,
-        note: note.trim() || undefined,
-        type: file.type,
-        size: file.size,
-        dataUrl,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [attachment, ...dealAttachments];
-      setDealAttachments(next);
-      saveDealAttachments(deal.id, next);
-      addDealHistoryEntry(deal.id, {
-        date: attachment.createdAt,
-        text: `Đã lưu tài liệu/chứng từ "${attachment.title}".`,
-        channel: "document",
-      });
-      toast.success("Đã lưu tài liệu vào lịch sử local.");
-    } catch {
-      toast.error("Không thể đọc file này. Vui lòng thử file khác.");
-    }
+
+    uploadAttachment.mutate(file, {
+      onSuccess: (attachment) => {
+        addDealHistoryEntry(deal.id, {
+          date: new Date().toISOString(),
+          text: attachment.ai_readable
+            ? `Đã tải lên "${attachment.filename}" — AI đọc được nội dung.`
+            : `Đã tải lên "${attachment.filename}".`,
+          channel: "document",
+        });
+      },
+    });
   }
 
   function handleSendContract(contractId: string) {
@@ -656,15 +713,28 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
+  function handleDeleteAttachment(attachmentId: string) {
+    deleteAttachment.mutate(attachmentId);
+  }
+
   function handleSignContract(contract: { id: string }) {
     if (!deal) return;
-    // Client của SoloDesk ký/đồng ý ngoài hệ thống, Freelancer chỉ ghi nhận lại để tiếp tục flow.
-    setClientSignedContractIds((current) => new Set(current).add(contract.id));
-    toast.success("Đã ghi nhận khách đã ký. Bạn có thể bắt đầu triển khai.");
-    addDealHistoryEntry(deal.id, {
-      date: new Date().toISOString(),
-      text: "Freelancer đã ghi nhận khách ký hợp đồng ngoài hệ thống.",
-      channel: "message",
+    // Khách ký ngoài hệ thống (giấy/scan/Zalo), freelancer GHI NHẬN lại. SoloDesk là sổ
+    // theo dõi, không phải nền tảng chữ ký số.
+    //
+    // Trước đây hàm này chỉ nhét id vào một Set trong useState — không gọi API, không lưu
+    // đâu cả. Bấm xong thấy nút triển khai mở ra, F5 phát là về như cũ. Giờ gọi thật:
+    // PATCH /contracts/{id}/status -> active, backend ghi cả hai mốc chữ ký.  #Huynh
+    recordSignature.mutate(contract.id, {
+      onSuccess: () => {
+        toast.success("Đã ghi nhận khách ký hợp đồng. Bạn có thể bắt đầu triển khai.");
+        addDealHistoryEntry(deal.id, {
+          date: new Date().toISOString(),
+          text: "Ghi nhận: khách đã ký hợp đồng (ký ngoài hệ thống).",
+          channel: "message",
+        });
+      },
+      onError: (error) => toast.error(contractErrorMessage(error)),
     });
   }
 
@@ -848,6 +918,50 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   )}
                 </div>
 
+                {/* File khách gửi kèm — hiện NGAY ở tổng quan, không bắt lặn vào tab Tài liệu.
+                    Đây là thứ AI đọc để chấm điểm, nên người dùng cần thấy ngay "deal này có
+                    brief hay không" và "AI có đọc được nó không".  #Huynh */}
+                {dealAttachments.length > 0 && (
+                  <div className="mt-4 border-t border-border pt-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      File khách gửi ({dealAttachments.length})
+                    </div>
+                    <ul className="mt-2 space-y-1.5">
+                      {dealAttachments.map((file) => (
+                        <li key={file.id} className="flex items-center gap-2">
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          {isViewableInApp(file.content_type) ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewAttachment(file)}
+                              className="min-w-0 truncate text-sm text-foreground underline-offset-2 hover:underline"
+                            >
+                              {file.filename}
+                            </button>
+                          ) : (
+                            <span className="min-w-0 truncate text-sm text-foreground">{file.filename}</span>
+                          )}
+                          {file.ai_readable ? (
+                            <span
+                              title="AI đã đọc nội dung file này để chấm điểm deal"
+                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                            >
+                              <Sparkles className="h-2.5 w-2.5" /> AI đọc được
+                            </span>
+                          ) : (
+                            <span
+                              title="File scan/ảnh không có lớp chữ — AI không bóc được nội dung"
+                              className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                            >
+                              AI không đọc được
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>Tiến độ quy trình</span>
@@ -859,6 +973,10 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                 </div>
               </div>
 
+              {/* Container `overflow-hidden` để thanh tab luôn dính trên, không bị nội dung
+                  đẩy đi. Đổi lại: MỖI TabsContent phải tự lo cuộn dọc
+                  (`min-h-0 flex-1 overflow-y-auto`). Thiếu là nội dung dài hơn khung bị CẮT
+                  và không kéo xuống được — đúng lỗi đã gặp ở trang "Gói đăng ký".  #Huynh */}
               <Tabs
                 value={tab}
                 onValueChange={(value) => setTab(value as DetailTab)}
@@ -870,13 +988,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     Công việc {projectStageUnlocked ? `(${taskQuery.data?.total ?? 0})` : "(chưa mở)"}
                   </TabsTrigger>
                   <TabsTrigger value="documents">
-                    Tài liệu ({qualificationDocs.length + proposalItems.length + contractItems.length + dealAttachments.length + (invoices.data?.length ?? 0)})
+                    Tài liệu ({proposalItems.length + contractItems.length + dealAttachments.length + (invoices.data?.length ?? 0)})
                   </TabsTrigger>
                   <TabsTrigger value="reminders">Nhắc nhở ({reminders.data?.length ?? 0})</TabsTrigger>
                   <TabsTrigger value="history">Lịch sử</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="overview" className="min-w-0 pt-4">
+                <TabsContent value="overview" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
                   <OverviewTab
                     deal={deal}
                     invoices={invoices.data ?? []}
@@ -888,7 +1006,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   />
                 </TabsContent>
 
-                <TabsContent value="tasks" className="min-w-0 pt-4">
+                <TabsContent value="tasks" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
                   {projectStageUnlocked && taskQuery.isLoading ? (
                     <div className="grid min-h-64 place-items-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
@@ -908,20 +1026,20 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="documents" className="min-w-0 pt-4">
+                <TabsContent value="documents" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
                   <DocumentsTab
                     attachments={dealAttachments}
-                    qualificationDocs={qualificationDocs}
+                    onViewAttachment={setViewAttachment}
                     proposals={proposalItems}
                     contracts={contractItems}
                     invoices={invoices.data ?? []}
                     onAddAttachment={handleAddAttachment}
+                    onDeleteAttachment={handleDeleteAttachment}
                     onCreateInvoice={handleCreateDealInvoice}
                     onViewInvoice={handleViewInvoice}
                     onVoidInvoice={handleVoidInvoice}
                     onSendInvoice={handleSendInvoice}
                     onRecordInvoicePayment={handleRecordInvoicePayment}
-                    onViewQualification={setViewQualificationDoc}
                     onProposalDecision={handleProposalDecision}
                     proposalDecisionLoading={proposalDecision.isPending}
                     onViewProposal={(id) => setViewProposalId(id)}
@@ -944,17 +1062,18 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   <DealReminderPanel deal={deal} />
                 </TabsContent>
 
-                <TabsContent value="history" className="min-w-0 space-y-5 pt-4">
-                  {/* Kết quả AI lấy thẳng từ backend nên xem lại được kể cả sau F5 —
-                      trước đây reload xong là mất, không mò lại được. */}
-                  <DealAiJobHistory
+                <TabsContent value="history" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
+                  {/* MỘT dòng thời gian: các lần AI chấm điểm (lấy thẳng từ backend nên
+                      xem lại được kể cả sau F5) trộn chung với hoạt động khác, xếp theo
+                      thời gian. Trước đây tách hai danh sách, người dùng phải nhìn hai
+                      chỗ mới dựng lại được câu chuyện của deal. */}
+                  <DealActivityTimeline
                     dealId={deal?.id}
-                    onView={(jobId) => {
-                      setAiViewJobId(jobId);
-                      setAiEvaluateOpen(true);
-                    }}
+                    historyItems={historyItems}
+                    proposals={proposalItems}
+                    onViewQualification={setViewQualificationDoc}
+                    onViewProposal={(id) => setViewProposalId(id)}
                   />
-                  <HistoryTab historyItems={historyItems} isLoading={false} />
                 </TabsContent>
               </Tabs>
             </section>
@@ -962,18 +1081,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             <ActionsPanel
               deal={deal}
               onEvaluate={() => {
-                setAiViewJobId(null);
-                setAiEvaluateOpen(true);
+                if (!deal) return;
+                openAiPanel({ kind: "deal_qualification", dealId: deal.id });
               }}
-              onProposal={() => setProposalDeal(dealForProposal ?? deal)}
+              onProposal={() => {
+                const target = dealForProposal ?? deal;
+                if (!target) return;
+                openAiPanel({ kind: "proposal_generation", dealId: target.id });
+              }}
               onContract={handleGenerateContract}
-              onReminder={() => setTab("reminders")}
               onStartProject={handleStartProject}
               onComplete={handleCompleteProject}
               contractLoading={createContract.isPending || generateContract.isPending}
               stageTransitionLoading={transitionDealStage.isPending || completePending}
               hasAcceptedProposal={Boolean(acceptedProposal)}
               hasContract={contractItems.length > 0}
+              hasDraftContract={Boolean(draftContract)}
               hasActiveContract={hasDeploymentReadyContract}
             />
           </div>
@@ -981,20 +1104,53 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       </main>
 
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
-      <ProposalModal deal={proposalDeal} onClose={() => setProposalDeal(null)} />
-      <AIPanel
-        open={aiEvaluateOpen}
-        deal={deal}
-        viewJobId={aiViewJobId}
-        onClose={() => {
-          setAiEvaluateOpen(false);
-          setAiViewJobId(null); // đóng xong thì lần sau bấm "Đánh giá Deal" phải chạy job MỚI
-        }}
-      />
       <AIActivityCenter />
+
+      <Dialog open={contractChooserOpen} onOpenChange={setContractChooserOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tạo hợp đồng</DialogTitle>
+          </DialogHeader>
+          <DocTemplateChooser
+            templates={contractTemplates.data ?? []}
+            value={contractTemplateId}
+            onChange={setContractTemplateId}
+            docLabel="hợp đồng"
+          />
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setContractChooserOpen(false)}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setContractChooserOpen(false);
+                runGenerateContract(contractTemplateId);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            >
+              Tạo hợp đồng
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
-      {viewProposalId && <ProposalViewModal proposalId={viewProposalId} onClose={() => setViewProposalId(null)} />}
+      {viewProposalId && (
+        <ProposalViewModal
+          proposalId={viewProposalId}
+          deal={deal ?? null}
+          onClose={() => setViewProposalId(null)}
+        />
+      )}
       {viewQualificationDoc && <QualificationViewModal document={viewQualificationDoc} onClose={() => setViewQualificationDoc(null)} />}
+      {viewAttachment && (
+        <AttachmentViewerModal attachment={viewAttachment} onClose={() => setViewAttachment(null)} />
+      )}
       {invoiceModalMode && (
         <InvoiceComposerModal
           mode={invoiceModalMode}
@@ -1283,40 +1439,61 @@ function ActionsPanel({
   onEvaluate,
   onProposal,
   onContract,
-  onReminder,
   onStartProject,
   onComplete,
   contractLoading,
   stageTransitionLoading,
   hasAcceptedProposal,
   hasContract,
+  hasDraftContract,
   hasActiveContract,
 }: {
   deal: Deal;
   onEvaluate: () => void;
   onProposal: () => void;
   onContract: () => void;
-  onReminder: () => void;
   onStartProject: () => void;
   onComplete: () => void;
   contractLoading: boolean;
   stageTransitionLoading: boolean;
   hasAcceptedProposal: boolean;
   hasContract: boolean;
+  hasDraftContract: boolean;
   hasActiveContract: boolean;
 }) {
   const stage = deal.stage;
 
   return (
     <aside className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+      {/* CHƯA CHẤM THÌ KHÔNG HIỆN SỐ NÀO.
+          Trước đây chỗ này là `{deal.aiQualificationScore ?? 50}` — deal chưa từng được
+          chấm vẫn hiện "50", tức hệ thống TỰ BỊA một điểm đánh giá AI. Tệ hơn nữa: ngay
+          dưới nó ghi "Chưa có đánh giá AI chi tiết cho deal này" — cái thẻ tự mâu thuẫn
+          với chính nó.
+          Cả sản phẩm này dựng trên việc "điểm AI phải kiểm chứng được"; bịa một con số
+          mặc định là đạp đổ đúng thứ đó. Thà nói thẳng "chưa chấm".  #Huynh */}
       <div className="rounded-lg border border-border bg-muted/30 p-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="h-4 w-4 text-primary" /> Đánh giá AI
         </div>
-        <div className="mt-3 text-3xl font-bold text-primary">{deal.aiQualificationScore ?? 50}</div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {deal.aiQualificationRecommendation ?? "Chưa có đánh giá AI chi tiết, hệ thống đang hiển thị điểm tạm để bạn tiếp tục theo dõi."}
-        </p>
+        {typeof deal.aiQualificationScore === "number" ? (
+          <>
+            <div className="mt-3 text-3xl font-bold text-primary">
+              {deal.aiQualificationScore}
+              <span className="text-base font-semibold text-muted-foreground">/100</span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {recommendationLabel(deal.aiQualificationRecommendation)}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="mt-3 text-xl font-bold text-muted-foreground">Chưa chấm điểm</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Bấm "Đánh giá Deal" để AI chấm điểm mức độ sẵn sàng báo giá.
+            </p>
+          </>
+        )}
       </div>
 
       {stage === "new_lead" && (
@@ -1353,12 +1530,21 @@ function ActionsPanel({
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-            {contractLoading ? "Đang tạo hợp đồng..." : "Tạo Hợp Đồng AI"}
+            {contractLoading
+              ? "Đang tạo hợp đồng..."
+              : hasDraftContract
+                ? "Tạo Lại Hợp Đồng AI"
+                : "Tạo Hợp Đồng AI"}
           </button>
+          {hasDraftContract && (
+            <p className="-mt-1 text-center text-xs text-muted-foreground">
+              Sẽ viết lại nội dung bản nháp hiện có, không tạo hợp đồng mới.
+            </p>
+          )}
           <button
             onClick={onStartProject}
             disabled={stageTransitionLoading || !hasActiveContract}
-            title={!hasActiveContract ? "Cần bấm Khách đã ký trong tab Tài liệu trước khi triển khai" : "Bắt đầu triển khai project"}
+            title={!hasActiveContract ? "Cần ghi nhận khách đã ký hợp đồng trước khi triển khai" : "Bắt đầu triển khai project"}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {stageTransitionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -1368,7 +1554,7 @@ function ActionsPanel({
             <p className="text-center text-xs text-muted-foreground">Cần tạo hợp đồng và gửi cho khách ký trước khi mở project triển khai.</p>
           )}
           {hasContract && !hasActiveContract && (
-            <p className="text-center text-xs text-muted-foreground">Hợp đồng đang chờ khách ký. Bấm Khách đã ký trong tab Tài liệu để mở bước triển khai.</p>
+            <p className="text-center text-xs text-muted-foreground">Hợp đồng đang chờ ký. Vào tab Tài liệu, bấm "Ghi nhận: khách đã ký" sau khi hai bên đã ký ngoài hệ thống.</p>
           )}
         </>
       )}
@@ -1392,16 +1578,6 @@ function ActionsPanel({
         </div>
       )}
 
-      {stage !== "completed_and_billed" && stage !== "lost" && (
-        <div className="border-t border-border pt-4">
-          <button
-            onClick={onReminder}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary"
-          >
-            <Send className="h-4 w-4" /> Nhắc follow-up
-          </button>
-        </div>
-      )}
     </aside>
   );
 }
@@ -2059,19 +2235,63 @@ function InvoiceComposerModal({
   );
 }
 
+/**
+ * Nút tải PDF cho báo giá / hợp đồng. Gọi endpoint render PDF ở backend, nhận blob rồi
+ * kích hoạt tải xuống — để freelancer gửi thẳng cho khách. Tự quản trạng thái đang tải.  #Huynh
+ */
+function DownloadPdfButton({
+  fetchPdf,
+  filename,
+}: {
+  fetchPdf: () => Promise<Blob>;
+  filename: string;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleDownload() {
+    setLoading(true);
+    try {
+      const blob = await fetchPdf();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Tải PDF thất bại. Vui lòng thử lại.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={loading}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Tải PDF
+    </button>
+  );
+}
+
 function DocumentsTab({
   attachments,
-  qualificationDocs,
+  onViewAttachment,
   proposals,
   contracts,
   invoices,
   onAddAttachment,
+  onDeleteAttachment,
   onCreateInvoice,
   onViewInvoice,
   onVoidInvoice,
   onSendInvoice,
   onRecordInvoicePayment,
-  onViewQualification,
   onProposalDecision,
   proposalDecisionLoading,
   onViewProposal,
@@ -2082,7 +2302,6 @@ function DocumentsTab({
   invoiceActionLoading,
 }: {
   attachments: DealAttachment[];
-  qualificationDocs: DealQualificationDocument[];
   proposals: Array<{ id: string; status: string; version_number: number; created_at: string; content?: { title?: string } }>;
   contracts: Array<{
     id: string;
@@ -2093,13 +2312,14 @@ function DocumentsTab({
     signed_by_freelancer_at?: string | null;
   }>;
   invoices: InvoiceResponse[];
-  onAddAttachment: (file: File, title: string, note: string) => void;
+  onAddAttachment: (file: File) => void;
+  onDeleteAttachment: (attachmentId: string) => void;
+  onViewAttachment: (attachment: DealAttachment) => void;
   onCreateInvoice: () => void;
   onViewInvoice: (invoice: InvoiceResponse) => void;
   onVoidInvoice: (invoice: InvoiceResponse) => void;
   onSendInvoice: (invoiceId: string) => void;
   onRecordInvoicePayment: (invoice: InvoiceResponse) => void;
-  onViewQualification: (document: DealQualificationDocument) => void;
   onProposalDecision: (proposalId: string, status: ProposalDecisionStatus) => void;
   proposalDecisionLoading: boolean;
   onViewProposal: (proposalId: string) => void;
@@ -2136,7 +2356,15 @@ function DocumentsTab({
     void: "Đã hủy",
     cancelled: "Đã hủy",
   };
-  const [attachmentDraft, setAttachmentDraft] = useState<{ file: File; title: string; note: string } | null>(null);
+
+  // Bản báo giá ĐANG DÙNG. Backend trả về mới-nhất-trước, nhưng "mới nhất" KHÔNG phải
+  // "đang dùng": gửi cho khách xong rồi bấm "Tạo lại" là đẻ ra một bản nháp mới hơn, trong
+  // khi thứ khách đang CẦM vẫn là bản đã gửi.  #Huynh
+  const current =
+    proposals.find((p) => p.status === "accepted") ??
+    proposals.find((p) => p.status === "sent") ??
+    proposals[0];
+  const currentProposals = current ? [current] : [];
 
   return (
     <>
@@ -2163,11 +2391,13 @@ function DocumentsTab({
             <Plus className="h-4 w-4" /> Thêm file
             <input
               type="file"
-              accept="image/*,application/pdf"
+              accept={ACCEPTED_FILE_TYPES}
               className="hidden"
               onChange={(event) => {
+                // Upload THẲNG, không qua bước điền tiêu đề/ghi chú: backend chỉ lưu tên
+                // file thật, hai trường kia trước đây chỉ nằm trong localStorage.  #Huynh
                 const file = event.target.files?.[0];
-                if (file) setAttachmentDraft({ file, title: file.name.replace(/\.[^/.]+$/, ""), note: "" });
+                if (file) onAddAttachment(file);
                 event.currentTarget.value = "";
               }}
             />
@@ -2246,54 +2476,78 @@ function DocumentsTab({
       {attachments.map((item) => (
         <div key={`attachment-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{item.title || item.name}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {item.type === "application/pdf" ? "PDF" : "Hình ảnh"} · {formatFileSize(item.size)} · {formatDate(item.createdAt)}
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-semibold">{item.filename}</span>
+              {/* PDF scan là ẢNH — không có chữ để bóc. Phải nói rõ, đừng để người dùng
+                  upload xong tưởng AI đã đọc rồi ngồi đợi điểm cải thiện. */}
+              {item.ai_readable ? (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                  <Sparkles className="h-3 w-3" /> AI đọc được
+                </span>
+              ) : (
+                <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  AI không đọc được
+                </span>
+              )}
             </div>
-            {item.note && <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.note}</div>}
-          </div>
-          <button
-            type="button"
-            onClick={() => window.open(item.dataUrl, "_blank", "noopener,noreferrer")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
-          >
-            <FileText className="h-3.5 w-3.5" /> Xem file
-          </button>
-        </div>
-      ))}
-
-      {qualificationDocs.map((item, index) => (
-        <div key={`qualification-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold">Đánh giá AI v{qualificationDocs.length - index}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              Điểm {item.score}/100 · {item.label} · {formatDate(item.createdAt)}
+              {formatFileSize(item.size_bytes)} · {formatDate(item.created_at)}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* Xem NGAY trong app. .docx/.xlsx thì trình duyệt không render được nên chỉ
+                còn đường tải về.  #Huynh */}
+            {isViewableInApp(item.content_type) && (
+              <button
+                type="button"
+                onClick={() => onViewAttachment(item)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+              >
+                <Eye className="h-3.5 w-3.5" /> Xem
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => onViewQualification(item)}
+              onClick={() => downloadDealAttachment(item.id, item.filename)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
             >
-              <FileText className="h-3.5 w-3.5" /> Xem nội dung
+              <FileText className="h-3.5 w-3.5" /> Tải về
             </button>
-            <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-              Đã lưu
-            </span>
+            <button
+              type="button"
+              onClick={() => onDeleteAttachment(item.id)}
+              className="rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
+              aria-label="Xoá file"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       ))}
 
-      {proposals.map((item) => (
+      {/* Bản đánh giá KHÔNG liệt kê ở đây nữa — tab "Lịch sử" đã có, kèm nút Xem. Hai chỗ
+          kể cùng một chuyện là bắt người dùng đọc hai lần rồi tự hỏi có khác gì nhau không.
+          "Tài liệu" để dành cho thứ trao đổi với khách: file, báo giá, hợp đồng, hoá đơn.
+          #Huynh */}
+
+      {/* CHỈ hiện bản báo giá ĐANG DÙNG. Các bản trước đã có ở tab "Lịch sử" — liệt kê cả
+          ở đây là kể cùng một chuyện hai chỗ, và tab này phình ra sau vài lần "Tạo lại".
+          "Tài liệu" để dành cho thứ ĐANG trao đổi với khách.
+          "Đang dùng" = đã chấp nhận > đã gửi > bản nháp mới nhất. KHÔNG phải "bản mới
+          nhất": gửi cho khách xong mà bấm "Tạo lại" thì thứ khách đang CẦM vẫn là bản đã
+          gửi, không phải bản nháp vừa đẻ ra.  #Huynh */}
+      {currentProposals.map((item) => (
         <div key={`proposal-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Báo giá v{item.version_number}</div>
+            <div className="text-sm font-semibold">Báo giá lần {item.version_number}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
               {item.content?.title || "Báo giá cho yêu cầu hiện tại"} · {formatDate(item.created_at)}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
+              {proposalStatusLabel[item.status] ?? item.status}
+            </span>
             <button
               type="button"
               onClick={() => onViewProposal(item.id)}
@@ -2301,9 +2555,10 @@ function DocumentsTab({
             >
               <FileText className="h-3.5 w-3.5" /> Xem nội dung
             </button>
-            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
-              {proposalStatusLabel[item.status] ?? item.status}
-            </span>
+            <DownloadPdfButton
+              fetchPdf={() => downloadProposalPdf(item.id)}
+              filename={`bao-gia-lan-${item.version_number}.pdf`}
+            />
             {item.status === "sent" && (
               <>
                 <button
@@ -2331,7 +2586,7 @@ function DocumentsTab({
       {contracts.map((item) => (
         <div key={`contract-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Hợp đồng v{item.version_number}</div>
+            <div className="text-sm font-semibold">Hợp đồng lần {item.version_number}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2345,6 +2600,10 @@ function DocumentsTab({
             >
               <FileText className="h-3.5 w-3.5" /> Xem nội dung
             </button>
+            <DownloadPdfButton
+              fetchPdf={() => downloadContractPdf(item.id)}
+              filename={`hop-dong-lan-${item.version_number}.pdf`}
+            />
             {item.status === "draft" && (
               <button
                 type="button"
@@ -2362,105 +2621,20 @@ function DocumentsTab({
                 onClick={() => onSignContract(item)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <CheckCircle2 className="h-3.5 w-3.5" /> Khách đã ký
+                <CheckCircle2 className="h-3.5 w-3.5" /> Ghi nhận: khách đã ký
               </button>
             )}
           </div>
         </div>
       ))}
 
-      {attachments.length + qualificationDocs.length + proposals.length + contracts.length + invoices.length === 0 && (
+      {attachments.length + proposals.length + contracts.length + invoices.length === 0 && (
         <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Chưa có tài liệu nào cho deal này.
         </div>
       )}
     </div>
-    {attachmentDraft && (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
-        <div className="w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <div>
-              <h2 className="text-base font-bold">Thêm file</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{attachmentDraft.file.name}</p>
-            </div>
-            <button type="button" onClick={() => setAttachmentDraft(null)} className="rounded-lg p-2 hover:bg-secondary">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="space-y-4 px-5 py-4">
-            <label className="space-y-1.5 text-sm font-medium">
-              Tên tài liệu
-              <input
-                value={attachmentDraft.title}
-                onChange={(event) => setAttachmentDraft((current) => current ? { ...current, title: event.target.value } : current)}
-                placeholder="Ví dụ: Biên nhận chuyển khoản đợt 1"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-              />
-            </label>
-            <label className="space-y-1.5 text-sm font-medium">
-              Ghi chú
-              <textarea
-                value={attachmentDraft.note}
-                onChange={(event) => setAttachmentDraft((current) => current ? { ...current, note: event.target.value } : current)}
-                placeholder="Nhập nội dung cần nhớ, ví dụ số tiền, ngân hàng hoặc bối cảnh giao dịch."
-                className="min-h-28 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-              />
-            </label>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
-            <button type="button" onClick={() => setAttachmentDraft(null)} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary">
-              Hủy
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!attachmentDraft.title.trim()) {
-                  toast.error("Vui lòng đặt tên cho file.");
-                  return;
-                }
-                onAddAttachment(attachmentDraft.file, attachmentDraft.title, attachmentDraft.note);
-                setAttachmentDraft(null);
-              }}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            >
-              Lưu file
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
     </>
-  );
-}
-
-function HistoryTab({
-  historyItems,
-  isLoading,
-}: {
-  historyItems: Array<{ id?: string; date: string; text: string; channel?: string }>;
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Đang tải lịch sử...</div>;
-  }
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      {historyItems.length > 0 ? (
-        <ol className="space-y-4 border-l-2 border-border pl-4">
-          {historyItems.map((item, index) => (
-            <li key={item.id ?? index} className="relative">
-              <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-card" />
-              <div className="text-xs text-muted-foreground">{formatDate(item.date)} · {item.channel ?? "Ghi chú"}</div>
-              <div className="mt-1 text-sm">{item.text}</div>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          Chưa có lịch sử tương tác từ API comm-logs.
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -2533,7 +2707,7 @@ function QualificationViewModal({
   document,
   onClose,
 }: {
-  document: DealQualificationDocument;
+  document: DealQualification;
   onClose: () => void;
 }) {
   return (
@@ -2545,7 +2719,7 @@ function QualificationViewModal({
               <Bot className="h-4 w-4 text-primary" />
               <h2 className="text-base font-bold">Nội dung đánh giá AI</h2>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">Đã lưu ngày {formatDate(document.createdAt)}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Đã lưu ngày {formatDate(document.generated_at)}</p>
           </div>
           <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary">
             <X className="h-4 w-4" />
@@ -2553,32 +2727,20 @@ function QualificationViewModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
-            <div className="rounded-xl border border-border bg-muted/20 p-5">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Điểm đánh giá</div>
-              <div className="mt-3 text-5xl font-black text-primary">{document.score}</div>
-              <div className="mt-1 text-sm text-muted-foreground">/ 100 · {document.label}</div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/20 p-5">
-              <div className="text-sm font-semibold">Kết luận AI</div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">{document.rationale}</p>
-              <div className="mt-4 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
-                {document.recommendation}
-              </div>
-            </div>
-          </div>
+          {/* DÙNG CHUNG bộ mã hiển thị với panel lúc vừa chấm xong. Trước đây chỗ này tự
+              vẽ lấy, nên mở lại bản đã lưu là thấy giao diện CŨ: chỉ có điểm, kết luận và
+              vài dòng tín hiệu — không bảng phân rã, không khả năng chốt, không cờ đỏ.
+              Hai bản vẽ riêng thì kiểu gì cũng có ngày lệch nhau.  #Huynh */}
+          {/* Dựng view bằng ĐÚNG hàm mà bản vừa chấm xong dùng — hai nơi vẽ riêng thì kiểu
+              gì cũng có ngày lệch nhau.  #Huynh */}
+          <QualificationResultView view={toQualificationView(document)} />
 
-          <div className="mt-4 rounded-xl border border-border p-5">
-            <div className="text-sm font-semibold">Tín hiệu hệ thống phát hiện</div>
-            <div className="mt-3 space-y-2">
-              {document.signals.map((signal) => (
-                <div key={signal} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span>{signal}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {!document.breakdown?.length && (
+            <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+              Bản đánh giá này được lưu trước khi có bảng phân rã điểm. Chạy "Đánh giá lại" để có
+              đầy đủ căn cứ chấm điểm.
+            </p>
+          )}
         </div>
 
         <div className="shrink-0 border-t border-border px-6 py-4">
@@ -2594,10 +2756,31 @@ function QualificationViewModal({
   );
 }
 
-function ProposalViewModal({ proposalId, onClose }: { proposalId: string; onClose: () => void }) {
+function ProposalViewModal({
+  proposalId,
+  deal,
+  onClose,
+}: {
+  proposalId: string;
+  deal: Deal | null;
+  onClose: () => void;
+}) {
   const { data: proposal, isLoading } = useProposal(proposalId);
   const raw = proposal?.content as unknown as ProposalViewContent | undefined;
-  const renderedHtml = raw?.rendered_html || raw?.html;
+
+  // Dùng ĐÚNG bản server render như modal soạn thảo (getProposalPreview → iframe), để
+  // "Xem nội dung" trông y HỆT lúc vừa gen AI và y hệt PDF khách nhận.  #Huynh
+  const previewQuery = useQuery({
+    queryKey: ["proposal-preview", proposalId],
+    queryFn: () => getProposalPreview(proposalId),
+    enabled: !!proposalId,
+  });
+
+  // Dựng HTML bằng ĐÚNG hàm mà modal soạn thảo dùng, nên hai màn không thể hiện ra
+  // khác nhau nữa. Trước đây màn này tự in ra từng mục thô, còn modal dựng bản đẹp
+  // — cùng một báo giá mà trông như hai thứ khác nhau.
+  const renderedHtml =
+    proposal?.content && deal ? proposalToHtml(proposal.content, deal) : undefined;
 
   const toList = (v: string | string[] | undefined): string[] =>
     !v ? [] : Array.isArray(v) ? v : [v];
@@ -2632,7 +2815,11 @@ function ProposalViewModal({ proposalId, onClose }: { proposalId: string; onClos
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      <div
+        className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl ${
+          previewQuery.data ? "h-[85vh]" : "max-h-[90vh]"
+        }`}
+      >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
             <div className="flex items-center gap-2">
@@ -2650,14 +2837,20 @@ function ProposalViewModal({ proposalId, onClose }: { proposalId: string; onClos
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+          {previewQuery.isLoading || isLoading ? (
+            <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Đang tải nội dung...
             </div>
+          ) : previewQuery.data ? (
+            <iframe
+              title="Nội dung báo giá"
+              srcDoc={previewQuery.data}
+              className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
+            />
           ) : renderedHtml ? (
             <div
-              className="prose prose-sm max-w-none rounded-lg border border-border p-4 dark:prose-invert"
+              className="prose prose-sm max-w-none overflow-y-auto rounded-lg border border-border p-4 dark:prose-invert"
               dangerouslySetInnerHTML={{ __html: renderedHtml }}
             />
           ) : sections.length === 0 ? (
@@ -2665,7 +2858,7 @@ function ProposalViewModal({ proposalId, onClose }: { proposalId: string; onClos
               Báo giá này chưa có nội dung chi tiết.
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-5 overflow-y-auto">
               {sections.map((s) => (
                 <div key={s.label}>
                   <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</div>
@@ -2702,6 +2895,21 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
   const sendContract = useSendContract();
   const c = contract?.content;
 
+  // Bản nháp thì cho sửa NGAY trong tờ giấy (bấm vào điều khoản rồi gõ, tự lưu); gửi/ký rồi
+  // thì khóa. Xem useContractInlineEditor.  #Huynh
+  const editable = contract?.status === "draft";
+
+  // Dùng ĐÚNG bản server render (getContractPreview → iframe), để "Xem nội dung" trông
+  // y HỆT tờ hợp đồng khách nhận/ký — thay cho kiểu đổ từng trường thô trước đây, sơ sài
+  // đến mức nhìn như lừa đảo. Cùng khuôn với ProposalViewModal.  #Huynh
+  const previewQuery = useQuery({
+    queryKey: ["contract-preview", contractId, editable],
+    queryFn: () => getContractPreview(contractId, editable),
+    enabled: !!contractId && !!contract,
+  });
+
+  const { iframeRef } = useContractInlineEditor(contract, previewQuery.data);
+
   function handleSend() {
     sendContract.mutate(contractId, {
       onSuccess: () => {
@@ -2722,15 +2930,28 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
     { label: "Điều khoản bổ sung", value: c?.custom_clauses },
   ].filter((r) => r.value);
 
+  // Chỉ nhúng iframe khi hợp đồng CÓ nội dung thật. Hợp đồng nháp rỗng (chưa gen AI) vẫn
+  // render ra được một khung trống — nhúng cái đó vào thì nuốt mất lời nhắc "chưa điền,
+  // hãy Tạo Hợp Đồng AI". Có nội dung mới đáng đưa bản đẹp lên.  #Huynh
+  const showPreview = !!previewQuery.data && rows.length > 0;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      <div
+        className={`flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl ${
+          showPreview ? "max-w-4xl h-[85vh]" : "max-w-2xl max-h-[90vh]"
+        }`}
+      >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
             <h2 className="text-base font-bold">Nội dung hợp đồng</h2>
             {contract && (
               <p className="mt-0.5 text-xs text-muted-foreground">
-                v{contract.version_number} · {contract.status} · tạo {formatDate(contract.created_at)}
+                Lần {contract.version_number} · {CONTRACT_STATUS_LABELS[contract.status] ?? contract.status} · tạo{" "}
+                {formatDate(contract.created_at)}
+                {editable && showPreview && (
+                  <span className="ml-1 text-primary">· Bấm vào nội dung để sửa, tự lưu</span>
+                )}
               </p>
             )}
           </div>
@@ -2739,13 +2960,20 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+          {previewQuery.isLoading || isLoading ? (
+            <div className="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Đang tải nội dung...
             </div>
+          ) : showPreview ? (
+            <iframe
+              ref={iframeRef}
+              title="Nội dung hợp đồng"
+              srcDoc={previewQuery.data}
+              className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
+            />
           ) : (
-            <div className="space-y-5">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto">
               {rows.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                   Nội dung hợp đồng chưa được điền. Hãy dùng "Tạo Hợp Đồng AI" để tạo nội dung tự động.
@@ -2757,6 +2985,9 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
                       <div>
                         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bên cung cấp</div>
                         <div className="font-medium">{c.parties.freelancer?.name ?? "Freelancer"}</div>
+                        {c.parties.freelancer?.business_name && (
+                          <div className="text-xs text-muted-foreground">{c.parties.freelancer.business_name}</div>
+                        )}
                         {c.parties.freelancer?.email && <div className="text-xs text-muted-foreground">{c.parties.freelancer.email}</div>}
                       </div>
                       <div>
@@ -2774,7 +3005,6 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
                   ))}
                 </>
               )}
-              {contract && <ContractMilestonesSection contractId={contract.id} contractStatus={contract.status} />}
             </div>
           )}
         </div>
@@ -2808,277 +3038,5 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
         </div>
       </div>
     </div>
-  );
-}
-
-function ContractMilestonesSection({
-  contractId,
-  contractStatus,
-}: {
-  contractId: string;
-  contractStatus: string;
-}) {
-  const editable = contractStatus === "draft";
-  const milestonesQuery = useMilestones(contractId);
-  const addMilestone = useAddMilestone();
-  const updateMilestone = useUpdateMilestone();
-  const deleteMilestone = useDeleteMilestone();
-  const milestones = milestonesQuery.data ?? [];
-  const totalAmount = milestones.reduce((sum, item) => sum + item.amount, 0);
-
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PaymentMilestoneResponse | null>(null);
-  const [form, setForm] = useState({ description: "", amount: "", dueDate: "" });
-
-  const isSaving = addMilestone.isPending || updateMilestone.isPending;
-  const editingMilestone = milestones.find((item) => item.id === editingId);
-
-  function resetForm() {
-    setAdding(false);
-    setEditingId(null);
-    setForm({ description: "", amount: "", dueDate: "" });
-  }
-
-  function startAdd() {
-    setAdding(true);
-    setEditingId(null);
-    setForm({ description: "", amount: "", dueDate: "" });
-  }
-
-  function startEdit(item: PaymentMilestoneResponse) {
-    setAdding(false);
-    setEditingId(item.id);
-    setForm({
-      description: item.description,
-      amount: String(item.amount),
-      dueDate: toDateInputValue(item.due_date),
-    });
-  }
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const amount = parseMoneyInput(form.amount);
-    const payload = {
-      description: form.description.trim(),
-      amount,
-      due_date: form.dueDate || undefined,
-    };
-
-    if (!payload.description || amount <= 0) {
-      toast.error("Vui lòng nhập mô tả và số tiền hợp lệ cho mốc thanh toán.");
-      return;
-    }
-
-    if (editingMilestone) {
-      updateMilestone.mutate(
-        {
-          contractId,
-          milestoneId: editingMilestone.id,
-          payload,
-        },
-        {
-          onSuccess: () => {
-            toast.success("Đã cập nhật mốc thanh toán.");
-            resetForm();
-          },
-          onError: () => toast.error("Cập nhật mốc thanh toán thất bại. Vui lòng thử lại."),
-        }
-      );
-      return;
-    }
-
-    addMilestone.mutate(
-      {
-        contractId,
-        payload: {
-          ...payload,
-          sort_order: milestones.length + 1,
-        },
-      },
-      {
-        onSuccess: () => {
-          toast.success("Đã thêm mốc thanh toán.");
-          resetForm();
-        },
-        onError: () => toast.error("Thêm mốc thanh toán thất bại. Vui lòng thử lại."),
-      }
-    );
-  }
-
-  function confirmDeleteMilestone() {
-    if (!deleteTarget) return;
-    deleteMilestone.mutate(
-      { contractId, milestoneId: deleteTarget.id },
-      {
-        onSuccess: () => {
-          toast.success("Đã xóa mốc thanh toán.");
-          setDeleteTarget(null);
-        },
-        onError: () => toast.error("Xóa mốc thanh toán thất bại. Vui lòng thử lại."),
-      }
-    );
-  }
-
-  return (
-    <section className="rounded-xl border border-border bg-muted/20 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-bold">
-            <CreditCard className="h-4 w-4 text-primary" />
-            Mốc thanh toán
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {milestones.length > 0
-              ? `${milestones.length} mốc · tổng ${formatVND(totalAmount)}`
-              : "Chia hợp đồng thành các đợt thanh toán để theo dõi invoice sau này."}
-          </p>
-        </div>
-        {editable && !adding && !editingId && (
-          <button
-            type="button"
-            onClick={startAdd}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"
-          >
-            <Plus className="h-3.5 w-3.5" /> Thêm mốc
-          </button>
-        )}
-      </div>
-
-      {!editable && (
-        <div className="mt-3 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-          Mốc thanh toán đã khóa sau khi hợp đồng được gửi hoặc ký.
-        </div>
-      )}
-
-      {milestonesQuery.isLoading ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Đang tải mốc thanh toán...
-        </div>
-      ) : (
-        <div className="mt-4 space-y-2">
-          {milestones.map((item) => (
-            <div
-              key={item.id}
-              className={cn(
-                "grid gap-3 rounded-lg border border-border bg-background p-3 text-sm",
-                editable ? "md:grid-cols-[minmax(0,1fr)_130px_120px_96px]" : "md:grid-cols-[minmax(0,1fr)_130px_120px]"
-              )}
-            >
-              <div className="min-w-0">
-                <div className="font-semibold">{item.description}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {item.invoice_id ? "Đã liên kết hóa đơn" : "Chưa xuất hóa đơn"}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Số tiền</div>
-                <div className="font-semibold text-primary">{formatVND(item.amount)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Hạn thanh toán</div>
-                <div className="font-medium">{item.due_date ? formatDate(item.due_date) : "Chưa đặt"}</div>
-              </div>
-              {editable && (
-                <div className="flex items-center justify-end gap-1">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(item)}
-                    className="rounded-lg border border-border p-2 hover:bg-secondary"
-                    aria-label="Sửa mốc thanh toán"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeleteTarget(item)}
-                    className="rounded-lg border border-border p-2 text-destructive hover:bg-destructive/10"
-                    aria-label="Xóa mốc thanh toán"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-
-          {milestones.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border bg-background p-5 text-center text-sm text-muted-foreground">
-              {editable
-                ? "Chưa có mốc thanh toán. Bạn có thể thêm ví dụ: Tạm ứng 50%, nghiệm thu 50%."
-                : "Hợp đồng này chưa có mốc thanh toán."}
-            </div>
-          )}
-        </div>
-      )}
-
-      {(adding || editingId) && editable && (
-        <form onSubmit={handleSubmit} className="mt-4 rounded-lg border border-primary/20 bg-background p-3">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px_150px]">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Mô tả mốc
-              <input
-                value={form.description}
-                onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                placeholder="Ví dụ: Tạm ứng 50%"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-primary"
-              />
-            </label>
-            <label className="text-xs font-semibold text-muted-foreground">
-              Số tiền
-              <input
-                value={form.amount}
-                onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
-                placeholder="5.000.000"
-                inputMode="numeric"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-primary"
-              />
-            </label>
-            <label className="text-xs font-semibold text-muted-foreground">
-              Hạn thanh toán
-              <input
-                type="date"
-                value={form.dueDate}
-                onChange={(event) => setForm((prev) => ({ ...prev, dueDate: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-primary"
-              />
-            </label>
-          </div>
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={resetForm}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary"
-            >
-              <X className="h-3.5 w-3.5" /> Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {editingId ? "Lưu mốc" : "Thêm mốc"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Xóa mốc thanh toán?"
-        description={
-          deleteTarget
-            ? `Mốc "${deleteTarget.description}" sẽ bị xóa khỏi hợp đồng nháp.`
-            : undefined
-        }
-        confirmLabel="Xóa mốc"
-        cancelLabel="Giữ lại"
-        tone="danger"
-        isLoading={deleteMilestone.isPending}
-        onConfirm={confirmDeleteMilestone}
-      />
-    </section>
   );
 }

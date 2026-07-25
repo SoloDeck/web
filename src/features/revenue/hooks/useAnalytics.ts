@@ -4,6 +4,7 @@ import {
   getRevenue,
   getWinRate,
   getPipeline,
+  getMonthlyRevenue,
   getTopClients,
   getAiUsage,
   type RevenuePeriodType,
@@ -43,6 +44,14 @@ export function usePipeline(params: { snapshot_date?: string } = {}) {
   return useQuery({
     queryKey: ["analytics", "pipeline", params],
     queryFn: () => getPipeline(params),
+  });
+}
+
+/** GET /analytics/revenue/monthly — invoiced/collected per month (continuous series). */
+export function useMonthlyRevenue(params: { months?: number } = {}) {
+  return useQuery({
+    queryKey: ["analytics", "revenue-monthly", params],
+    queryFn: () => getMonthlyRevenue(params),
   });
 }
 

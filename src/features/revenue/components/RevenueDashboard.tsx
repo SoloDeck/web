@@ -1,17 +1,21 @@
-import { Wallet, Target, BarChart3, Clock, AlertTriangle, Users, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import {
   useDashboard,
   useRevenue,
   useWinRate,
-  useTopClients,
+  useMonthlyRevenue,
+  usePipeline,
 } from "@/features/revenue/hooks/useAnalytics";
+import { MonthlyRevenueChart } from "@/features/revenue/components/MonthlyRevenueChart";
+import { PipelineFunnel } from "@/features/revenue/components/PipelineFunnel";
 
 export function RevenueDashboard() {
   const dashboard = useDashboard();
   const revenue = useRevenue();
   const winRate = useWinRate();
-  const topClients = useTopClients({ limit: 5, metric: "total_collected" });
+  const monthly = useMonthlyRevenue({ months: 12 });
+  const pipeline = usePipeline();
 
   const isLoading =
     dashboard.isLoading || revenue.isLoading || winRate.isLoading;
@@ -45,80 +49,30 @@ export function RevenueDashboard() {
   const winRatePct = Math.round((winRate.data?.win_rate ?? 0) * 100);
 
   const avgDealSize = won > 0 ? Math.round(collected / won) : 0;
-  const clients = topClients.data ?? [];
-  const maxClientRevenue = clients.reduce((m, c) => Math.max(m, c.revenue), 0);
+  const totalClients = dashboard.data?.total_clients ?? 0;
+  const pendingInvoices = dashboard.data?.pending_invoices ?? 0;
+  const activeDeals = dashboard.data?.active_deals ?? 0;
 
   return (
     <div className="p-4 lg:p-6 h-full overflow-y-auto">
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Metric
-            icon={Wallet}
-            label="Doanh thu đã thu"
-            value={formatVND(collected)}
-            hint={`${dashboard.data?.total_clients ?? 0} khách hàng`}
-            tone="primary"
-          />
-          <Metric
-            icon={Clock}
-            label="Còn phải thu"
-            value={formatVND(outstanding)}
-            hint={`${dashboard.data?.pending_invoices ?? 0} hoá đơn chờ thu`}
-            tone="warning"
-          />
-          <Metric
-            icon={Target}
-            label="Win rate"
-            value={`${winRatePct}%`}
-            hint={`${won} thắng · ${lost} thua`}
-            tone="success"
-          />
-          <Metric
-            icon={BarChart3}
-            label="Giá trị TB / deal"
-            value={formatVND(avgDealSize)}
-            hint={`${dashboard.data?.active_deals ?? 0} deal đang chạy`}
-            tone="default"
-          />
-        </div>
+      {/* Trước đây có một hàng 4 ô số liệu ở đầu trang, nhưng chúng lặp lại phần lớn cái
+          đã hiện trong các card bên dưới (đã thu, còn phải thu, win rate) và đẩy nội dung
+          chính xuống dưới màn hình. Bỏ hàng đó, gấp vài số còn lẻ vào đúng card của nó —
+          gọn hơn, và bản mobile không phải xử lý một lưới 4 cột.  #Huynh */}
+      <div className="space-y-4">
+        {/* Doanh thu theo tháng — biểu đồ chính, mắt đọc trước. */}
+        {monthly.data && <MonthlyRevenueChart data={monthly.data} />}
 
+        {/* Ba card một hàng: phễu pipeline · doanh thu · hiệu quả chốt deal. Card "Khách
+            hàng doanh thu cao" đã bỏ — Phiếu (Bảng doanh thu) chỉ đòi hoá đơn theo tháng,
+            tồn đọng, tỷ lệ thắng, quy mô deal TB; top khách hàng là phần thêm, mà bỏ đi thì
+            trang vừa màn hình không phải cuộn.  #Huynh */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 rounded-xl border border-border p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="font-semibold flex items-center gap-2">
-                <Users className="h-4 w-4 text-primary" /> Khách hàng doanh thu cao
-              </div>
-              <div className="text-xs text-muted-foreground">{clients.length} mục</div>
-            </div>
-            <div className="space-y-2">
-              {clients.length === 0 && (
-                <div className="text-sm text-muted-foreground py-6 text-center">
-                  Chưa có dữ liệu doanh thu theo khách hàng.
-                </div>
-              )}
-              {clients.map((c) => {
-                const pct = maxClientRevenue > 0 ? Math.round((c.revenue / maxClientRevenue) * 100) : 0;
-                return (
-                  <div
-                    key={c.client_id}
-                    className="rounded-lg border border-border px-3 py-2.5 hover:bg-secondary/30"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-sm truncate">{c.name}</div>
-                      <div className="font-semibold text-sm text-primary shrink-0">{formatVND(c.revenue)}</div>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden mt-1.5">
-                      <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {pipeline.data && <PipelineFunnel data={pipeline.data} />}
 
           <div className="rounded-xl border border-border p-5">
             <div className="font-semibold flex items-center gap-2 mb-4">
-              <AlertTriangle className="h-4 w-4 text-warning" /> Tổng quan
+              <AlertTriangle className="h-4 w-4 text-warning" /> Doanh thu
             </div>
             <div className="space-y-3 text-sm">
               <Row label="Đã xuất hoá đơn" value={formatVND(invoiced)} />
@@ -127,21 +81,36 @@ export function RevenueDashboard() {
               <div className="border-t border-dashed border-border" />
               <Row label="Tổng doanh thu" value={formatVND(dashboard.data?.total_revenue ?? 0)} tone="primary" />
             </div>
+            <div className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+              {pendingInvoices} hoá đơn chờ thu · {totalClients} khách hàng
+            </div>
           </div>
-        </div>
 
-        <div className="rounded-xl border border-border p-5">
-          <div className="font-semibold flex items-center gap-2 mb-3">
-            <Sparkles className="h-4 w-4 text-primary" /> Tỷ lệ chốt deal
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-3xl font-bold tracking-tight">{winRatePct}%</div>
-            <div className="flex-1">
-              <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full bg-success" style={{ width: `${winRatePct}%` }} />
+          <div className="rounded-xl border border-border p-5">
+            <div className="font-semibold flex items-center gap-2 mb-3">
+              <Sparkles className="h-4 w-4 text-primary" /> Hiệu quả chốt deal
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-3xl font-bold tracking-tight">{winRatePct}%</div>
+              <div className="flex-1">
+                <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full bg-success" style={{ width: `${winRatePct}%` }} />
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1.5">
+                  {won} deal thắng · {lost} deal thua
+                </div>
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1.5">
-                {won} deal thắng · {lost} deal thua
+            </div>
+            {/* Giá trị TB/deal + số deal đang chạy — trước đây nằm ở ô số liệu đầu trang,
+                giờ về đúng card "deal". */}
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-border pt-3">
+              <div>
+                <div className="text-xs text-muted-foreground">Giá trị TB / deal</div>
+                <div className="font-semibold">{formatVND(avgDealSize)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Deal đang chạy</div>
+                <div className="font-semibold">{activeDeals}</div>
               </div>
             </div>
           </div>
@@ -172,40 +141,6 @@ function Row({
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground">{label}</span>
       <span className={`font-semibold ${cls}`}>{value}</span>
-    </div>
-  );
-}
-
-function Metric({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  hint: string;
-  tone: "primary" | "warning" | "success" | "default";
-}) {
-  const toneCls =
-    tone === "primary"
-      ? "text-primary bg-primary/10"
-      : tone === "warning"
-        ? "text-warning-foreground bg-warning/15"
-        : tone === "success"
-          ? "text-success bg-success/10"
-          : "text-foreground bg-secondary";
-
-  return (
-    <div className="rounded-xl border border-border p-4">
-      <div className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${toneCls}`}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="text-xs text-muted-foreground mt-3">{label}</div>
-      <div className="text-xl font-bold tracking-tight mt-0.5">{value}</div>
-      <div className="text-[11px] text-muted-foreground mt-1">{hint}</div>
     </div>
   );
 }

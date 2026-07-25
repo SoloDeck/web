@@ -12,6 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AdminPlansRouteImport } from './routes/admin.plans'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
+import { Route as AdminAiCostsRouteImport } from './routes/admin.ai-costs'
+import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as FindFreelancerRouteImport } from './routes/find-freelancer'
 import { Route as IndexRouteImport } from './routes/index'
@@ -42,6 +45,21 @@ const AdminPlansRoute = AdminPlansRouteImport.update({
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminTemplatesRoute = AdminTemplatesRouteImport.update({
+  id: '/admin/templates',
+  path: '/admin/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAiCostsRoute = AdminAiCostsRouteImport.update({
+  id: '/admin/ai-costs',
+  path: '/admin/ai-costs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeRoute = HomeRouteImport.update({
@@ -99,6 +117,9 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/admin/plans': typeof AdminPlansRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
+  '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
@@ -115,6 +136,9 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/admin/plans': typeof AdminPlansRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
+  '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
@@ -132,6 +156,9 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/admin/plans': typeof AdminPlansRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
+  '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
@@ -150,6 +177,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/admin/plans'
     | '/admin/users'
+    | '/admin/templates'
+    | '/admin/ai-costs'
+    | '/admin/audit'
     | '/home'
     | '/find-freelancer'
     | '/'
@@ -166,6 +196,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/admin/plans'
     | '/admin/users'
+    | '/admin/templates'
+    | '/admin/ai-costs'
+    | '/admin/audit'
     | '/home'
     | '/find-freelancer'
     | '/'
@@ -182,6 +215,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/admin/plans'
     | '/admin/users'
+    | '/admin/templates'
+    | '/admin/ai-costs'
+    | '/admin/audit'
     | '/home'
     | '/find-freelancer'
     | '/'
@@ -199,6 +235,9 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   AdminPlansRoute: typeof AdminPlansRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  AdminTemplatesRoute: typeof AdminTemplatesRoute
+  AdminAiCostsRoute: typeof AdminAiCostsRoute
+  AdminAuditRoute: typeof AdminAuditRoute
   HomeRoute: typeof HomeRoute
   FindFreelancerRoute: typeof FindFreelancerRoute
   IndexRoute: typeof IndexRoute
@@ -233,6 +272,27 @@ declare module '@tanstack/react-router' {
       path: '/admin/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/templates': {
+      id: '/admin/templates'
+      path: '/admin/templates'
+      fullPath: '/admin/templates'
+      preLoaderRoute: typeof AdminTemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/ai-costs': {
+      id: '/admin/ai-costs'
+      path: '/admin/ai-costs'
+      fullPath: '/admin/ai-costs'
+      preLoaderRoute: typeof AdminAiCostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/home': {
@@ -319,6 +379,9 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   AdminPlansRoute: AdminPlansRoute,
   AdminUsersRoute: AdminUsersRoute,
+  AdminTemplatesRoute: AdminTemplatesRoute,
+  AdminAiCostsRoute: AdminAiCostsRoute,
+  AdminAuditRoute: AdminAuditRoute,
   HomeRoute: HomeRoute,
   FindFreelancerRoute: FindFreelancerRoute,
   IndexRoute: IndexRoute,

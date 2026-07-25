@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   BarChart3,
   Bot,
+  Coins,
+  ScrollText,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -26,21 +30,30 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import {
   useAdminPlans,
+  useAdminTemplates,
   useAdminUsers,
+  useAiCosts,
+  useAuditLogs,
   useCreateAdminPlan,
+  useCreateAdminTemplate,
+  useOverrideSubscription,
   useUpdateAdminPlan,
+  useUpdateAdminTemplate,
   useUpdateAdminUser,
 } from "@/features/admin/hooks/useAdmin";
+import { PROFESSIONS } from "@/features/profile/types";
 import { cn } from "@/lib/utils";
 import type {
   AdminPlan,
   AdminPlanPayload,
+  AdminTemplate,
+  AdminTemplateType,
   AdminUser,
   AdminUserRole,
   AdminUserStatus,
 } from "@/services/adminService";
 
-export type AdminPage = "dashboard" | "users" | "plans";
+export type AdminPage = "dashboard" | "users" | "plans" | "templates" | "ai-costs" | "audit";
 
 const ADMIN_NAV_ITEMS: {
   page: AdminPage;
@@ -49,28 +62,49 @@ const ADMIN_NAV_ITEMS: {
   icon: ComponentType<{ className?: string }>;
   description: string;
 }[] = [
-  {
-    page: "dashboard",
-    label: "Tổng quan",
-    path: "/admin",
-    icon: LayoutDashboard,
-    description: "Tổng quan vận hành SoloDesk",
-  },
-  {
-    page: "users",
-    label: "Tài khoản",
-    path: "/admin/users",
-    icon: Users,
-    description: "Quản lý người dùng và trạng thái truy cập",
-  },
-  {
-    page: "plans",
-    label: "Gói dịch vụ",
-    path: "/admin/plans",
-    icon: CreditCard,
-    description: "Danh mục gói và giới hạn sử dụng",
-  },
-];
+    {
+      page: "dashboard",
+      label: "Tổng quan",
+      path: "/admin",
+      icon: LayoutDashboard,
+      description: "Tổng quan vận hành SoloDesk",
+    },
+    {
+      page: "users",
+      label: "Tài khoản",
+      path: "/admin/users",
+      icon: Users,
+      description: "Quản lý người dùng và trạng thái truy cập",
+    },
+    {
+      page: "plans",
+      label: "Gói dịch vụ",
+      path: "/admin/plans",
+      icon: CreditCard,
+      description: "Danh mục gói và giới hạn sử dụng",
+    },
+    {
+      page: "templates",
+      label: "Thư viện mẫu",
+      path: "/admin/templates",
+      icon: FileText,
+      description: "Mẫu điều khoản báo giá / hợp đồng theo nghề",
+    },
+    {
+      page: "ai-costs",
+      label: "Chi phí AI",
+      path: "/admin/ai-costs",
+      icon: Bot,
+      description: "Token và chi phí ước tính mỗi lần gọi AI",
+    },
+    {
+      page: "audit",
+      label: "Nhật ký",
+      path: "/admin/audit",
+      icon: ScrollText,
+      description: "Ai làm gì, cho ai, lúc nào",
+    },
+  ];
 
 const USER_ROLE_OPTIONS: { value: AdminUserRole; label: string }[] = [
   { value: "freelancer", label: "Người dùng" },
@@ -167,6 +201,12 @@ export function AdminDashboard({ page = "dashboard" }: { page?: AdminPage }) {
             <UsersPage users={users} stats={stats} />
           ) : page === "plans" ? (
             <PlansPage plans={plans} stats={stats} />
+          ) : page === "templates" ? (
+            <TemplatesPage />
+          ) : page === "ai-costs" ? (
+            <AiCostsPage />
+          ) : page === "audit" ? (
+            <AuditLogPage />
           ) : (
             <DashboardPage users={users} stats={stats} />
           )}
@@ -459,10 +499,11 @@ function UsersPage({ users, stats }: { users: AdminUser[]; stats: AdminStats }) 
         </div>
 
         <div className="overflow-hidden rounded-xl border border-border bg-background">
-          <div className="hidden grid-cols-[minmax(280px,1fr)_130px_170px_136px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
+          <div className="hidden grid-cols-[minmax(240px,1fr)_120px_150px_170px_136px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
             <div>Người dùng</div>
             <div>Quyền</div>
             <div>Trạng thái</div>
+            <div>Gói</div>
             <div className="text-right">Thao tác</div>
           </div>
           <div className="divide-y divide-border">
@@ -513,7 +554,7 @@ function UserRow({ user }: { user: AdminUser }) {
   }
 
   return (
-    <article className="grid gap-2 px-4 py-2 lg:grid-cols-[minmax(280px,1fr)_130px_170px_136px] lg:items-center">
+    <article className="grid gap-2 px-4 py-2 lg:grid-cols-[minmax(240px,1fr)_120px_150px_170px_136px] lg:items-center">
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold">{user.full_name}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</div>
@@ -553,6 +594,15 @@ function UserRow({ user }: { user: AdminUser }) {
       ) : (
         <StatusPill status={user.status} />
       )}
+
+      {/* Gói của user + đổi gói ngay tại đây.
+          Backend TRẢ KÈM `subscription` trong GET /admin/users, nhưng type AdminUser của
+          frontend không khai nên vứt đi — cùng cái bẫy đã gặp với next_step của AI.
+
+          Đây là cách DUY NHẤT để nâng gói: freelancer không tự nâng cấp được (tự nâng cấp
+          đòi cổng thanh toán thật, nằm ngoài phạm vi đồ án). Admin thu tiền ngoài hệ thống
+          rồi kích hoạt ở đây.  #Huynh */}
+      <PlanCell user={user} />
 
       <div className="flex min-w-0 justify-end gap-1.5">
         {editing ? (
@@ -744,7 +794,6 @@ type PlanDraft = {
   name: string;
   slug: string;
   price_monthly: string;
-  currency: string;
   can_use_ai: boolean;
   can_export_pdf: boolean;
   max_clients: string;
@@ -767,11 +816,9 @@ function PlanForm({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<PlanDraft>(() => toPlanDraft(plan));
+  const isEditing = Boolean(plan);
   const canSubmit =
     draft.name.trim().length > 0 &&
-    draft.slug.trim().length > 0 &&
-    draft.price_monthly.trim().length > 0 &&
-    draft.currency.trim().length > 0 &&
     Number(draft.max_ai_generations_per_month || 0) >= 0;
 
   function set(field: keyof PlanDraft, value: string | boolean) {
@@ -787,15 +834,28 @@ function PlanForm({
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <TextInput label="Tên gói" value={draft.name} onChange={(value) => set("name", value)} />
-        <TextInput label="Mã gói" value={draft.slug} onChange={(value) => set("slug", value)} />
         <TextInput
-          label="Giá tháng"
-          value={draft.price_monthly}
-          inputMode="decimal"
-          onChange={(value) => set("price_monthly", value)}
+          label="Tên gói"
+          value={draft.name}
+          onChange={(value) =>
+            // Tạo mới: mã gói sinh theo tên, admin khỏi nghĩ. SỬA gói: giữ nguyên mã cũ —
+            // code tra gói theo mã (vd `slug == "free"` lúc đăng ký), đổi mã là gãy.  #Huynh
+            setDraft((current) => ({
+              ...current,
+              name: value,
+              slug: isEditing ? current.slug : slugifyPlanName(value),
+            }))
+          }
         />
-        <TextInput label="Tiền tệ" value={draft.currency} onChange={(value) => set("currency", value.toUpperCase())} />
+
+        {/* Giá luôn VND — hệ thống cho người Việt, không hỏi tiền tệ nữa. Gõ tới đâu chấm
+            ngăn nghìn tới đó: 2000 -> 2.000  #Huynh */}
+        <TextInput
+          label="Giá tháng (VND)"
+          value={draft.price_monthly}
+          inputMode="numeric"
+          onChange={(value) => set("price_monthly", groupThousands(onlyDigits(value)))}
+        />
         <TextInput
           label="Giới hạn khách hàng"
           value={draft.max_clients}
@@ -817,6 +877,20 @@ function PlanForm({
           onChange={(value) => set("max_ai_generations_per_month", onlyDigits(value))}
         />
       </div>
+
+      {/* Mã gói KHÔNG bắt gõ tay nữa — tự sinh từ tên. Vẫn hiện ra để admin biết nó tồn
+          tại và vì sao: code tra gói theo MÃ, nên đổi tên gói không làm gãy gì.  #Huynh */}
+      {(draft.slug || draft.name) && (
+        <p className="text-xs text-muted-foreground">
+          Mã gói:{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">
+            {draft.slug || slugifyPlanName(draft.name)}
+          </code>{" "}
+          — {isEditing
+            ? "giữ nguyên khi sửa, vì hệ thống tra gói theo mã này."
+            : "tự sinh từ tên. Hệ thống tra gói theo mã, nên sau này đổi tên gói không ảnh hưởng gì."}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-4 border-t border-border pt-4">
         <CheckboxField label="Cho phép dùng AI" checked={draft.can_use_ai} onChange={(checked) => set("can_use_ai", checked)} />
@@ -1114,12 +1188,35 @@ function buildAdminStats(users: AdminUser[], plans: AdminPlan[]) {
   };
 }
 
+/**
+ * Sinh MÃ GÓI từ tên. Admin không phải tự nghĩ ra mã.
+ *
+ * Vì sao gói cần MÃ riêng bên cạnh TÊN: tên là để HIỂN THỊ (admin đổi thoải mái), còn mã là
+ * KHOÁ CODE — code tra gói theo mã, ví dụ lúc đăng ký tự gán gói miễn phí (`slug == "free"`).
+ * Đổi tên "Free" thành "Miễn phí" mà mã giữ nguyên thì không gì hỏng. Nếu gộp làm một, đổi
+ * tên là gãy đăng ký.  #Huynh
+ */
+function slugifyPlanName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+}
+
+/** Chấm ngăn nghìn kiểu Việt: "2000" -> "2.000" */
+function groupThousands(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
 function toPlanDraft(plan?: AdminPlan): PlanDraft {
   return {
     name: plan?.name ?? "",
     slug: plan?.slug ?? "",
-    price_monthly: plan ? String(plan.price_monthly) : "0",
-    currency: plan?.currency ?? "VND",
+    price_monthly: plan ? groupThousands(onlyDigits(String(plan.price_monthly))) : "",
     can_use_ai: plan?.can_use_ai ?? false,
     can_export_pdf: plan?.can_export_pdf ?? false,
     max_clients: plan?.max_clients == null ? "" : String(plan.max_clients),
@@ -1132,9 +1229,13 @@ function toPlanDraft(plan?: AdminPlan): PlanDraft {
 function toPlanPayload(draft: PlanDraft): AdminPlanPayload {
   return {
     name: draft.name.trim(),
-    slug: draft.slug.trim(),
-    price_monthly: draft.price_monthly.trim(),
-    currency: draft.currency.trim().toUpperCase() || "VND",
+    // Mã gói tự sinh từ tên khi tạo mới; sửa gói thì giữ nguyên mã cũ (đổi mã có thể làm
+    // gãy code tra gói theo mã).
+    slug: draft.slug.trim() || slugifyPlanName(draft.name),
+    // Bỏ dấu chấm ngăn nghìn trước khi gửi: "2.000" -> "2000".
+    price_monthly: onlyDigits(draft.price_monthly) || "0",
+    // Hệ thống cho người Việt — luôn VND, không hỏi.  #Huynh
+    currency: "VND",
     can_use_ai: draft.can_use_ai,
     can_export_pdf: draft.can_export_pdf,
     max_clients: toNullableNumber(draft.max_clients),
@@ -1149,7 +1250,7 @@ function toNullableNumber(value: string): number | null {
 }
 
 function onlyDigits(value: string): string {
-  return value.replace(/\D/g, "");
+  return value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
 }
 
 function clamp(value: number): number {
@@ -1178,4 +1279,510 @@ function formatMoney(value: string | number, currency: string): string {
   } catch {
     return `${amount.toLocaleString("vi-VN")} ${currency}`;
   }
+}
+
+/** Gói hiện tại của user + đổi gói (admin only). */
+function PlanCell({ user }: { user: AdminUser }) {
+  const { data: plans } = useAdminPlans();
+  const override = useOverrideSubscription();
+  const [open, setOpen] = useState(false);
+
+  const sub = user.subscription;
+  const planName = sub?.plan_name ?? sub?.plan_slug ?? "—";
+
+  if (!sub) {
+    return <div className="text-sm text-muted-foreground">Chưa có gói</div>;
+  }
+
+  if (!open) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium">{planName}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 px-2 text-xs"
+          onClick={() => setOpen(true)}
+        >
+          Đổi
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <select
+        defaultValue={sub.plan_id}
+        onChange={(event) => {
+          const planId = event.target.value;
+          if (planId === sub.plan_id) {
+            setOpen(false);
+            return;
+          }
+          override.mutate(
+            { subscriptionId: sub.id, planId },
+            { onSettled: () => setOpen(false) }
+          );
+        }}
+        disabled={override.isPending}
+        className="w-full min-w-0 rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none"
+        aria-label="Đổi gói"
+      >
+        {(plans ?? []).map((plan) => (
+          <option key={plan.id} value={plan.id}>
+            {plan.name}
+          </option>
+        ))}
+      </select>
+      {override.isPending ? (
+        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 px-1.5"
+          onClick={() => setOpen(false)}
+        >
+          <X className="size-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Thư viện mẫu điều khoản theo nghề (Phiếu SU26SE083, Gói 6)
+// ---------------------------------------------------------------------------
+
+const TEMPLATE_TYPE_LABEL: Record<AdminTemplateType, string> = {
+  proposal: "Báo giá",
+  contract: "Hợp đồng",
+};
+
+/** Nhãn nghề tra từ PROFESSIONS (dùng chung với hồ sơ freelancer). null = mẫu dùng chung. */
+function professionLabel(slug: string | null): string {
+  if (!slug) return "Dùng chung";
+  return PROFESSIONS.find((p) => p.value === slug)?.label ?? slug;
+}
+
+function TemplatesPage() {
+  const [typeFilter, setTypeFilter] = useState<AdminTemplateType | "">("");
+  const [professionFilter, setProfessionFilter] = useState<string>("");
+  const [showCreate, setShowCreate] = useState(false);
+
+  const filter = {
+    ...(typeFilter ? { template_type: typeFilter } : {}),
+    ...(professionFilter ? { profession: professionFilter } : {}),
+  };
+  const templatesQuery = useAdminTemplates(filter);
+  const createTemplate = useCreateAdminTemplate();
+  const templates = templatesQuery.data ?? [];
+
+  const activeCount = templates.filter((t) => t.is_active).length;
+  const byProfession = new Set(templates.map((t) => t.profession).filter(Boolean)).size;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricCard compact icon={FileText} label="Tổng mẫu" value={String(templates.length)} hint="Theo bộ lọc hiện tại" tone="primary" />
+        <MetricCard compact icon={CheckCircle2} label="Đang bật" value={String(activeCount)} hint="Mẫu đang dùng được" tone="success" />
+        <MetricCard compact icon={Users} label="Nghề có mẫu riêng" value={String(byProfession)} hint="Chưa tính mẫu dùng chung" tone="default" />
+      </div>
+
+      <PanelShell
+        title="Thư viện mẫu điều khoản"
+        icon={FileText}
+        action={
+          <Button type="button" size="sm" onClick={() => setShowCreate((c) => !c)}>
+            {showCreate ? <X className="size-4" /> : <Plus className="size-4" />}
+            {showCreate ? "Đóng form" : "Tạo mẫu"}
+          </Button>
+        }
+      >
+        {/* Bộ lọc theo loại + nghề — đúng cách admin duyệt thư viện "theo nhóm nghề". */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as AdminTemplateType | "")}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Tất cả loại</option>
+            <option value="proposal">Báo giá</option>
+            <option value="contract">Hợp đồng</option>
+          </select>
+          <select
+            value={professionFilter}
+            onChange={(e) => setProfessionFilter(e.target.value)}
+            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Tất cả nghề</option>
+            {PROFESSIONS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {showCreate && (
+          <div className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <TemplateForm
+              submitLabel="Tạo mẫu mới"
+              isSubmitting={createTemplate.isPending}
+              onCancel={() => setShowCreate(false)}
+              onSubmit={(payload) =>
+                createTemplate.mutate(payload, { onSuccess: () => setShowCreate(false) })
+              }
+            />
+          </div>
+        )}
+
+        {templatesQuery.isLoading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Đang tải thư viện mẫu...
+          </div>
+        ) : templates.length === 0 ? (
+          <EmptyState text="Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm." />
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {templates.map((template) => (
+              <TemplateCard key={template.id} template={template} />
+            ))}
+          </div>
+        )}
+      </PanelShell>
+    </div>
+  );
+}
+
+function TemplateCard({ template }: { template: AdminTemplate }) {
+  const updateTemplate = useUpdateAdminTemplate();
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <article className="rounded-xl border border-primary/25 bg-primary/5 p-4">
+        <TemplateForm
+          template={template}
+          submitLabel="Lưu mẫu"
+          isSubmitting={updateTemplate.isPending}
+          onCancel={() => setEditing(false)}
+          onSubmit={(payload) =>
+            updateTemplate.mutate(
+              { id: template.id, payload },
+              { onSuccess: () => setEditing(false) }
+            )
+          }
+        />
+      </article>
+    );
+  }
+
+  const body = typeof template.content?.body === "string" ? template.content.body : "";
+
+  return (
+    <article className="rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-bold">{template.name}</h3>
+            <PlanStatePill active={template.is_active} />
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="rounded-full bg-secondary px-2 py-0.5 font-semibold text-muted-foreground">
+              {TEMPLATE_TYPE_LABEL[template.template_type]}
+            </span>
+            <span className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 font-medium text-primary">
+              {professionLabel(template.profession)}
+            </span>
+            <span className="text-muted-foreground">v{template.version_number}</span>
+          </div>
+          {body && (
+            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{body}</p>
+          )}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
+          <Pencil className="size-4" /> Sửa
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+type TemplateDraft = {
+  name: string;
+  template_type: AdminTemplateType;
+  profession: string;
+  body: string;
+  is_active: boolean;
+};
+
+function TemplateForm({
+  template,
+  submitLabel,
+  isSubmitting,
+  onSubmit,
+  onCancel,
+}: {
+  template?: AdminTemplate;
+  submitLabel: string;
+  isSubmitting: boolean;
+  onSubmit: (payload: {
+    name: string;
+    template_type: AdminTemplateType;
+    profession: string | null;
+    content: Record<string, unknown>;
+    is_active: boolean;
+  }) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<TemplateDraft>(() => ({
+    name: template?.name ?? "",
+    template_type: template?.template_type ?? "proposal",
+    profession: template?.profession ?? "",
+    body: typeof template?.content?.body === "string" ? template.content.body : "",
+    is_active: template?.is_active ?? false,
+  }));
+
+  const canSubmit = draft.name.trim().length > 0 && draft.body.trim().length > 0;
+
+  function set(field: keyof TemplateDraft, value: string | boolean) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    onSubmit({
+      name: draft.name.trim(),
+      template_type: draft.template_type,
+      // "" = mẫu dùng chung → gửi null cho backend lưu NULL.
+      profession: draft.profession || null,
+      content: { body: draft.body.trim() },
+      is_active: draft.is_active,
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Tên mẫu</span>
+          <input
+            value={draft.name}
+            onChange={(e) => set("name", e.target.value)}
+            placeholder="VD: Điều khoản thanh toán chuẩn"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Loại</span>
+          <select
+            value={draft.template_type}
+            onChange={(e) => set("template_type", e.target.value as AdminTemplateType)}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="proposal">Báo giá</option>
+            <option value="contract">Hợp đồng</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Áp dụng cho nghề</span>
+        <select
+          value={draft.profession}
+          onChange={(e) => set("profession", e.target.value)}
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">Dùng chung cho mọi nghề</option>
+          {PROFESSIONS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Nội dung điều khoản</span>
+        <textarea
+          value={draft.body}
+          onChange={(e) => set("body", e.target.value)}
+          rows={6}
+          placeholder="Nội dung mẫu điều khoản (tiếng Việt)..."
+          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+        />
+      </label>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={draft.is_active}
+          onChange={(e) => set("is_active", e.target.checked)}
+          className="size-4 rounded border-input"
+        />
+        Bật mẫu này (cho phép dùng)
+      </label>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={!canSubmit || isSubmitting}>
+          {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {submitLabel}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Hủy
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Chi phí AI toàn hệ thống.
+ *
+ * Bảng `ai_cost_records` và endpoint này đã có sẵn từ lâu nhưng KHÔNG AI GHI VÀO — bảng
+ * 0 dòng. Backend vừa được vá: mỗi lần gọi Groq giờ lưu số token thật + chi phí ước tính.
+ *
+ * "Ước tính" là đúng nghĩa đen: Groq tính tiền theo bảng giá của họ, con số ở đây là ta
+ * tự nhân đơn giá. Giao diện phải nói rõ, đừng để ai tưởng đây là hoá đơn.  #Huynh
+ */
+function AiCostsPage() {
+  const { data, isLoading } = useAiCosts();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Đang tải chi phí AI...
+      </div>
+    );
+  }
+
+  const rows = data?.data ?? [];
+  const totals = data?.totals;
+  const totalCost = Number(totals?.estimated_cost_usd ?? 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard compact icon={Bot} label="Lượt gọi AI" value={String(data?.total ?? 0)} hint="Toàn hệ thống" tone="primary" />
+        <MetricCard compact icon={Coins} label="Chi phí ước tính" value={`$${totalCost.toFixed(4)}`} hint="Không phải hoá đơn thật" tone="warning" />
+        <MetricCard compact icon={ArrowDownToLine} label="Token vào" value={(totals?.input_tokens ?? 0).toLocaleString("vi-VN")} hint="Prompt gửi lên" tone="default" />
+        <MetricCard compact icon={ArrowUpFromLine} label="Token ra" value={(totals?.output_tokens ?? 0).toLocaleString("vi-VN")} hint="Model trả về" tone="success" />
+      </div>
+
+      <PanelShell title="Lịch sử gọi AI" icon={Bot}>
+        {rows.length === 0 ? (
+          <EmptyState text="Chưa có lượt gọi AI nào được ghi nhận." />
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="hidden grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_80px_80px_100px_130px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
+              <div>Tính năng</div>
+              <div>Người dùng</div>
+              <div>Model</div>
+              <div className="text-right">Token vào</div>
+              <div className="text-right">Token ra</div>
+              <div className="text-right">Ước tính</div>
+              <div className="text-right">Thời điểm</div>
+            </div>
+            <div className="divide-y divide-border">
+              {rows.map((row) => (
+                <div key={row.id} className="grid gap-1 px-4 py-2 text-sm lg:grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_80px_80px_100px_130px] lg:items-center">
+                  <div className="font-medium">{AI_MODULE_LABEL[row.ai_module] ?? row.ai_module}</div>
+                  <div className="min-w-0 truncate" title={row.user_email ?? row.user_full_name ?? undefined}>
+                    {row.user_email ?? row.user_full_name ?? "—"}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{row.model_used}</div>
+                  <div className="text-right tabular-nums">{row.input_tokens.toLocaleString("vi-VN")}</div>
+                  <div className="text-right tabular-nums">{row.output_tokens.toLocaleString("vi-VN")}</div>
+                  <div className="text-right tabular-nums">${Number(row.estimated_cost_usd).toFixed(6)}</div>
+                  <div className="text-right text-xs text-muted-foreground">{formatDateTime(row.occurred_at)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Chi phí là <span className="font-semibold">ước tính</span> (số token × đơn giá Groq). Hoá đơn
+          thật xem ở console.groq.com.
+        </p>
+      </PanelShell>
+    </div>
+  );
+}
+
+/**
+ * Nhật ký hành động của admin.
+ *
+ * Quan trọng vì freelancer KHÔNG tự nâng cấp gói được — admin thu tiền ngoài hệ thống rồi
+ * kích hoạt tay. Mô hình đó chỉ đứng vững nếu mọi lần kích hoạt để lại dấu vết: ai làm,
+ * cho ai, lúc nào. Không có nhật ký thì "admin kích hoạt thủ công" chỉ là một cái cửa sau.
+ */
+function AuditLogPage() {
+  const { data: logs, isLoading } = useAuditLogs();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Đang tải nhật ký...
+      </div>
+    );
+  }
+
+  return (
+    <PanelShell title="Nhật ký hệ thống" icon={ScrollText}>
+      {!logs || logs.length === 0 ? (
+        <EmptyState text="Chưa có hoạt động nào được ghi nhận." />
+      ) : (
+        <ol className="space-y-3">
+          {logs.map((log) => (
+            <li key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+              <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", AUDIT_TONE[log.event_type] ?? "bg-muted-foreground/40")} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm">{log.description}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    className="max-w-[220px] truncate font-medium text-foreground"
+                    title={log.actor_email ?? log.actor_full_name ?? "Hệ thống"}
+                  >
+                    {log.actor_email ?? log.actor_full_name ?? "Hệ thống"}
+                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{log.event_type}</span>
+                  <span>{formatDateTime(log.occurred_at)}</span>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </PanelShell>
+  );
+}
+
+const AI_MODULE_LABEL: Record<string, string> = {
+  lead_qualifier: "Chấm điểm deal",
+  proposal_generator: "Soạn báo giá",
+  contract_generator: "Soạn hợp đồng",
+  followup_generator: "Nhắc khách",
+};
+
+const AUDIT_TONE: Record<string, string> = {
+  "subscription.overridden": "bg-primary",
+  "plan.created": "bg-emerald-500",
+  "plan.updated": "bg-amber-500",
+  "user.suspended": "bg-destructive",
+  "user.reinstated": "bg-emerald-500",
+};
+
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

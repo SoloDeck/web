@@ -6,9 +6,8 @@ import {
   updateContract,
   sendContract,
   signContract,
-  signContractAsClient,
+  recordClientSignature,
   generateContractContent,
-  aiGenerateContract,
   amendContract,
   terminateContract,
   listMilestones,
@@ -83,7 +82,12 @@ export function useUpdateContract() {
       payload,
     }: {
       contractId: string;
-      payload: { content?: ContractContentDTO; effective_date?: string; end_date?: string };
+      payload: {
+        deal_id: string;
+        proposal_id: string;
+        client_id: string;
+        content: ContractContentDTO;
+      };
     }) => updateContract(contractId, payload),
     onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
@@ -116,21 +120,16 @@ export function useSignContract() {
   });
 }
 
-/** Ghi nhận chữ ký của khách qua share token public. */
-export function useSignContractAsClient() {
+/** Freelancer ghi nhận khách đã ký (hợp đồng -> active). Xem recordClientSignature(). */
+export function useRecordClientSignature() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      shareToken,
-      signerName,
-    }: {
-      contractId: string;
-      shareToken: string;
-      signerName: string;
-    }) => signContractAsClient(shareToken, signerName),
-    onSuccess: (_, { contractId }) => {
+    mutationFn: (contractId: string) => recordClientSignature(contractId),
+    onSuccess: (_, contractId) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });
+      // Deal cũng đổi theo: có hợp đồng active thì mới mở được bước "Đang triển khai".
+      qc.invalidateQueries({ queryKey: ["deals"] });
     },
   });
 }
@@ -142,27 +141,15 @@ export function useSignContractAsClient() {
 export function useGenerateContractContent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (contractId: string) => generateContractContent(contractId),
-    onSuccess: (_, contractId) => {
+    mutationFn: ({ contractId, templateId }: { contractId: string; templateId?: string | null }) =>
+      generateContractContent(contractId, templateId),
+    onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });
     },
   });
 }
 
-/**
- * AI-generate contract content (global endpoint).
- * POST /ai/contracts/generate — synchronous, no polling needed.
- */
-export function useAiGenerateContract() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: aiGenerateContract,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: contractKeys.all });
-    },
-  });
-}
 
 /** Create an amendment (new version) of an active contract. */
 export function useAmendContract() {
@@ -211,6 +198,10 @@ export function useAddMilestone() {
     }) => addMilestone(contractId, payload),
     onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.milestones(contractId) });
+      // Lịch thanh toán được in vào chính tờ hợp đồng (bản render), nên đổi mốc phải
+      // làm bản xem trước vẽ lại — nếu không, iframe hiện bản cũ còn panel hiện bản mới,
+      // lại lệch.  #Huynh
+      qc.invalidateQueries({ queryKey: ["contract-preview", contractId] });
     },
   });
 }
@@ -230,6 +221,7 @@ export function useUpdateMilestone() {
     }) => updateMilestone(contractId, milestoneId, payload),
     onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.milestones(contractId) });
+      qc.invalidateQueries({ queryKey: ["contract-preview", contractId] });
     },
   });
 }
@@ -247,6 +239,7 @@ export function useDeleteMilestone() {
     }) => deleteMilestone(contractId, milestoneId),
     onSuccess: (_, { contractId }) => {
       qc.invalidateQueries({ queryKey: contractKeys.milestones(contractId) });
+      qc.invalidateQueries({ queryKey: ["contract-preview", contractId] });
     },
   });
 }

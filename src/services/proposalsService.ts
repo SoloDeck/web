@@ -1,5 +1,17 @@
 import axiosClient from "@/configs/axios";
+import type { PricingDetail } from "@/features/deals/proposalHtml";
 import type { ApiResponse } from "@/features/auth/types";
+
+/** Một lựa chọn mẫu điều khoản (thư viện admin) freelancer chọn trước khi sinh tài liệu. */
+export type TermTemplateOption = { id: string; name: string };
+
+/** GET /proposals/term-templates — mẫu điều khoản báo giá theo nghề của freelancer. */
+export async function listProposalTermTemplates(): Promise<TermTemplateOption[]> {
+  const { data } = await axiosClient.get<ApiResponse<TermTemplateOption[]>>(
+    "/proposals/term-templates"
+  );
+  return data.data ?? [];
+}
 
 // ---------------------------------------------------------------------------
 // Types — mirror openapi.yaml schemas
@@ -48,6 +60,48 @@ export type ProposalContentDTO = {
     ip_ownership?: string;
   };
   notes?: string;
+
+  /**
+   * Khối định giá — PHẢI giữ lại khi lưu bản nháp.
+   *
+   * Trước đây `normalizeProposalContentForApi()` chuyển nội dung AI sang shape DTO này và
+   * VỨT LUÔN `pricing_detail`. Ba hậu quả dây chuyền:
+   *
+   *   1. Mở lại báo giá -> không còn bảng định giá, không chỉnh được giá nữa.
+   *   2. BE mất `pricing_detail` -> luật "chưa chốt giá thì không gửi" BỊ VÔ HIỆU. Tự tay
+   *      chọc thủng chính cái luật mình vừa dựng.
+   *   3. Bảng hạng mục và dòng "Tổng báo giá" lấy từ hai nguồn khác nhau -> CỘNG KHÔNG RA
+   *      TỔNG (22 + 16,5 + 16,5 = 55 triệu, mà tổng ghi 49 triệu).
+   *
+   * `content` bên BE là JSONB tự do nên thêm trường này không đụng gì tới hợp đồng API.
+   * #Huynh
+   */
+  pricing_detail?: PricingDetail | null;
+
+  /**
+   * Sản phẩm bàn giao và phạm vi KHÔNG bao gồm — cũng PHẢI giữ lại khi lưu, y hệt
+   * `pricing_detail` ở trên.
+   *
+   * Cùng một lỗi, lặp lại lần hai: `normalizeProposalContentForApi()` chuyển nội dung AI
+   * sang shape DTO này mà DTO không có chỗ chứa hai trường đó, nên chúng bị VỨT ÂM THẦM.
+   * Hậu quả: AI soạn xong, mục "6. Sản Phẩm Bàn Giao" hiện đầy đủ; người dùng sửa MỘT chữ
+   * rồi lưu -> mục đó RỖNG trong bản gửi khách. Không có gì báo, vì BE đọc
+   * `content.get("deliverables")` và thiếu khoá thì trả về danh sách rỗng chứ không nổ.
+   *
+   * `content` bên BE là JSONB tự do nên thêm trường không đụng gì tới hợp đồng API.  #Huynh
+   */
+  deliverables?: string[];
+  out_of_scope?: string[];
+
+  /**
+   * Hạn hiệu lực freelancer tự đặt, ISO "2026-08-31".
+   *
+   * Cùng một cái bẫy, lần thứ BA (sau `pricing_detail`, rồi `deliverables`): DTO liệt kê
+   * từng khoá một, nên khoá nào không có tên ở đây là `normalizeProposalContentForApi()`
+   * VỨT im lặng. TypeScript không cứu được vì hàm đó dựng một object literal đúng kiểu —
+   * thiếu khoá không phải lỗi kiểu.  #Huynh
+   */
+  valid_until?: string;
 };
 
 export type ProposalResponse = {
@@ -109,6 +163,8 @@ export type AiProposalRequest = {
   service_category: string;
   pricing_tier: string;
   freelancer_name: string;
+  /** Mẫu điều khoản đã chọn (thư viện admin). Bỏ trống = "AI tự viết". */
+  template_id?: string;
 };
 
 export type ProposalDecisionStatus = "accepted" | "rejected" | "expired";
@@ -226,10 +282,28 @@ export async function generateProposalContent(
   return data.data;
 }
 
+/**
+ * Hạn chờ RIÊNG cho các lệnh gọi AI. Mặc định của axios là 15s — hợp lý cho CRUD, nhưng quá
+ * ngắn cho một lệnh gọi mô hình ngôn ngữ.
+ *
+ * Đo thật: bản thân lệnh gọi Groq chỉ mất ~1,4s. Nhưng SDK của Groq MẶC ĐỊNH tự thử lại 2
+ * lần khi bị nghẽn (không ai đặt `max_retries`), mỗi lần có giãn cách — nên lúc Groq đông,
+ * MỘT request hoàn toàn có thể vượt 15s.
+ *
+ * Vượt là axios ném lỗi KHÔNG có `status`. Mà điều kiện thử lại ở ProposalModal lại là
+ * `!status || status >= 500` — nên nó tưởng hỏng và gọi lại, TRONG KHI server vẫn đang chạy
+ * và sẽ chạy XONG: ghi tiền, trừ hạn mức, tạo hẳn một bản báo giá. Ta không bao giờ nghe
+ * thấy kết quả đó, nên lại gọi tiếp. Kết quả: đợi mãi, hoá đơn nhân đôi, và "Tài liệu" cầm
+ * hai bản báo giá — đúng lỗi đã bị báo.  #Huynh
+ */
+const AI_TIMEOUT_MS = 60_000;
+
 /** POST /proposals/generate-from-deal/{dealId} - tạo draft báo giá AI trực tiếp từ Deal. */
 export async function generateProposalFromDeal(dealId: string): Promise<ProposalResponse> {
   const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
-    `/proposals/generate-from-deal/${dealId}`
+    `/proposals/generate-from-deal/${dealId}`,
+    undefined,
+    { timeout: AI_TIMEOUT_MS }
   );
   return data.data;
 }
@@ -243,7 +317,53 @@ export async function aiGenerateProposal(
 ): Promise<ProposalResponse> {
   const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
     "/proposals/ai-generate",
-    payload
+    payload,
+    { timeout: AI_TIMEOUT_MS }
   );
   return data.data;
+}
+
+
+/**
+ * PATCH /proposals/{id}/price — freelancer CHỐT giá cuối cùng.
+ *
+ * Bộ định giá chỉ đề xuất một KHOẢNG. Con số gửi cho khách phải do con người quyết — đó là
+ * ranh giới của cả tính năng: AI hỗ trợ, không thay mặt. Backend chặn gửi báo giá khi chưa
+ * chốt (409).  #Huynh
+ */
+export async function setProposalPrice(
+  proposalId: string,
+  price: number
+): Promise<ProposalResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ProposalResponse>>(
+    `/proposals/${proposalId}/price`,
+    { price }
+  );
+  return data.data;
+}
+
+
+/**
+ * GET /proposals/{id}/preview — HTML xem trước, CHÍNH XÁC bản PDF khách sẽ nhận.
+ *
+ * Frontend nhúng HTML này vào card (iframe) thay vì tự dựng lại bằng `backendContentToHtml`.
+ * Cùng một template với PDF ở backend nên hai bên KHÔNG THỂ lệch — đó là gốc khiến bản trên
+ * màn hình trước đây khác bản tải về, nhìn như lừa đảo.  #Huynh
+ */
+export async function getProposalPreview(proposalId: string): Promise<string> {
+  const { data } = await axiosClient.get<ApiResponse<{ html: string }>>(
+    `/proposals/${proposalId}/preview`
+  );
+  return data.data?.html ?? "";
+}
+
+/**
+ * GET /proposals/{id}/pdf — tải PDF báo giá (render weasyprint) để gửi khách. Cùng document
+ * với bản xem trước nên PDF = đúng thứ trên màn hình.  #Huynh
+ */
+export async function downloadProposalPdf(proposalId: string): Promise<Blob> {
+  const { data } = await axiosClient.get<Blob>(`/proposals/${proposalId}/pdf`, {
+    responseType: "blob",
+  });
+  return data;
 }

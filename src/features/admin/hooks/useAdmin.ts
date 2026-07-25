@@ -2,18 +2,72 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   createAdminPlan,
+  createAdminTemplate,
+  listAiCosts,
+  listAuditLogs,
   listAdminPlans,
+  listAdminTemplates,
   listAdminUsers,
+  overrideSubscription,
+  reinstateAdminUser,
+  suspendAdminUser,
   updateAdminPlan,
+  updateAdminTemplate,
   updateAdminUser,
   type AdminPlanPayload,
+  type AdminTemplateCreatePayload,
+  type AdminTemplateFilter,
+  type AdminTemplateUpdatePayload,
   type AdminUpdateUserPayload,
 } from "@/services/adminService";
 
 export const adminKeys = {
   users: ["admin", "users"] as const,
   plans: ["admin", "plans"] as const,
+  aiCosts: ["admin", "ai-costs"] as const,
+  auditLogs: ["admin", "audit-logs"] as const,
+  templates: ["admin", "templates"] as const,
 };
+
+export function useAdminTemplates(filter: AdminTemplateFilter = {}) {
+  return useQuery({
+    queryKey: [...adminKeys.templates, filter] as const,
+    queryFn: () => listAdminTemplates(filter),
+  });
+}
+
+export function useCreateAdminTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AdminTemplateCreatePayload) => createAdminTemplate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.templates });
+      toast.success("Đã tạo mẫu mới.");
+    },
+    onError: () => toast.error("Không tạo được mẫu. Vui lòng kiểm tra dữ liệu và thử lại."),
+  });
+}
+
+export function useUpdateAdminTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: AdminTemplateUpdatePayload }) =>
+      updateAdminTemplate(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.templates });
+      toast.success("Đã cập nhật mẫu.");
+    },
+    onError: () => toast.error("Không cập nhật được mẫu. Vui lòng thử lại."),
+  });
+}
+
+export function useAiCosts() {
+  return useQuery({ queryKey: adminKeys.aiCosts, queryFn: listAiCosts });
+}
+
+export function useAuditLogs() {
+  return useQuery({ queryKey: adminKeys.auditLogs, queryFn: listAuditLogs });
+}
 
 export function useAdminUsers() {
   return useQuery({
@@ -70,5 +124,48 @@ export function useUpdateAdminPlan() {
     onError: () => {
       toast.error("Không thể cập nhật gói. Vui lòng thử lại.");
     },
+  });
+}
+
+/**
+ * Admin đổi gói cho một freelancer.
+ *
+ * Freelancer KHÔNG tự nâng cấp được — tự nâng cấp đòi cổng thanh toán thật, nằm ngoài
+ * phạm vi đồ án. Admin thu tiền ngoài hệ thống rồi kích hoạt ở đây.  #Huynh
+ */
+export function useOverrideSubscription() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ subscriptionId, planId }: { subscriptionId: string; planId: string }) =>
+      overrideSubscription(subscriptionId, { plan_id: planId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.users });
+      toast.success("Đã đổi gói cho người dùng.");
+    },
+    onError: () => toast.error("Không đổi được gói. Vui lòng thử lại."),
+  });
+}
+
+export function useSuspendAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => suspendAdminUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.users });
+      toast.success("Đã khoá tài khoản.");
+    },
+    onError: () => toast.error("Không khoá được tài khoản. Vui lòng thử lại."),
+  });
+}
+
+export function useReinstateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => reinstateAdminUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.users });
+      toast.success("Đã mở khoá tài khoản.");
+    },
+    onError: () => toast.error("Không mở khoá được tài khoản. Vui lòng thử lại."),
   });
 }

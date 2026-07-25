@@ -2,7 +2,7 @@ import axiosClient from "@/configs/axios";
 
 export type ReminderTargetType = "deal" | "client" | "invoice" | "contract";
 export type ReminderStatus = "pending" | "sent" | "failed" | "cancelled" | "skipped";
-export type ReminderChannel = "zalo" | "email" | "in_app";
+export type ReminderChannel = "zalo" | "email" | "in_app" | "both";
 export type ReminderType =
   | "follow_up"
   | "proposal_follow_up"
@@ -22,9 +22,42 @@ export type ReminderRecord = {
   status: ReminderStatus | string;
   scheduled_at: string;
   message_preview: string | null;
+  /** Do quy tắc tự sinh, đang chờ người duyệt — hệ thống sẽ KHÔNG tự gửi. */
+  requires_approval?: boolean;
+  /** Do quy tắc tự sinh (khác với lời nhắc người dùng tự đặt). */
+  created_by_rule?: boolean;
   created_at: string;
   updated_at: string;
 };
+
+/** Năm quy tắc nhắc tự động. `rule_type` khớp `ReminderType` của backend. */
+export type ReminderRuleType =
+  | "proposal_follow_up"
+  | "contract_signing_nudge"
+  | "payment_due"
+  | "payment_overdue"
+  | "re_engagement";
+
+export type ReminderRule = {
+  rule_type: ReminderRuleType;
+  is_enabled: boolean;
+  offset_days: number;
+  repeat_every_days: number | null;
+  channel: ReminderChannel;
+  auto_send: boolean;
+  send_at_hour: number;
+  /** Câu mô tả do backend soạn — đừng chế lại ở FE kẻo hai nơi nói hai kiểu. */
+  label: string;
+  /** Chỉ quá hạn và tái kết nối mới lặp lại được. */
+  supports_repeat: boolean;
+};
+
+export type ReminderRuleUpdate = Partial<
+  Pick<
+    ReminderRule,
+    "is_enabled" | "offset_days" | "repeat_every_days" | "channel" | "auto_send" | "send_at_hour"
+  >
+>;
 
 export type ReminderPayload = {
   target_type: ReminderTargetType;
@@ -65,4 +98,40 @@ export async function updateReminder(id: string, payload: ReminderPayload): Prom
 
 export async function cancelReminder(id: string): Promise<void> {
   await axiosClient.delete(`/reminders/${id}`);
+}
+
+/**
+ * Kết quả bấm "Gửi ngay". BE gửi đồng bộ ngay trong request nên đây là kết quả THẬT,
+ * không phải "đã xếp hàng".
+ */
+export type ReminderDeliveryResult = {
+  reminder: ReminderRecord;
+  status: ReminderStatus | string;
+  /** Câu tiếng Việt do BE soạn — hiện thẳng lên toast, đừng tự chế lại. */
+  detail: string;
+  delivered: boolean;
+};
+
+export async function sendReminderNow(id: string): Promise<ReminderDeliveryResult> {
+  const { data } = await axiosClient.post<ApiEnvelope<ReminderDeliveryResult>>(
+    `/reminders/${id}/send`
+  );
+  return data.data;
+}
+
+/** Lần gọi đầu tiên backend tự tạo bộ 5 quy tắc mặc định. */
+export async function listReminderRules(): Promise<ReminderRule[]> {
+  const { data } = await axiosClient.get<ApiEnvelope<ReminderRule[]>>("/reminders/rules");
+  return data.data ?? [];
+}
+
+export async function updateReminderRule(
+  ruleType: ReminderRuleType,
+  payload: ReminderRuleUpdate
+): Promise<ReminderRule> {
+  const { data } = await axiosClient.patch<ApiEnvelope<ReminderRule>>(
+    `/reminders/rules/${ruleType}`,
+    payload
+  );
+  return data.data;
 }

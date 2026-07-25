@@ -15,7 +15,8 @@ function mockAll(opts?: {
   dashboard?: QueryLike<unknown>;
   revenue?: QueryLike<unknown>;
   winRate?: QueryLike<unknown>;
-  topClients?: QueryLike<unknown>;
+  monthly?: QueryLike<unknown>;
+  pipeline?: QueryLike<unknown>;
 }) {
   vi.mocked(useAnalytics.useDashboard).mockReturnValue(
     (opts?.dashboard ??
@@ -28,11 +29,18 @@ function mockAll(opts?: {
   vi.mocked(useAnalytics.useWinRate).mockReturnValue(
     (opts?.winRate ?? ok({ won: 7, lost: 3, win_rate: 0.7 })) as never
   );
-  vi.mocked(useAnalytics.useTopClients).mockReturnValue(
-    (opts?.topClients ??
+  vi.mocked(useAnalytics.useMonthlyRevenue).mockReturnValue(
+    (opts?.monthly ??
       ok([
-        { client_id: "c1", name: "Khách A", revenue: 40_000_000 },
-        { client_id: "c2", name: "Khách B", revenue: 10_000_000 },
+        { month: "2026-06", invoiced: 30_000_000, collected: 20_000_000 },
+        { month: "2026-07", invoiced: 50_000_000, collected: 30_000_000 },
+      ])) as never
+  );
+  vi.mocked(useAnalytics.usePipeline).mockReturnValue(
+    (opts?.pipeline ??
+      ok([
+        { stage: "proposal_sent", deal_count: 3, total_value: 60_000_000 },
+        { stage: "active", deal_count: 2, total_value: 40_000_000 },
       ])) as never
   );
 }
@@ -49,17 +57,10 @@ describe("<RevenueDashboard />", () => {
     // win_rate 0.7 -> 70%
     expect(screen.getAllByText("70%").length).toBeGreaterThan(0);
     // lost count reflects the mocked value (3), NOT the old hardcoded 2.
-    expect(screen.getByText(/7 thắng · 3 thua/)).toBeInTheDocument();
-    expect(screen.queryByText(/· 2 thua/)).not.toBeInTheDocument();
+    expect(screen.getByText(/7 deal thắng · 3 deal thua/)).toBeInTheDocument();
+    expect(screen.queryByText(/· 2 deal thua/)).not.toBeInTheDocument();
     // collected revenue 50.000.000 ₫ appears (VND formatted, NBSP before ₫).
     expect(screen.getAllByText(/50\.000\.000/).length).toBeGreaterThan(0);
-  });
-
-  it("renders top clients from the analytics endpoint", () => {
-    mockAll();
-    render(<RevenueDashboard />);
-    expect(screen.getByText("Khách A")).toBeInTheDocument();
-    expect(screen.getByText("Khách B")).toBeInTheDocument();
   });
 
   it("shows a loading state while any query is pending", () => {

@@ -29,6 +29,7 @@ export type UserResponse = {
   phone: string | null;
   avatar_url: string | null;
   bio: string | null;
+  profession: string | null;
   intake_share_token: string | null;
   professional_profile: ProfessionalProfile;
   preferences: Preferences;
@@ -62,6 +63,8 @@ export type PreferencesPayload = {
 
 export type FreelancerProfilePayload = {
   professional_title?: string;
+  /** Slug nghề chuẩn hoá (khớp PROFESSIONS). BE validate; sai slug -> 422. */
+  profession?: string;
   bio?: string;
   skills?: string[];
   service_categories?: string[];

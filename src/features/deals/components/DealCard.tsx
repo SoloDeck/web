@@ -10,17 +10,17 @@ import type { Deal } from "@/features/deals/types";
 const scoreCfg = {
   hot: {
     icon: Flame,
-    label: "Nóng",
+    label: "HOT",
     cls: "border-red-200 bg-red-50 text-red-600",
   },
   warm: {
     icon: Sun,
-    label: "Ấm",
+    label: "WARM",
     cls: "border-amber-200 bg-amber-50 text-amber-700",
   },
   cold: {
     icon: Snowflake,
-    label: "Lạnh",
+    label: "COLD",
     cls: "border-blue-200 bg-blue-50 text-blue-700",
   },
 } as const;
@@ -47,7 +47,11 @@ export function DealCard({
   const ScoreIcon = scoreCfg[deal.score].icon;
   const stage = deal.stage;
   const isNewLead = stage === "new_lead";
-  const shouldShowLeadScore = !isNewLead;
+  // CHƯA CHẤM THÌ KHÔNG HIỆN NHÃN. Trước đây deal chưa có điểm vẫn hiện "Ấm" (vì
+  // `mapScore(null)` mặc định trả "warm"), và chỉ thú nhận "đang dùng fallback" trong
+  // TOOLTIP — không ai rê chuột để đọc. Nhãn mức độ là kết luận của AI; chưa chấm mà vẫn
+  // dán nhãn là bịa.  #Huynh
+  const shouldShowLeadScore = !isNewLead && typeof deal.aiQualificationScore === "number";
   const budgetLabel = deal.budgetLabel || formatVND(deal.value);
 
   const aiBtn =
@@ -86,11 +90,7 @@ export function DealCard({
               "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
               scoreCfg[deal.score].cls
             )}
-            title={
-              deal.aiQualificationScore
-                ? `AI score ${deal.aiQualificationScore}/100`
-                : "Điểm AI đang dùng fallback"
-            }
+            title={`Điểm AI: ${deal.aiQualificationScore}/100`}
           >
             <ScoreIcon className="h-2.5 w-2.5" />
             {scoreCfg[deal.score].label}

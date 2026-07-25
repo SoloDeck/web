@@ -1,19 +1,35 @@
+// Trang này TRƯỚC ĐÂY có 5 tab, nhưng 3 trong số đó KHÔNG LƯU ĐƯỢC GÌ:
+//
+//   Thanh toán  — mã số thuế, ngân hàng, số tài khoản, MoMo, pricing tier
+//   Zalo OA     — App ID, App Secret, Access Token
+//   Hợp đồng    — điều khoản mặc định, hợp đồng song ngữ
+//
+// Người dùng điền, bấm "Lưu", thấy toast "Đã lưu" — rồi F5 là mất sạch. Backend không
+// có endpoint nào nhận mấy trường đó (`handleSaveProfile` chỉ gửi full_name, phone,
+// freelancer-profile và default_hourly_rate). Riêng điều khoản hợp đồng thì lưu vào
+// localStorage nhưng KHÔNG AI ĐỌC — hợp đồng thật do AI của backend soạn.
+//
+// Giao diện hứa những gì hệ thống không làm được là nói dối người dùng. Nên xoá.
+//
+// Ghi chú cho backend: DB *có* sẵn cột `users.bank_account_info`, `momo_phone_number`,
+// `zalo_oa_*` — chỉ thiếu endpoint. Khi nào backend làm, dựng lại tab là chuyện nhỏ.
+//   #Huynh
 import { useRef, useState } from "react";
 import {
-  AlertCircle, Briefcase, Check, CreditCard, Eye, EyeOff, ExternalLink,
-  FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save,
-  ShieldCheck, Tag, User, X,
+  BellRing, Briefcase, Check, Eye, EyeOff, ExternalLink,
+  FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save, Tag, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   type Profile,
-  type PricingTier,
-  type ContractClause,
   type ServiceCategory,
+  PROFESSIONS,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
+import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
+import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
 
 // Gắn kiểu ServiceCategory để danh sách ở đây không âm thầm lệch khỏi union gốc
 // (trước đây là string[] nên thừa/thiếu một nhóm nghề cũng không ai báo).
@@ -25,23 +41,14 @@ const SERVICE_CATEGORIES: ServiceCategory[] = [
   "Copywriter / SEO",
 ];
 
-const PRICING_TIERS: { id: PricingTier; label: string; hint: string }[] = [
-  { id: "Starter", label: "Starter", hint: "Mới bắt đầu · 200–300k/giờ" },
-  { id: "Professional", label: "Professional", hint: "Có kinh nghiệm · 300–500k/giờ" },
-  { id: "Premium", label: "Premium", hint: "Chuyên gia · 500k–1tr/giờ" },
-];
-
 type Props = {
   profile: Profile;
   onSave: (p: Profile) => void;
-  clauses: ContractClause[];
-  onSaveClauses: (c: ContractClause[]) => void;
 };
 
-export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Props) {
-  const [tab, setTab] = useState<"profile" | "payment" | "zalo" | "contract" | "security">("profile");
+export function ProfileSettings({ profile, onSave }: Props) {
+  const [tab, setTab] = useState<"profile" | "reminders" | "zalo" | "security">("profile");
   const [draft, setDraft] = useState<Profile>(profile);
-  const [draftClauses, setDraftClauses] = useState<ContractClause[]>(clauses);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -50,13 +57,10 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [pwLoading, setPwLoading] = useState(false);
 
-  const dirty =
-    JSON.stringify(draft) !== JSON.stringify(profile) ||
-    JSON.stringify(draftClauses) !== JSON.stringify(clauses);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
 
   const handleSave = () => {
     onSave(draft);
-    onSaveClauses(draftClauses);
     setConfirming(false);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 1800);
@@ -85,9 +89,8 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
 
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
-    { id: "payment" as const, label: "Thanh toán", icon: CreditCard },
+    { id: "reminders" as const, label: "Nhắc nhở tự động", icon: BellRing },
     { id: "zalo" as const, label: "Zalo OA", icon: MessageCircle },
-    { id: "contract" as const, label: "Hợp đồng", icon: FileText },
     { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
 
@@ -167,6 +170,25 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                           />
                         </Field>
                       </div>
+
+                      <Field label="Nghề chính">
+                        <select
+                          value={draft.profession}
+                          onChange={(e) => setDraft({ ...draft, profession: e.target.value })}
+                          className={inputCls}
+                        >
+                          <option value="">— Chọn nghề —</option>
+                          {PROFESSIONS.map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">Nghề chính</span> giúp AI
+                        ước giá đúng ngành và cảnh báo chiêu lừa đặc thù nghề của bạn.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -234,6 +256,22 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                   <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <Globe className="h-3.5 w-3.5" /> Portfolio & Hiển thị
                   </div>
+                  {/* "Giá theo giờ" là trường DUY NHẤT của tab "Thanh toán" cũ thật sự lưu
+                      được (PATCH /users/me/professional-profile → default_hourly_rate).
+                      Nên nó về đây, phần còn lại của tab đó đã xoá.  #Huynh */}
+                  <Field label="Giá theo giờ (VND)">
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.hourlyRate}
+                      onChange={(e) =>
+                        setDraft({ ...draft, hourlyRate: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                      placeholder="300000"
+                      className={inputCls}
+                    />
+                  </Field>
+
                   <Field label="Portfolio URL">
                     <div className="flex gap-2">
                       <div className="relative flex-1">
@@ -279,269 +317,12 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                     </div>
                   </label>
                 </div>
-
-                {/* Other */}
-                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Thông tin khác
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Mã số thuế (nếu có)">
-                      <input
-                        value={draft.taxCode}
-                        onChange={(e) => setDraft({ ...draft, taxCode: e.target.value })}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Giá theo giờ (VND)">
-                      <input
-                        type="number"
-                        value={draft.hourlyRate}
-                        onChange={(e) => setDraft({ ...draft, hourlyRate: Number(e.target.value) || 0 })}
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                  <Field label="Mức giá (Pricing tier)">
-                    <div className="grid grid-cols-3 gap-2">
-                      {PRICING_TIERS.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setDraft({ ...draft, pricingTier: t.id })}
-                          className={`text-left p-3 rounded-lg border transition-colors ${
-                            draft.pricingTier === t.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-secondary/60"
-                          }`}
-                        >
-                          <div className="text-sm font-semibold">{t.label}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">{t.hint}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                </div>
               </div>
             )}
 
-            {tab === "payment" && (
-              <div className="space-y-5">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                    Tài khoản ngân hàng
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Ngân hàng">
-                      <input
-                        value={draft.bank.name}
-                        onChange={(e) => setDraft({ ...draft, bank: { ...draft.bank, name: e.target.value } })}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Số tài khoản">
-                      <input
-                        value={draft.bank.accountNumber}
-                        onChange={(e) =>
-                          setDraft({ ...draft, bank: { ...draft.bank, accountNumber: e.target.value } })
-                        }
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Chủ tài khoản">
-                      <input
-                        value={draft.bank.accountHolder}
-                        onChange={(e) =>
-                          setDraft({ ...draft, bank: { ...draft.bank, accountHolder: e.target.value } })
-                        }
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                </div>
+            {tab === "reminders" && <ReminderRulesSettings />}
 
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                    Ví MoMo
-                    <span className="text-[10px] rounded bg-pink-500/10 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 font-bold">
-                      MoMo
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Số điện thoại MoMo">
-                      <input
-                        value={draft.momo.phone}
-                        onChange={(e) => setDraft({ ...draft, momo: { ...draft.momo, phone: e.target.value } })}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Tên chủ ví">
-                      <input
-                        value={draft.momo.holder}
-                        onChange={(e) => setDraft({ ...draft, momo: { ...draft.momo, holder: e.target.value } })}
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tab === "zalo" && (
-              <div className="space-y-5">
-                <div className={`rounded-lg p-3 text-xs flex items-start gap-2 ${
-                  draft.zaloOA.connected
-                    ? "bg-success/10 text-success border border-success/20"
-                    : "bg-warning/10 text-warning-foreground border border-warning/30"
-                }`}>
-                  {draft.zaloOA.connected ? <ShieldCheck className="h-4 w-4 mt-0.5" /> : <AlertCircle className="h-4 w-4 mt-0.5" />}
-                  <div>
-                    <div className="font-semibold">
-                      {draft.zaloOA.connected ? "Zalo OA đã kết nối" : "Chưa kết nối"}
-                    </div>
-                    <div className="opacity-90">
-                      Thông tin OA dùng để gửi tin nhắn nhắc nhở và nhận lead tự động.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  <Field label="OA App ID">
-                    <input
-                      value={draft.zaloOA.appId}
-                      onChange={(e) => setDraft({ ...draft, zaloOA: { ...draft.zaloOA, appId: e.target.value } })}
-                      className={inputCls}
-                      placeholder="VD: ZOA-1029384756"
-                    />
-                  </Field>
-                  <Field label="App Secret">
-                    <input
-                      type="password"
-                      value={draft.zaloOA.secret}
-                      onChange={(e) => setDraft({ ...draft, zaloOA: { ...draft.zaloOA, secret: e.target.value } })}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Access Token">
-                    <input
-                      type="password"
-                      value={draft.zaloOA.accessToken}
-                      onChange={(e) =>
-                        setDraft({ ...draft, zaloOA: { ...draft.zaloOA, accessToken: e.target.value } })
-                      }
-                      className={inputCls}
-                    />
-                  </Field>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={draft.zaloOA.connected}
-                    onChange={(e) =>
-                      setDraft({ ...draft, zaloOA: { ...draft.zaloOA, connected: e.target.checked } })
-                    }
-                    className="h-4 w-4 rounded"
-                  />
-                  Đánh dấu đã xác thực kết nối với Zalo OA
-                </label>
-              </div>
-            )}
-
-            {tab === "contract" && (
-              <div className="space-y-4">
-                <label className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div>
-                    <div className="text-sm font-semibold">Hợp đồng song ngữ Việt / Anh</div>
-                    <div className="text-xs text-muted-foreground">
-                      Tự động chèn bản tiếng Anh khi xuất hợp đồng cho khách quốc tế.
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={draft.bilingualContracts}
-                    onChange={(e) => setDraft({ ...draft, bilingualContracts: e.target.checked })}
-                    className="h-4 w-4"
-                  />
-                </label>
-
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                    Điều khoản mặc định
-                  </div>
-                  <div className="space-y-2">
-                    {draftClauses.map((c, idx) => (
-                      <div key={c.id} className="rounded-lg border border-border p-3">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <input
-                            value={c.title}
-                            onChange={(e) => {
-                              const next = [...draftClauses];
-                              next[idx] = { ...c, title: e.target.value };
-                              setDraftClauses(next);
-                            }}
-                            className="flex-1 bg-transparent font-semibold text-sm outline-none border-b border-transparent focus:border-border"
-                          />
-                          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <input
-                              type="checkbox"
-                              checked={c.enabled}
-                              onChange={(e) => {
-                                const next = [...draftClauses];
-                                next[idx] = { ...c, enabled: e.target.checked };
-                                setDraftClauses(next);
-                              }}
-                            />
-                            Dùng
-                          </label>
-                        </div>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                          <textarea
-                            value={c.body_vi}
-                            onChange={(e) => {
-                              const next = [...draftClauses];
-                              next[idx] = { ...c, body_vi: e.target.value };
-                              setDraftClauses(next);
-                            }}
-                            className="w-full text-xs rounded-md border border-border bg-background p-2 min-h-[80px]"
-                            placeholder="Nội dung điều khoản (Tiếng Việt)"
-                          />
-                          {draft.bilingualContracts && (
-                            <textarea
-                              value={c.body_en}
-                              onChange={(e) => {
-                                const next = [...draftClauses];
-                                next[idx] = { ...c, body_en: e.target.value };
-                                setDraftClauses(next);
-                              }}
-                              className="w-full text-xs rounded-md border border-border bg-background p-2 min-h-[80px]"
-                              placeholder="Clause text (English)"
-                            />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() =>
-                      setDraftClauses([
-                        ...draftClauses,
-                        {
-                          id: `c${Date.now()}`,
-                          title: "Điều khoản mới",
-                          body_vi: "",
-                          body_en: "",
-                          enabled: true,
-                        },
-                      ])
-                    }
-                    className="mt-2 text-xs text-primary font-medium hover:underline"
-                  >
-                    + Thêm điều khoản
-                  </button>
-                </div>
-              </div>
-            )}
+            {tab === "zalo" && <ZaloConnectionSettings />}
 
             {tab === "security" && (
               <div className="space-y-6 max-w-md">
@@ -634,7 +415,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
-            {tab !== "security" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
+            {tab === "profile" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                 <Check className="h-3.5 w-3.5" /> Đã lưu
@@ -642,7 +423,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
             )}
           </div>
           <div className="flex items-center gap-2">
-            {tab !== "security" && confirming ? (
+            {tab === "profile" && confirming ? (
               <>
                 <span className="text-xs text-muted-foreground">Xác nhận lưu thay đổi?</span>
                 <button
@@ -658,7 +439,7 @@ export function ProfileSettings({ profile, onSave, clauses, onSaveClauses }: Pro
                   <Check className="h-3.5 w-3.5" /> Đồng ý
                 </button>
               </>
-            ) : tab !== "security" ? (
+            ) : tab === "profile" ? (
               <button
                 disabled={!dirty}
                 onClick={() => setConfirming(true)}

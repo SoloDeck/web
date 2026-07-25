@@ -1,6 +1,7 @@
-import { Bot, Check, CreditCard, Loader2, Shield, Sparkles, X, Zap } from "lucide-react";
+import { Bot, Check, CreditCard, Loader2, Mail, Shield, Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePlans, useMySubscription } from "@/features/subscriptions/hooks/useSubscriptions";
+import { useAiUsage } from "@/features/revenue/hooks/useAnalytics";
 import type { PlanResponse } from "@/services/subscriptionsService";
 
 // ---------------------------------------------------------------------------
@@ -9,7 +10,23 @@ import type { PlanResponse } from "@/services/subscriptionsService";
 
 function formatPrice(price: number, currency: string) {
   if (price === 0) return "Miễn phí";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(price);
+  // Trước dùng locale "en-US" cho tiền VND → ra "₫199,000.00": vừa sai dấu phân cách,
+  // vừa có phần thập phân mà tiền Việt không dùng.  #Huynh
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(price);
+}
+
+/**
+ * Gói `free` được đăng ký với kỳ thanh toán +36.500 ngày (100 năm) — nghĩa là "miễn phí
+ * vĩnh viễn". Đúng nghiệp vụ, nhưng in thẳng ra màn hình thì thành "17/06/2126" và trông
+ * y như một cái bug.  #Huynh
+ */
+function isPerpetual(iso: string) {
+  const years = (new Date(iso).getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
+  return years > 5;
 }
 
 function formatDate(iso: string) {
@@ -93,31 +110,37 @@ function PlanCard({
         </div>
       )}
 
-      <div className="mb-4">
-        <div className={cn("mb-2 inline-flex rounded-lg bg-muted p-2", meta.color)}>
+      <div>
+        <div className={cn("mb-3 inline-flex rounded-xl bg-muted p-2.5", meta.color)}>
           <Icon className="h-5 w-5" />
         </div>
-        <h3 className="text-lg font-bold">{plan.name}</h3>
-        <div className="mt-1 flex items-end gap-1">
-          <span className="text-3xl font-bold">
+        <h3 className="text-base font-bold">{plan.name}</h3>
+        <div className="mt-1.5 flex items-baseline gap-1.5">
+          <span className="text-3xl font-black tracking-tight">
             {isFree ? "0 ₫" : formatPrice(plan.price_monthly, plan.currency)}
           </span>
-          {!isFree && <span className="mb-1 text-sm text-muted-foreground">/ tháng</span>}
+          <span className="text-sm text-muted-foreground">{isFree ? "mãi mãi" : "/ tháng"}</span>
         </div>
       </div>
 
-      <ul className="mb-6 flex-1 space-y-2.5">
+      {/* Gạch ngang tính năng không có (line-through) làm thẻ trông như bảng hàng lỗi.
+          Bảng giá của sản phẩm thật không gạch — chỉ làm mờ icon và để chữ nguyên vẹn.  #Huynh */}
+      <ul className="mb-6 flex-1 space-y-3 border-t border-border pt-5">
         {rows.map((r) => (
-          <li key={r.label} className="flex items-start gap-2 text-sm">
+          <li key={r.label} className="flex items-start gap-2.5 text-sm">
             {r.value ? (
               <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
             ) : (
-              <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
+              <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
             )}
-            <span className={cn(!r.value && "text-muted-foreground/60 line-through")}>
-              {r.label}
-              {r.value && r.value !== "Có" && (
-                <span className="ml-1 font-semibold text-foreground">{r.value}</span>
+            <span className={cn("min-w-0", !r.value && "text-muted-foreground")}>
+              {r.value && r.value !== "Có" ? (
+                <>
+                  <span className="font-semibold text-foreground">{r.value}</span>{" "}
+                  <span className="text-muted-foreground">{r.label.toLowerCase()}</span>
+                </>
+              ) : (
+                r.label
               )}
             </span>
           </li>
@@ -129,19 +152,28 @@ function PlanCard({
           Đang sử dụng
         </div>
       ) : (
-        <button
-          onClick={() => {
-            window.location.href = `mailto:solodeskai@gmail.com?subject=Đăng ký gói ${plan.name}&body=Tôi muốn nâng cấp lên gói ${plan.name}.`;
-          }}
+        // Backend CHƯA có endpoint nâng cấp: openapi.yaml khai /subscriptions/me/upgrade
+        // nhưng router chỉ có 2 endpoint đọc (GET /plans, GET /me). Nên nút này mở email
+        // liên hệ — và nói rõ như vậy, thay vì để người dùng bấm rồi ngỡ ngàng thấy hộp
+        // thư bật lên.  #Huynh
+        <a
+          href={`mailto:solodeskai@gmail.com?subject=${encodeURIComponent(`Đăng ký gói ${plan.name}`)}&body=${encodeURIComponent(`Tôi muốn nâng cấp lên gói ${plan.name}.`)}`}
           className={cn(
-            "rounded-lg py-2.5 text-sm font-semibold transition-all",
+            "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
             isFree
               ? "border border-border hover:bg-secondary"
               : "bg-primary text-primary-foreground hover:opacity-90"
           )}
         >
-          {isFree ? "Dùng miễn phí" : `Nâng cấp lên ${plan.name}`}
-        </button>
+          {isFree ? (
+            "Dùng miễn phí"
+          ) : (
+            <>
+              <Mail className="h-4 w-4" />
+              Liên hệ nâng cấp
+            </>
+          )}
+        </a>
       )}
     </div>
   );
@@ -164,7 +196,10 @@ export function SubscriptionPage() {
   const sortedPlans = [...(plans ?? [])].sort((a, b) => ORDER.indexOf(a.slug) - ORDER.indexOf(b.slug));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 lg:px-6">
+    // `h-full overflow-y-auto`: container chung của các tab là `overflow-hidden` (vì Kanban
+    // tự cuộn ngang bên trong), nên mỗi tab phải TỰ lo cuộn dọc. Thiếu nó là trang dài hơn
+    // màn hình bị CẮT — không cuộn xuống xem hết gói được.  #Huynh
+    <div className="mx-auto h-full max-w-5xl space-y-8 overflow-y-auto px-4 py-8 lg:px-6">
 
       {/* Header */}
       <div>
@@ -174,54 +209,73 @@ export function SubscriptionPage() {
         </p>
       </div>
 
-      {/* Current subscription banner */}
+      {/* MỘT thẻ tổng quan, không phải hai thẻ xếp chồng.
+          Trước đây "gói đang dùng" và "hạn mức AI" là hai khối full-width nằm chồng lên
+          nhau — cùng viền, cùng nền, cùng cỡ. Nhìn như hai cái hộp rời rạc chứ không
+          phải một trang được thiết kế.  #Huynh */}
       {isLoading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Đang tải thông tin gói...
         </div>
       ) : subscription ? (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-primary/10 p-2.5">
-                <CreditCard className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Gói đang dùng</div>
-                <div className="mt-0.5 flex items-center gap-2">
-                  <span className="text-lg font-bold">{subscription.plan_name}</span>
-                  {statusMeta && (
-                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusMeta.cls)}>
-                      {statusMeta.label}
-                    </span>
-                  )}
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="grid md:grid-cols-[1fr_1px_1fr]">
+            {/* Gói đang dùng */}
+            <div className="p-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-primary/10 p-2.5">
+                  <CreditCard className="h-5 w-5 text-primary" />
                 </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Gói đang dùng
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <span className="text-xl font-bold">{subscription.plan_name}</span>
+                    {statusMeta && (
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          statusMeta.cls
+                        )}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-1.5 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Bắt đầu</span>
+                  <span className="font-medium">
+                    {formatDate(subscription.current_period_start)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Gia hạn</span>
+                  <span className="font-medium">
+                    {isPerpetual(subscription.current_period_end)
+                      ? "Không giới hạn"
+                      : formatDate(subscription.current_period_end)}
+                  </span>
+                </div>
+                {subscription.cancel_at_period_end && (
+                  <div className="pt-1 text-xs font-medium text-destructive">Sẽ huỷ cuối kỳ</div>
+                )}
               </div>
             </div>
 
-            <div className="text-right text-sm text-muted-foreground">
-              <div>Chu kỳ thanh toán</div>
-              <div className="mt-0.5 font-medium text-foreground">
-                {formatDate(subscription.current_period_start)} — {formatDate(subscription.current_period_end)}
-              </div>
-              {subscription.cancel_at_period_end && (
-                <div className="mt-1 text-xs text-destructive">Sẽ huỷ cuối kỳ</div>
-              )}
-            </div>
+            <div className="hidden bg-border md:block" />
+
+            {/* Hạn mức AI — số THẬT. Trước đây chỗ này chỉ là một câu nói suông
+                ("sẽ được ghi nhận vào hạn mức tháng") không kèm con số nào. Mà hồi đó
+                cũng chẳng có gì để hiện: backend không đếm, usage_records rỗng 0 dòng. */}
+            <AiQuotaPanel />
           </div>
         </div>
       ) : null}
-
-      {/* AI usage note */}
-      {subscription?.plan_slug !== "free" && (
-        <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm">
-          <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p className="text-muted-foreground">
-            Tính năng <span className="font-semibold text-foreground">AI (báo giá, hợp đồng, đánh giá lead)</span> được
-            kích hoạt trên gói của bạn. Mỗi lần tạo nội dung bằng AI sẽ được ghi nhận vào hạn mức tháng.
-          </p>
-        </div>
-      )}
 
       {/* Plan cards */}
       {isLoading ? (
@@ -250,6 +304,112 @@ export function SubscriptionPage() {
         </a>
         . Chúng tôi sẽ kích hoạt trong vòng 24 giờ.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Hạn mức AI trong kỳ — nằm nửa phải của thẻ tổng quan.
+ *
+ * Freelancer cần biết còn bao nhiêu lượt TRƯỚC khi bấm một nút AI, không phải sau khi
+ * bị chặn bằng lỗi 429.
+ */
+function AiQuotaPanel() {
+  const { data: usage, isLoading } = useAiUsage();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Đang tải hạn mức AI...
+      </div>
+    );
+  }
+
+  if (!usage?.can_use_ai) {
+    return (
+      <div className="flex flex-col justify-center gap-2 p-6">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <Bot className="h-3.5 w-3.5" />
+          Tính năng AI
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Gói hiện tại <span className="font-semibold text-foreground">chưa có AI</span>. Nâng cấp để
+          dùng đánh giá deal, soạn báo giá, soạn hợp đồng và nhắc khách bằng AI.
+        </p>
+      </div>
+    );
+  }
+
+  const used = usage.generations_used ?? 0;
+  const limit = usage.limit ?? 0;
+  const remaining = usage.remaining ?? 0;
+  const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
+
+  // Sắp hết thì phải nhìn ra ngay, đừng để họ bấm rồi mới ăn 429.
+  const exhausted = limit > 0 && remaining === 0;
+  const nearLimit = !exhausted && limit > 0 && remaining <= Math.max(3, Math.round(limit * 0.1));
+
+  const tone = exhausted
+    ? { ring: "text-destructive", text: "text-destructive" }
+    : nearLimit
+      ? { ring: "text-amber-500", text: "text-amber-600" }
+      : { ring: "text-primary", text: "text-foreground" };
+
+  const RADIUS = 30;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <Bot className="h-3.5 w-3.5" />
+        Lượt AI trong kỳ
+      </div>
+
+      <div className="mt-4 flex items-center gap-5">
+        {/* Vòng tròn thay thanh ngang: gọn hơn, và cân với khối bên trái. */}
+        <div className={cn("relative h-[76px] w-[76px] shrink-0", tone.ring)}>
+          <svg viewBox="0 0 76 76" className="h-full w-full -rotate-90">
+            <circle cx="38" cy="38" r={RADIUS} fill="none" strokeWidth="7" className="stroke-muted" />
+            <circle
+              cx="38"
+              cy="38"
+              r={RADIUS}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="7"
+              strokeLinecap="round"
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={CIRCUMFERENCE * (1 - ratio)}
+            />
+          </svg>
+          <div className="absolute inset-0 grid place-items-center">
+            <span className={cn("text-lg font-black leading-none", tone.text)}>{remaining}</span>
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="text-2xl font-bold leading-none">
+            {used}
+            <span className="text-base font-semibold text-muted-foreground"> / {limit}</span>
+          </div>
+          <div className="mt-1.5 text-sm text-muted-foreground">đã dùng trong kỳ này</div>
+
+          {exhausted ? (
+            <p className="mt-2 text-sm font-semibold text-destructive">
+              Đã hết lượt — nâng cấp gói để tiếp tục.
+            </p>
+          ) : nearLimit ? (
+            <p className="mt-2 text-sm font-semibold text-amber-600">
+              Sắp hết lượt. Cân nhắc nâng cấp trước khi bị chặn giữa chừng.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs leading-4 text-muted-foreground">
+              Mỗi lần đánh giá deal, soạn báo giá, hợp đồng hoặc nhắc khách bằng AI tính là một lượt.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
