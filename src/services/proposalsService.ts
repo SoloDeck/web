@@ -1,5 +1,5 @@
 import axiosClient from "@/configs/axios";
-import type { PricingDetail } from "@/features/deals/proposalHtml";
+import type { PaymentMilestone, PricingDetail } from "@/features/deals/proposalHtml";
 import type { ApiResponse } from "@/features/auth/types";
 
 /** Một lựa chọn mẫu điều khoản (thư viện admin) freelancer chọn trước khi sinh tài liệu. */
@@ -92,6 +92,21 @@ export type ProposalContentDTO = {
    */
   deliverables?: string[];
   out_of_scope?: string[];
+
+  /**
+   * Các đợt thanh toán có cấu trúc (Phase B). PHẢI giữ lại khi lưu — cùng một cái bẫy
+   * "DTO không có chỗ chứa nên bị vứt âm thầm" như `deliverables`/`pricing_detail`. Backend
+   * đọc chính trường này (`content["payment_milestones"]`) để tự sinh task "Thu tiền:" khi
+   * báo giá được chốt; rụng trường này là mất luôn các mốc thu tiền.  #Huynh
+   */
+  payment_milestones?: PaymentMilestone[];
+
+  /**
+   * Nhãn hạng mục chi phí freelancer sửa ở màn review (mục 7). PHẢI giữ khi lưu — cùng cái
+   * bẫy "DTO không có chỗ chứa nên bị vứt" như `payment_milestones`. Backend đọc
+   * `content["pricing_items"]` để chia đều giá chốt thành bảng chi phí.  #Huynh
+   */
+  pricing_items?: string[];
 
   /**
    * Hạn hiệu lực freelancer tự đặt, ISO "2026-08-31".

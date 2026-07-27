@@ -35,7 +35,7 @@ export function AppSidebar({
     { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
     { key: "intake-form" as const, icon: ClipboardList, label: "Biểu mẫu tiếp nhận" },
     { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
-    { key: "subscription" as const, icon: CreditCard, label: "Gói đăng ký" },
+    { key: "subscription" as const, icon: CreditCard, label: "Gói dịch vụ" },
     ...(isAdmin ? [{ key: "admin" as const, icon: ShieldCheck, label: "Admin" }] : []),
   ];
 

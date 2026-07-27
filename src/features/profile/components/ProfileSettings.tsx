@@ -14,15 +14,14 @@
 // Ghi chú cho backend: DB *có* sẵn cột `users.bank_account_info`, `momo_phone_number`,
 // `zalo_oa_*` — chỉ thiếu endpoint. Khi nào backend làm, dựng lại tab là chuyện nhỏ.
 //   #Huynh
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
-  BellRing, Briefcase, Check, Eye, EyeOff, ExternalLink,
-  FileText, Globe, Link2, Lock, Loader2, MessageCircle, Plus, Save, Tag, User, X,
+  BellRing, Briefcase, Check, Eye, EyeOff,
+  FileText, Lock, Loader2, MessageCircle, Save, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   type Profile,
-  type ServiceCategory,
   PROFESSIONS,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
@@ -30,16 +29,6 @@ import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
-
-// Gắn kiểu ServiceCategory để danh sách ở đây không âm thầm lệch khỏi union gốc
-// (trước đây là string[] nên thừa/thiếu một nhóm nghề cũng không ai báo).
-const SERVICE_CATEGORIES: ServiceCategory[] = [
-  "Brand & Content Designer",
-  "Web Developer",
-  "Marketing Consultant",
-  "Photographer / Videographer",
-  "Copywriter / SEO",
-];
 
 type Props = {
   profile: Profile;
@@ -209,114 +198,6 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   </Field>
                 </div>
 
-                {/* Skills & Categories */}
-                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <Tag className="h-3.5 w-3.5" /> Kỹ năng & Dịch vụ
-                  </div>
-
-                  <Field label="Kỹ năng">
-                    <SkillsInput
-                      value={draft.skills}
-                      onChange={(skills) => setDraft({ ...draft, skills })}
-                    />
-                  </Field>
-
-                  <Field label="Loại dịch vụ cung cấp">
-                    <div className="flex flex-wrap gap-2">
-                      {SERVICE_CATEGORIES.map((c) => {
-                        const selected = draft.serviceCategories.includes(c);
-                        return (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => {
-                              const next = selected
-                                ? draft.serviceCategories.filter((x) => x !== c)
-                                : [...draft.serviceCategories, c];
-                              setDraft({ ...draft, serviceCategories: next });
-                            }}
-                            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                              selected
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                            }`}
-                          >
-                            {selected && <Check className="mr-1 inline h-3 w-3" />}
-                            {c}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Field>
-                </div>
-
-                {/* Portfolio & visibility */}
-                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <Globe className="h-3.5 w-3.5" /> Portfolio & Hiển thị
-                  </div>
-                  {/* "Giá theo giờ" là trường DUY NHẤT của tab "Thanh toán" cũ thật sự lưu
-                      được (PATCH /users/me/professional-profile → default_hourly_rate).
-                      Nên nó về đây, phần còn lại của tab đó đã xoá.  #Huynh */}
-                  <Field label="Giá theo giờ (VND)">
-                    <input
-                      type="number"
-                      min={0}
-                      value={draft.hourlyRate}
-                      onChange={(e) =>
-                        setDraft({ ...draft, hourlyRate: Math.max(0, Number(e.target.value) || 0) })
-                      }
-                      placeholder="300000"
-                      className={inputCls}
-                    />
-                  </Field>
-
-                  <Field label="Portfolio URL">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Link2 className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          value={draft.portfolioUrl}
-                          onChange={(e) => setDraft({ ...draft, portfolioUrl: e.target.value })}
-                          placeholder="https://portfolio.example.com"
-                          className={`${inputCls} pl-9`}
-                        />
-                      </div>
-                      {draft.portfolioUrl && (
-                        <a
-                          href={draft.portfolioUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="grid place-items-center rounded-md border border-border px-2.5 hover:bg-secondary"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                        </a>
-                      )}
-                    </div>
-                  </Field>
-
-                  <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-card p-3">
-                    <div>
-                      <div className="text-sm font-medium">Hiển thị trong thư mục Freelancer</div>
-                      <div className="text-xs text-muted-foreground">
-                        Cho phép khách hàng tìm thấy bạn qua directory công khai.
-                      </div>
-                    </div>
-                    <div
-                      onClick={() => setDraft({ ...draft, isListed: !draft.isListed })}
-                      className={`relative h-5 w-9 rounded-full transition-colors ${
-                        draft.isListed ? "bg-primary" : "bg-muted"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                          draft.isListed ? "translate-x-4" : "translate-x-0.5"
-                        }`}
-                      />
-                    </div>
-                  </label>
-                </div>
               </div>
             )}
 
@@ -399,15 +280,6 @@ export function ProfileSettings({ profile, onSave }: Props) {
                     Đổi mật khẩu
                   </button>
                 </div>
-
-                <div className="rounded-lg border border-border p-4 space-y-2 opacity-50">
-                  <div className="text-sm font-semibold text-muted-foreground">Sắp ra mắt</div>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div>• Xác thực 2 bước (2FA)</div>
-                    <div>• Quản lý phiên đăng nhập</div>
-                    <div>• Lịch sử hoạt động tài khoản</div>
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -464,63 +336,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs font-medium text-muted-foreground mb-1.5">{label}</div>
       {children}
     </label>
-  );
-}
-
-function SkillsInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const add = () => {
-    const trimmed = input.trim();
-    if (trimmed && !value.includes(trimmed)) {
-      onChange([...value, trimmed]);
-    }
-    setInput("");
-  };
-
-  const remove = (skill: string) => onChange(value.filter((s) => s !== skill));
-
-  return (
-    <div
-      className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-primary/30 cursor-text"
-      onClick={() => inputRef.current?.focus()}
-    >
-      {value.map((skill) => (
-        <span
-          key={skill}
-          className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
-        >
-          {skill}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); remove(skill); }}
-            className="hover:text-destructive"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
-      <input
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
-          if (e.key === "Backspace" && !input && value.length > 0) remove(value[value.length - 1]);
-        }}
-        placeholder={value.length === 0 ? "Nhập kỹ năng, Enter để thêm..." : ""}
-        className="min-w-[140px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-      />
-      {input && (
-        <button
-          type="button"
-          onClick={add}
-          className="grid place-items-center rounded-full bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/20"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-      )}
-    </div>
   );
 }

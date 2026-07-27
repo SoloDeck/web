@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
-  type DragCancelEvent,
   DragOverlay,
   PointerSensor,
   useSensor,
@@ -35,8 +34,17 @@ export function KanbanBoard({
 }) {
   const handleDragEnd = useDealStore((s) => s.handleDragEnd);
   const moveToStage = useDealStore((s) => s.moveToStage);
+  const recentlyMovedId = useDealStore((s) => s.recentlyMovedId);
+  const clearRecentlyMoved = useDealStore((s) => s.clearRecentlyMoved);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<Stage | null>(null);
+
+  // Highlight card vừa chuyển giai đoạn trong ~2.5s rồi tự tắt.
+  useEffect(() => {
+    if (!recentlyMovedId) return;
+    const timer = setTimeout(clearRecentlyMoved, 2500);
+    return () => clearTimeout(timer);
+  }, [recentlyMovedId, clearRecentlyMoved]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -99,7 +107,7 @@ export function KanbanBoard({
     }
   };
 
-  const onDragCancel = (_event: DragCancelEvent) => {
+  const onDragCancel = () => {
     setActiveId(null);
     setOverStage(null);
   };
@@ -128,6 +136,7 @@ export function KanbanBoard({
             onDraft={onDraft}
             onAddDeal={onAddDeal}
             isDropTarget={overStage === stage.id}
+            highlightedDealId={recentlyMovedId}
           />
         ))}
       </div>

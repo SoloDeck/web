@@ -203,7 +203,7 @@ export function SubscriptionPage() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Gói đăng ký</h1>
+        <h1 className="text-2xl font-bold">Gói dịch vụ</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Chọn gói phù hợp với quy mô công việc freelance của bạn.
         </p>

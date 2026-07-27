@@ -13,6 +13,7 @@ export function KanbanColumn({
   onCardClick,
   onDraft,
   isDropTarget = false,
+  highlightedDealId = null,
 }: {
   stage: Stage;
   title: string;
@@ -22,6 +23,7 @@ export function KanbanColumn({
   onDraft: (d: Deal) => void;
   onAddDeal?: () => void;
   isDropTarget?: boolean;
+  highlightedDealId?: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const total = deals.reduce((sum, deal) => sum + deal.value, 0);
@@ -63,7 +65,13 @@ export function KanbanColumn({
       >
         <SortableContext items={deals.map((deal) => deal.id)} strategy={verticalListSortingStrategy}>
           {deals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} onClick={() => onCardClick(deal)} onDraft={onDraft} />
+            <DealCard
+              key={deal.id}
+              deal={deal}
+              onClick={() => onCardClick(deal)}
+              onDraft={onDraft}
+              highlighted={deal.id === highlightedDealId}
+            />
           ))}
         </SortableContext>
 

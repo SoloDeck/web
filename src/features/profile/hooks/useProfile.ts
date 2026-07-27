@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ContractClause, Profile } from "@/features/profile/types";
-import {
-  loadClauses,
-  loadProfile,
-  saveClauses,
-  saveProfile,
-} from "@/services/profileService";
+import type { Profile } from "@/features/profile/types";
+import { loadProfile, saveProfile } from "@/services/profileService";
 import { getMe } from "@/services/usersService";
 
 /** Profile state, seeded from localStorage then enriched from GET /users/me. */
@@ -48,20 +43,4 @@ export function useProfile() {
   }, [profile]);
 
   return { profile, setProfile };
-}
-
-/** Contract clause library, hydrated from and persisted to the profile service. */
-export function useClauses() {
-  const [clauses, setClauses] = useState<ContractClause[]>(loadClauses);
-  const mounted = useRef(false);
-
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
-    saveClauses(clauses);
-  }, [clauses]);
-
-  return { clauses, setClauses };
 }

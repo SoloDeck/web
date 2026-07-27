@@ -372,7 +372,8 @@ export function ClientRecords({
   const sorted = useMemo(() => {
     const list = [...filtered];
     if (sort === "newest") {
-      return list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      // "Mới nhất" = vừa được thêm/cập nhật gần đây nhất (theo updated_at, khớp thứ tự BE).
+      return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     }
     if (sort === "most_deals") {
       return list.sort((a, b) => b.deal_count - a.deal_count);
