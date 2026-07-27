@@ -21,7 +21,7 @@ import { SubscriptionPage } from "@/features/subscriptions/components/Subscripti
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { getMe, updateMe, updateFreelancerProfile, updateProfessionalProfile } from "@/services/usersService";
+import { getMe, updateMe, updateFreelancerProfile } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { wasOnboardingSkipped } from "@/features/onboarding/skip";
 import type { Deal } from "@/features/deals/types";
@@ -100,7 +100,7 @@ const PAGE_META: Record<NavKey, { title: string; description: string }> = {
     description: "Cập nhật thông tin freelancer và mẫu điều khoản.",
   },
   subscription: {
-    title: "Gói đăng ký",
+    title: "Gói dịch vụ",
     description: "Xem và quản lý gói dịch vụ SoloDesk của bạn.",
   },
 };
@@ -121,25 +121,12 @@ function Index() {
       // — hồ sơ rơi vào trạng thái nửa vời mà người dùng không hề biết.
       await updateMe({ full_name: p.fullName, phone: p.phone || undefined });
 
-      await Promise.all([
-        updateFreelancerProfile({
-          professional_title: p.professionalTitle || undefined,
-          profession: p.profession || undefined,
-          bio: p.bio || undefined,
-          skills: p.skills.length > 0 ? p.skills : undefined,
-          service_categories: p.serviceCategories.length > 0 ? p.serviceCategories : undefined,
-          avatar_url: p.avatarUrl || undefined,
-          portfolio_url: p.portfolioUrl || undefined,
-          is_listed: p.isListed,
-        }),
-        // Mức giá theo giờ lưu lên server để không mất khi đổi máy (trước đây chỉ
-        // nằm ở localStorage). Lưu ý: hiện KHÔNG module AI nào đọc trường này —
-        // lead_qualifier tự ước lượng giá thị trường từ mô tả dự án.
-        updateProfessionalProfile({
-          default_hourly_rate: p.hourlyRate > 0 ? p.hourlyRate : undefined,
-          currency: "VND",
-        }),
-      ]);
+      await updateFreelancerProfile({
+        professional_title: p.professionalTitle || undefined,
+        profession: p.profession || undefined,
+        bio: p.bio || undefined,
+        avatar_url: p.avatarUrl || undefined,
+      });
       updateUser({ fullName: p.fullName });
       toast.success("Đã lưu hồ sơ.");
     } catch (err) {

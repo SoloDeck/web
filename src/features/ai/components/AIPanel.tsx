@@ -143,7 +143,7 @@ function getErrorHint(error: unknown): string {
   }
   // 429 = hết hạn mức AI trong kỳ. Nói rõ, đừng để họ bấm lại mãi.  #Huynh
   if (err.response?.status === 429) {
-    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức và nâng cấp.";
+    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức và nâng cấp.";
   }
   if (err.response?.status) {
     const message = err.response.data?.message || err.response.data?.detail;

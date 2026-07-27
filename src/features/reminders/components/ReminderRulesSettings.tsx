@@ -1,4 +1,5 @@
-import { AlertTriangle, Loader2, Zap } from "lucide-react";
+import { useRef, useState } from "react";
+import { AlertTriangle, Loader2, MessageSquareText, Zap } from "lucide-react";
 
 import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import { useReminderRules, useUpdateReminderRule } from "@/features/reminders/hooks/useReminders";
@@ -196,12 +197,127 @@ export function ReminderRulesSettings() {
                     label="Tự động gửi"
                   />
                 </div>
+
+                <TemplateEditor
+                  rule={rule}
+                  isSaving={updateRule.isPending}
+                  onSave={(message_template) => patch(rule, { message_template })}
+                />
               </div>
             )}
           </article>
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * Sửa nội dung mẫu lời nhắc. Trước đây màn này chỉ chỉnh được thời điểm/kênh/tự gửi mà
+ * KHÔNG cho xem hay sửa lời văn sẽ gửi cho khách — freelancer bấm gửi mà không biết nội
+ * dung. Ô này hiện template đang hiệu lực (tự soạn hoặc mặc định) và cho sửa.
+ */
+function TemplateEditor({
+  rule,
+  onSave,
+  isSaving,
+}: {
+  rule: ReminderRule;
+  onSave: (template: string) => void;
+  isSaving: boolean;
+}) {
+  const [draft, setDraft] = useState(rule.message_template);
+  // Bám giá trị server lần trước để nhận biết khi nào cần reset draft (sau khi lưu /
+  // khôi phục mặc định). Đồng bộ ngay trong render — pattern chuẩn của React, không cần
+  // useEffect + tránh nhấp nháy.
+  const [serverTemplate, setServerTemplate] = useState(rule.message_template);
+  if (serverTemplate !== rule.message_template) {
+    setServerTemplate(rule.message_template);
+    setDraft(rule.message_template);
+  }
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const dirty = draft.trim() !== rule.message_template.trim();
+
+  function insertVariable(token: string) {
+    const el = textareaRef.current;
+    if (!el) {
+      setDraft((prev) => prev + token);
+      return;
+    }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    setDraft(draft.slice(0, start) + token + draft.slice(end));
+    // Đặt con trỏ ngay sau token vừa chèn để gõ tiếp cho mượt.
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <MessageSquareText className="h-3.5 w-3.5" /> Nội dung lời nhắc
+        </span>
+        {rule.is_custom_template ? (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+            Đã tuỳ chỉnh
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Đang dùng mẫu mặc định</span>
+        )}
+      </div>
+
+      <textarea
+        ref={textareaRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        rows={7}
+        className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+      />
+
+      {rule.template_variables.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground">Chèn biến:</span>
+          {rule.template_variables.map((variable) => (
+            <button
+              key={variable.token}
+              type="button"
+              onClick={() => insertVariable(variable.token)}
+              title={`Chèn ${variable.label}`}
+              className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground hover:border-primary/40 hover:text-primary"
+            >
+              {variable.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          disabled={!dirty || isSaving}
+          onClick={() => onSave(draft)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Lưu nội dung
+        </button>
+        {rule.is_custom_template && (
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => onSave("")}
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Khôi phục mặc định
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

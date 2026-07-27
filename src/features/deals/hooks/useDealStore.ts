@@ -12,6 +12,8 @@ const STAGE_IDS = STAGES.map((s) => s.id) as string[];
 interface DealState {
   deals: Deal[];
   hydrated: boolean;
+  /** Deal vừa được chuyển giai đoạn — để card highlight tạm thời trên board. */
+  recentlyMovedId: string | null;
   /** Seed the board from the server payload (runs once). */
   hydrate: (deals: Deal[]) => void;
   /** Xóa dữ liệu pipeline cũ khi đổi tài khoản để không lộ deal giữa các user. */
@@ -22,8 +24,10 @@ interface DealState {
   updateDeal: (deal: Deal) => void;
   /** Remove a deal after DELETE /deals/{id}. */
   removeDeal: (dealId: string) => void;
-  /** Move a deal to a stage, appending it to the end of that column. */
+  /** Move a deal to a stage, đưa nó lên ĐẦU cột đích + đánh dấu để highlight. */
   moveToStage: (dealId: string, stage: Stage) => void;
+  /** Xóa cờ highlight sau khi hiệu ứng kết thúc. */
+  clearRecentlyMoved: () => void;
   addTask: (dealId: string, task: ProjectTask) => void;
   updateTask: (dealId: string, taskId: string, patch: Partial<ProjectTask>) => void;
   deleteTask: (dealId: string, taskId: string) => void;
@@ -37,10 +41,11 @@ interface DealState {
 export const useDealStore = create<DealState>((set) => ({
   deals: [],
   hydrated: false,
+  recentlyMovedId: null,
 
   hydrate: (deals) => set({ deals, hydrated: true }),
 
-  reset: () => set({ deals: [], hydrated: false }),
+  reset: () => set({ deals: [], hydrated: false, recentlyMovedId: null }),
 
   addDeal: (deal) =>
     set((state) => ({ deals: [deal, ...state.deals] })),
@@ -58,9 +63,18 @@ export const useDealStore = create<DealState>((set) => ({
     })),
 
   moveToStage: (dealId, stage) =>
-    set((state) => ({
-      deals: state.deals.map((d) => (d.id === dealId ? { ...d, stage } : d)),
-    })),
+    set((state) => {
+      const active = state.deals.find((d) => d.id === dealId);
+      if (!active) return state;
+      // Đổi giai đoạn -> đẩy deal lên ĐẦU cột đích (insertIndex 0) để nó luôn ở vị
+      // trí #1, tránh cảnh "chuyển status xong lại nhảy xuống giữa cột". Nếu cùng
+      // stage thì chỉ đánh dấu highlight, không xáo trộn thứ tự.
+      const deals =
+        active.stage === stage ? state.deals : relocate(state.deals, active, stage, 0);
+      return { deals, recentlyMovedId: dealId };
+    }),
+
+  clearRecentlyMoved: () => set({ recentlyMovedId: null }),
 
   addTask: (dealId, task) =>
     set((state) => ({

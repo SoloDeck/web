@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, X, Send, Download,
   Minus, RefreshCw, Save, Sparkles,
-  TrendingUp, Check, Pencil,
+  TrendingUp, Check, Pencil, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatVND } from "@/utils/format";
@@ -14,6 +14,8 @@ import { PricingPanel } from "@/features/deals/components/PricingPanel";
 import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
+import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
+import type { PaymentMilestone } from "@/features/deals/proposalHtml";
 import { getProposalPreview, setProposalPrice } from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
 import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal } from "@/features/deals/hooks/useProposals";
@@ -83,6 +85,10 @@ function normalizeProposalContentForApi(
       // vì BE đọc thiếu khoá thì trả danh sách rỗng chứ không nổ.  #Huynh
       deliverables: content.deliverables ?? [],
       out_of_scope: content.out_of_scope ?? [],
+      // Giữ nguyên các đợt thanh toán có cấu trúc: backend đọc trường này để tự sinh task
+      // "Thu tiền:" khi báo giá được chốt. Không giữ là sửa MỘT chữ rồi lưu -> mất mốc thu
+      // tiền -> chốt báo giá xong chẳng có task nào. Cùng lỗi với deliverables ở trên.  #Huynh
+      payment_milestones: content.payment_milestones ?? [],
       valid_until: content.valid_until,
       // Tiền lấy từ bộ định giá của BE, KHÔNG lấy `deal.value` (ô "Giá trị dự kiến" —
       // freelancer không nhập thì bằng 0, và bản lưu lại ghi "Tổng báo giá: 0 ₫").  #Huynh
@@ -233,6 +239,15 @@ function editFieldsToContent(fields: EditFields, prev: unknown): BackendProposal
     // backend (ngày gửi + 4), và tờ báo giá mất luôn dòng "Hiệu lực đến".  #Huynh
     ...(fields.validUntil ? { valid_until: fields.validUntil } : {}),
     pricing_detail: (p.pricing_detail as BackendProposalContent["pricing_detail"]) ?? null,
+    // Mang theo các đợt thanh toán có cấu trúc từ bản trước (AI sinh ra) — ô soạn thảo chỉ
+    // sửa `payment_terms` dạng văn xuôi, không đụng tới mốc. Không mang theo là mốc rụng khi
+    // lưu -> chốt báo giá xong không sinh được task "Thu tiền:". Cùng cơ chế với pricing_detail.
+    payment_milestones:
+      (p.payment_milestones as BackendProposalContent["payment_milestones"]) ?? [],
+    // Nhãn hạng mục chi phí freelancer sửa ở mục 7 — giữ nguyên khi lưu, y như trên.  #Huynh
+    ...(Array.isArray(p.pricing_items)
+      ? { pricing_items: p.pricing_items as BackendProposalContent["pricing_items"] }
+      : {}),
   };
 }
 
@@ -443,6 +458,9 @@ export function ProposalModal({
   const previewRef = useRef<HTMLIFrameElement>(null);
   const previewScrollRef = useRef(0);
   const contentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Sửa mục 7 (chi phí) + mục 8 (mốc thanh toán): hoãn rồi lưu, giống thanh giá.  #Huynh
+  const moneyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [moneyEditorOpen, setMoneyEditorOpen] = useState(false);
 
   // Kéo giá thì hoãn 0.7s rồi mới lưu — không lưu mỗi lần nhích một pixel, nhưng vẫn kịp để
   // bản Xem trước bên dưới hiện ĐÚNG giá đang kéo.
@@ -787,6 +805,42 @@ export function ProposalModal({
     );
   };
 
+  /**
+   * Lưu thay đổi mục 7/8 RỒI làm mới bản xem trước — khác `saveContentSilently` ở chỗ nó
+   * refetch preview: bảng chi phí/thanh toán do SERVER dựng, không phải thứ người dùng gõ
+   * trực tiếp lên tờ giấy, nên phải vẽ lại mới thấy.  #Huynh
+   */
+  const saveMoneyAndRefresh = () => {
+    if (!proposalId) return;
+    updateDraft.mutate(
+      { proposalId, payload: { deal_id: deal.id, content: buildContentToSave() } },
+      {
+        onSuccess: () => {
+          setDirtyContent(false);
+          qc.invalidateQueries({ queryKey: ["proposal-preview", proposalId] });
+        },
+        onError: () => toast.error("Không lưu được thay đổi. Vui lòng thử lại."),
+      }
+    );
+  };
+
+  /** Ghi một mảnh nội dung TIỀN (pricing_items / payment_milestones) vào draft rồi hoãn lưu. */
+  const patchMoneyContent = (patch: Record<string, unknown>) => {
+    if (!proposalId) return;
+    const next = { ...(proposalContentRef.current ?? {}), ...patch } as ProposalContentDTO;
+    proposalContentRef.current = next;
+    setProposalContent(next);
+    setDirtyContent(true);
+    if (moneyTimerRef.current) clearTimeout(moneyTimerRef.current);
+    moneyTimerRef.current = setTimeout(saveMoneyAndRefresh, 700);
+  };
+
+  // Nguồn cho editor mục 7: nhãn freelancer đã sửa, chưa có thì lấy từ bộ định giá.  #Huynh
+  const lineItemLabels: string[] =
+    proposalContent?.pricing_items ??
+    (pricingDetail?.line_items?.map((item) => item.label).filter(Boolean) ?? []);
+  const milestoneRows: PaymentMilestone[] = proposalContent?.payment_milestones ?? [];
+
   /** Một mục trong tờ báo giá vừa được sửa xong (người dùng rời khỏi ô). */
   const handleInlineFieldChange = (field: string, value: string) => {
     const key = INLINE_FIELD_MAP[field];
@@ -1122,6 +1176,48 @@ export function ProposalModal({
                       isCommitting={commitPrice.isPending}
                       onCommit={(price) => commitPrice.mutate({ id: proposalId, price })}
                     />
+                  </div>
+                )}
+
+                {/* ①b SỬA CHI PHÍ & MỐC THANH TOÁN — tiền nhạy cảm, để freelancer tự chủ. Panel
+                  gập; sửa xong tờ báo giá refetch vẽ lại mục 7/8. Bảng trong tờ giấy để đọc. */}
+                {proposalId && (
+                  <div className="shrink-0 border-b border-border px-5 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setMoneyEditorOpen((open) => !open)}
+                      className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronRight
+                        className={`h-3.5 w-3.5 transition-transform ${moneyEditorOpen ? "rotate-90" : ""}`}
+                      />
+                      Sửa chi phí &amp; mốc thanh toán
+                    </button>
+                    {moneyEditorOpen && (
+                      <div className="mt-3 space-y-4">
+                        <div>
+                          <div className="mb-1.5 text-[11px] font-semibold text-foreground">
+                            Hạng mục chi phí (mục 7)
+                          </div>
+                          <LineItemsEditor
+                            items={lineItemLabels}
+                            total={priceToSend}
+                            onChange={(items) => patchMoneyContent({ pricing_items: items })}
+                          />
+                        </div>
+                        <div>
+                          <div className="mb-1.5 text-[11px] font-semibold text-foreground">
+                            Mốc thanh toán (mục 8)
+                          </div>
+                          <MilestonesEditor
+                            milestones={milestoneRows}
+                            onChange={(milestones) =>
+                              patchMoneyContent({ payment_milestones: milestones })
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -92,7 +92,7 @@ export async function cancelAiJob(jobId: string): Promise<AiJob> {
 // lọt thẳng ra màn hình thì vừa lệch ngôn ngữ vừa khó hiểu.  #Huynh
 const AI_JOB_ERROR_MESSAGES: Record<string, string> = {
   SUBSCRIPTION_REQUIRED: "Gói của bạn chưa có tính năng AI. Hãy nâng cấp gói để dùng.",
-  AI_QUOTA_EXCEEDED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức.",
+  AI_QUOTA_EXCEEDED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức.",
   RATE_LIMITED: "Hệ thống AI đang bận. Bạn thử lại sau ít phút nhé.",
 };
 

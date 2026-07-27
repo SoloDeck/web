@@ -102,7 +102,7 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
           // hiểu vì sao, vì thông báo mặc định là "Vui lòng thử lại".  #Huynh
           if (status === 429) {
             toast.error(
-              "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức."
+              "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức."
             );
             return;
           }

@@ -29,10 +29,13 @@ export function DealCard({
   deal,
   onClick,
   onDraft,
+  highlighted = false,
 }: {
   deal: Deal;
   onClick: () => void;
   onDraft: (d: Deal) => void;
+  /** Vừa được chuyển giai đoạn — làm nổi bật tạm thời để user thấy nó đã lên đầu cột. */
+  highlighted?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
@@ -74,9 +77,10 @@ export function DealCard({
       {...listeners}
       onClick={onClick}
       className={cn(
-        "group min-w-0 cursor-grab rounded-xl border border-border bg-card p-3 shadow-sm transition-all",
+        "group min-w-0 cursor-grab rounded-xl border border-border bg-card p-3 shadow-sm transition-all duration-500",
         "hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md active:cursor-grabbing",
-        isDragging && "rotate-[1.5deg] shadow-lg"
+        isDragging && "rotate-[1.5deg] shadow-lg",
+        highlighted && "border-primary bg-primary/[0.05] ring-2 ring-primary/50 shadow-md"
       )}
     >
       <div className="mb-2 flex items-start justify-between gap-2">

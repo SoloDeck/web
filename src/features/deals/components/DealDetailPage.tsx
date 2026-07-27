@@ -61,7 +61,7 @@ import {
   useUpdateInvoice,
   useVoidInvoice,
 } from "@/features/deals/hooks/useInvoices";
-import { useProposal, useProposalList, useTransitionProposalStatus } from "@/features/deals/hooks/useProposals";
+import { useDeleteProposal, useProposal, useProposalList, useTransitionProposalStatus } from "@/features/deals/hooks/useProposals";
 import {
   useContractList,
   useContract,
@@ -104,6 +104,11 @@ type DealDetailDraft = {
   title: string;
   notes: string;
 };
+
+// Tiền tố các task "Thu tiền:" mà backend tự sinh từ mốc thanh toán của báo giá đã chốt
+// (Phase B — mục 8/9). Guard "hoàn thành dự án" dựa vào tiền tố này. Phải khớp
+// PAYMENT_TASK_PREFIX ở backend (src/modules/tasks/application/service.py).
+const PAYMENT_TASK_PREFIX = "Thu tiền:";
 
 function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -154,7 +159,7 @@ function contractErrorMessage(error: unknown): string {
   // 429 = hết hạn mức AI trong kỳ. Thông báo mặc định "Vui lòng thử lại" khiến người
   // dùng bấm lại mãi mà không hiểu vì sao.  #Huynh
   if (status === 429) {
-    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói đăng ký để xem hạn mức và nâng cấp.";
+    return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức và nâng cấp.";
   }
   // 409: báo giá chưa được chấp nhận, hoặc hợp đồng không còn là bản nháp.
   if (status === 409) {
@@ -169,6 +174,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const dealQuery = useDeal(dealId);
   const deal = dealQuery.data;
   const updateStoredDeal = useDealStore((state) => state.updateDeal);
+  const moveToStage = useDealStore((state) => state.moveToStage);
   const clientQuery = useClient(deal?.clientId);
   const dealHistory = useDealHistory(deal?.id);
   const invoices = useDealInvoices(deal?.id);
@@ -188,6 +194,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const updateDeal = useUpdateDeal();
   const transitionDealStage = useTransitionDealStage();
   const proposalDecision = useTransitionProposalStatus();
+  const deleteProposalMutation = useDeleteProposal();
   const createContract = useCreateContract();
   const generateContract = useGenerateContractContent();
   const recordSignature = useRecordClientSignature();
@@ -213,6 +220,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [completePending, setCompletePending] = useState(false);
+  // Bản nháp báo giá đang chờ xác nhận xoá (mục 5). null = không có hộp thoại nào mở.
+  const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
 
   // File đính kèm giờ lưu trên object storage (MinIO/S3) qua API, KHÔNG còn nhét base64
   // vào localStorage: ~5MB là vỡ, đổi máy là mất sạch, và file không rời khỏi trình duyệt
@@ -240,6 +249,9 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const proposalItems = proposals.data?.data ?? [];
   const contractItems = contracts.data?.data ?? [];
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
+  // Bản nháp báo giá để TÁI DÙNG khi bấm "Tạo báo giá" — mở lại bản nháp có sẵn thay vì
+  // đẻ thêm bản mới mỗi lần bấm (mục 5). Cùng ý với `draftContract`.  #Huynh
+  const draftProposal = proposalItems.find((proposal) => proposal.status === "draft");
   const latestProposal = proposalItems[0];
   const latestContract = contractItems[0];
   // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
@@ -444,6 +456,25 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     );
   }
 
+  // Mở lại bản nháp báo giá trong cửa sổ soạn thảo (nơi chốt giá + gửi khách).  #Huynh
+  function handleEditProposal(proposalId: string) {
+    if (!deal) return;
+    openAiPanel({ kind: "proposal_generation", dealId: deal.id, proposalId });
+  }
+
+  function handleConfirmDeleteProposal() {
+    if (!deleteProposalId) return;
+    deleteProposalMutation.mutate(deleteProposalId, {
+      onSuccess: () => {
+        toast.success("Đã xoá bản nháp báo giá.");
+        setDeleteProposalId(null);
+      },
+      onError: (error) => {
+        toast.error(getApiErrorMessage(error, "Không xoá được báo giá. Vui lòng thử lại."));
+      },
+    });
+  }
+
   function handleStartProject() {
     if (!deal) return;
     if (!hasDeploymentReadyContract) {
@@ -468,21 +499,19 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   function handleCompleteProject() {
     if (!deal) return;
-    const billableInvoices = invoices.data?.filter((invoice) => !["void", "cancelled"].includes(invoice.status)) ?? [];
-    if (billableInvoices.length === 0) {
-      toast.error("Cần tạo hóa đơn và ghi nhận thanh toán trước khi hoàn thành dự án.");
-      setTab("documents");
-      return;
-    }
-
-    const unpaidInvoices = billableInvoices.filter((invoice) => {
-      const total = Number(invoice.total ?? 0);
-      const paid = Number(invoice.amount_paid ?? 0);
-      return invoice.status !== "paid" || paid < total;
-    });
-    if (unpaidInvoices.length > 0) {
-      toast.error(`Còn ${unpaidInvoices.length}/${billableInvoices.length} hóa đơn chưa xác nhận đã thanh toán.`);
-      setTab("documents");
+    // Từ Phase B: "thu đủ tiền" đo bằng các task "Thu tiền:" (tự sinh từ mốc thanh toán của
+    // báo giá đã chốt), thay cho hoá đơn. Còn mốc chưa tick xong thì chưa cho hoàn thành.
+    // Deal không có mốc thu tiền nào (báo giá cũ / không mốc) thì không chặn — khớp guard BE.
+    const paymentTasks = (taskQuery.data?.tasks ?? []).filter((task) =>
+      task.title.startsWith(PAYMENT_TASK_PREFIX)
+    );
+    const unpaid = paymentTasks.filter((task) => task.status !== "done");
+    if (unpaid.length > 0) {
+      toast.error(
+        `Còn ${unpaid.length}/${paymentTasks.length} mốc thu tiền chưa hoàn tất. ` +
+          `Hãy tick xong các mốc "Thu tiền:" trong tab Công việc.`
+      );
+      setTab("tasks");
       return;
     }
 
@@ -495,6 +524,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     try {
       const completedDeal = await updateDealStage(deal.id, "completed_and_billed");
       const nextDeal = { ...deal, ...completedDeal, client: deal.client, contact: deal.contact };
+      // Đưa deal lên đầu cột "Hoàn thành" + highlight, giống mọi đường đổi giai đoạn khác.
+      moveToStage(deal.id, "completed_and_billed");
       updateStoredDeal(nextDeal);
       queryClient.setQueryData(dealKeys.detail(deal.id), nextDeal);
       toast.success("Đã hoàn thành và ghi nhận thanh toán dự án.");
@@ -506,25 +537,15 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       setCompleteDialogOpen(false);
     } catch (error) {
       const message = getApiErrorMessage(error, "");
-      if (message.toLowerCase().includes("linked invoice")) {
-        toast.error("Cần có hóa đơn đã thanh toán trong Tài liệu trước khi hoàn thành dự án.");
-        setTab("documents");
+      if (message.includes("mốc thu tiền")) {
+        toast.error(message);
+        setTab("tasks");
       } else {
         toast.error("Không thể cập nhật trạng thái hoàn thành. Vui lòng thử lại.");
       }
     } finally {
       setCompletePending(false);
     }
-  }
-
-  function handleCreateDealInvoice() {
-    if (!deal) return;
-    if (deal.value <= 0) {
-      toast.error("Cần có giá trị dự kiến lớn hơn 0đ trước khi tạo hóa đơn.");
-      return;
-    }
-    setSelectedInvoice(null);
-    setInvoiceModalMode("create");
   }
 
   function handleSubmitInvoiceDraft(payload: InvoicePayload) {
@@ -1035,7 +1056,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     invoices={invoices.data ?? []}
                     onAddAttachment={handleAddAttachment}
                     onDeleteAttachment={handleDeleteAttachment}
-                    onCreateInvoice={handleCreateDealInvoice}
                     onViewInvoice={handleViewInvoice}
                     onVoidInvoice={handleVoidInvoice}
                     onSendInvoice={handleSendInvoice}
@@ -1043,6 +1063,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     onProposalDecision={handleProposalDecision}
                     proposalDecisionLoading={proposalDecision.isPending}
                     onViewProposal={(id) => setViewProposalId(id)}
+                    onEditProposal={handleEditProposal}
+                    onDeleteProposal={(id) => setDeleteProposalId(id)}
                     onSendContract={handleSendContract}
                     onSignContract={handleSignContract}
                     onViewContract={(id) => setViewContractId(id)}
@@ -1087,7 +1109,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
               onProposal={() => {
                 const target = dealForProposal ?? deal;
                 if (!target) return;
-                openAiPanel({ kind: "proposal_generation", dealId: target.id });
+                // Có bản nháp cho đúng deal này thì mở lại nó (không sinh bản mới).  #Huynh
+                openAiPanel({
+                  kind: "proposal_generation",
+                  dealId: target.id,
+                  proposalId: target.id === deal.id ? draftProposal?.id : undefined,
+                });
               }}
               onContract={handleGenerateContract}
               onStartProject={handleStartProject}
@@ -1198,6 +1225,18 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         isLoading={completePending}
         onConfirm={handleConfirmCompleteProject}
       />
+      <ConfirmDialog
+        open={Boolean(deleteProposalId)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteProposalId(null);
+        }}
+        title="Xoá bản nháp báo giá?"
+        description="Bản nháp này sẽ bị xoá vĩnh viễn. (Báo giá đã gửi cho khách thì không xoá được.)"
+        confirmLabel="Xoá bản nháp"
+        cancelLabel="Giữ lại"
+        isLoading={deleteProposalMutation.isPending}
+        onConfirm={handleConfirmDeleteProposal}
+      />
     </div>
   );
 }
@@ -1222,6 +1261,7 @@ function ClientInfoPanel({
 }) {
   const updateClient = useUpdateClient();
   const [editing, setEditing] = useState(false);
+  const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
   const [draft, setDraft] = useState({
     phone: "",
     email: "",
@@ -1271,7 +1311,10 @@ function ClientInfoPanel({
         },
       },
       {
-        onSuccess: () => setEditing(false),
+        onSuccess: () => {
+          setEditing(false);
+          setConfirmSaveOpen(false);
+        },
       }
     );
   }
@@ -1367,7 +1410,7 @@ function ClientInfoPanel({
             </button>
             <button
               type="button"
-              onClick={saveClientInfo}
+              onClick={() => setConfirmSaveOpen(true)}
               disabled={!hasChanges || updateClient.isPending}
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -1385,6 +1428,17 @@ function ClientInfoPanel({
           </button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmSaveOpen}
+        onOpenChange={setConfirmSaveOpen}
+        title="Cập nhật thông tin khách hàng?"
+        description="Thông tin liên hệ và ghi chú của khách hàng sẽ được lưu lại."
+        confirmLabel="Lưu thay đổi"
+        cancelLabel="Xem lại"
+        isLoading={updateClient.isPending}
+        onConfirm={saveClientInfo}
+      />
     </aside>
   );
 }
@@ -2287,7 +2341,6 @@ function DocumentsTab({
   invoices,
   onAddAttachment,
   onDeleteAttachment,
-  onCreateInvoice,
   onViewInvoice,
   onVoidInvoice,
   onSendInvoice,
@@ -2295,6 +2348,8 @@ function DocumentsTab({
   onProposalDecision,
   proposalDecisionLoading,
   onViewProposal,
+  onEditProposal,
+  onDeleteProposal,
   onSendContract,
   onSignContract,
   onViewContract,
@@ -2302,7 +2357,7 @@ function DocumentsTab({
   invoiceActionLoading,
 }: {
   attachments: DealAttachment[];
-  proposals: Array<{ id: string; status: string; version_number: number; created_at: string; content?: { title?: string } }>;
+  proposals: Array<{ id: string; status: string; version_number: number; created_at: string; content?: ProposalContentDTO }>;
   contracts: Array<{
     id: string;
     status: string;
@@ -2315,7 +2370,6 @@ function DocumentsTab({
   onAddAttachment: (file: File) => void;
   onDeleteAttachment: (attachmentId: string) => void;
   onViewAttachment: (attachment: DealAttachment) => void;
-  onCreateInvoice: () => void;
   onViewInvoice: (invoice: InvoiceResponse) => void;
   onVoidInvoice: (invoice: InvoiceResponse) => void;
   onSendInvoice: (invoiceId: string) => void;
@@ -2323,6 +2377,8 @@ function DocumentsTab({
   onProposalDecision: (proposalId: string, status: ProposalDecisionStatus) => void;
   proposalDecisionLoading: boolean;
   onViewProposal: (proposalId: string) => void;
+  onEditProposal: (proposalId: string) => void;
+  onDeleteProposal: (proposalId: string) => void;
   onSendContract: (contractId: string) => void;
   onSignContract: (contract: { id: string; share_token?: string | null; signed_by_freelancer_at?: string | null }) => void;
   onViewContract: (contractId: string) => void;
@@ -2379,14 +2435,6 @@ function DocumentsTab({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={invoiceActionLoading}
-            onClick={onCreateInvoice}
-            className="inline-flex items-center gap-2 rounded-lg border border-primary/25 bg-card px-4 py-2.5 text-sm font-semibold text-primary shadow-sm hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <CreditCard className="h-4 w-4" /> Tạo hóa đơn
-          </button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90">
             <Plus className="h-4 w-4" /> Thêm file
             <input
@@ -2543,6 +2591,31 @@ function DocumentsTab({
             <div className="mt-0.5 text-xs text-muted-foreground">
               {item.content?.title || "Báo giá cho yêu cầu hiện tại"} · {formatDate(item.created_at)}
             </div>
+            {/* Mốc thanh toán — khi chốt báo giá, mỗi mốc thành 1 task "Thu tiền:" ở tab
+                Công việc để freelancer theo dõi thu tiền theo đợt.  #Huynh */}
+            {item.content?.payment_milestones && item.content.payment_milestones.length > 0 && (
+              <div className="mt-1.5">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Mốc thanh toán
+                </div>
+                <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+                  {item.content.payment_milestones.map((milestone, index) => (
+                    <li key={`${item.id}-milestone-${index}`} className="flex gap-1.5">
+                      <span className="text-primary">•</span>
+                      <span>
+                        <span className="font-medium text-foreground">{milestone.label}</span>
+                        {milestone.percent != null
+                          ? ` — ${milestone.percent}%`
+                          : milestone.amount
+                            ? ` — ${milestone.amount}`
+                            : ""}
+                        {milestone.due ? ` · ${milestone.due}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
@@ -2559,6 +2632,26 @@ function DocumentsTab({
               fetchPdf={() => downloadProposalPdf(item.id)}
               filename={`bao-gia-lan-${item.version_number}.pdf`}
             />
+            {item.status === "draft" && (
+              <>
+                {/* "Soạn & gửi" mở cửa sổ soạn thảo — nơi chốt giá rồi gửi khách (backend
+                    chặn gửi khi chưa chốt giá, nên bước gửi phải qua đó).  #Huynh */}
+                <button
+                  type="button"
+                  onClick={() => onEditProposal(item.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Soạn &amp; gửi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteProposal(item.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Xoá
+                </button>
+              </>
+            )}
             {item.status === "sent" && (
               <>
                 <button

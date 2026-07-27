@@ -50,6 +50,19 @@ export type PricingDetail = {
   final_outside_range?: boolean;
 };
 
+/**
+ * Một đợt thanh toán có cấu trúc (Phase B). Khớp `PaymentMilestone` bên backend
+ * (src/ai/proposal_generator/schemas/proposal_document.py): mô tả + (% HOẶC số tiền) +
+ * thời điểm/điều kiện. Đây là NGUỒN để backend tự sinh task "Thu tiền:" khi báo giá được
+ * chốt — nên PHẢI giữ nguyên khi lưu, y như `deliverables`/`pricing_detail`.  #Huynh
+ */
+export type PaymentMilestone = {
+  label: string;
+  percent?: number | null;
+  amount?: string;
+  due?: string;
+};
+
 export type BackendProposalContent = {
   project_overview: string;
   scope_of_work: string[];
@@ -57,6 +70,13 @@ export type BackendProposalContent = {
   timeline: string;
   pricing: string;
   payment_terms: string;
+  /** Các đợt thanh toán có cấu trúc — nguồn sinh task "Thu tiền:". */
+  payment_milestones?: PaymentMilestone[];
+  /**
+   * Danh sách NHÃN hạng mục chi phí do freelancer tự sửa ở màn review (mục 7). Chỉ chứa tên;
+   * số tiền do BE chia đều từ giá đã chốt. Rỗng/không có = dùng bảng của bộ định giá.  #Huynh
+   */
+  pricing_items?: string[];
   assumptions?: string;
   /** Phạm vi KHÔNG bao gồm — dòng phòng thủ chống scope creep, mục "10. Điều Khoản Bổ Sung". */
   out_of_scope?: string[];

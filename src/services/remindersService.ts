@@ -38,6 +38,12 @@ export type ReminderRuleType =
   | "payment_overdue"
   | "re_engagement";
 
+/** Một biến `{...}` chèn được vào template lời nhắc, kèm nhãn tiếng Việt. */
+export type ReminderTemplateVariable = {
+  token: string;
+  label: string;
+};
+
 export type ReminderRule = {
   rule_type: ReminderRuleType;
   is_enabled: boolean;
@@ -50,12 +56,24 @@ export type ReminderRule = {
   label: string;
   /** Chỉ quá hạn và tái kết nối mới lặp lại được. */
   supports_repeat: boolean;
+  /** Nội dung mẫu ĐANG hiệu lực (bản tự soạn nếu có, ngược lại là mặc định). */
+  message_template: string;
+  /** True nếu freelancer đã tự soạn (khác template mặc định). */
+  is_custom_template: boolean;
+  /** Các biến template này hỗ trợ, để hiện gợi ý chèn. */
+  template_variables: ReminderTemplateVariable[];
 };
 
 export type ReminderRuleUpdate = Partial<
   Pick<
     ReminderRule,
-    "is_enabled" | "offset_days" | "repeat_every_days" | "channel" | "auto_send" | "send_at_hour"
+    | "is_enabled"
+    | "offset_days"
+    | "repeat_every_days"
+    | "channel"
+    | "auto_send"
+    | "send_at_hour"
+    | "message_template"
   >
 >;
 
