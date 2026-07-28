@@ -17,6 +17,27 @@ import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { dealKeys } from "@/features/deals/hooks/useDeals";
 import { DEAL_SOURCE_LABELS, type Deal } from "@/features/deals/types";
 
+/**
+ * Bóc câu thông báo lỗi THẬT mà backend gửi về.
+ *
+ * Backend gói lỗi thành `{ success, code, error: { message, code } }` (xem
+ * `src/shared/responses/response.py`) — KHÔNG có trường `detail`. Chỗ này trước đây đọc
+ * `response.data.detail`, luôn ra `undefined`, nên mọi lỗi đều rơi về một câu chung
+ * chung. Đó là lý do sự cố staging (409 "Object storage chưa được cấu hình") không để
+ * lại dấu vết nào trên giao diện.
+ *
+ * Vẫn đọc `message`/`detail` làm phương án dự phòng: 422 của FastAPI và vài endpoint cũ
+ * còn trả kiểu khác.  #Huynh
+ */
+function apiErrorMessage(err: unknown): string {
+  const data = (
+    err as {
+      response?: { data?: { error?: { message?: string }; message?: string; detail?: string } };
+    }
+  )?.response?.data;
+  return data?.error?.message ?? data?.message ?? data?.detail ?? "";
+}
+
 const SOURCE_OPTIONS = [
   { value: "inbound", label: DEAL_SOURCE_LABELS.inbound },
   { value: "referral", label: DEAL_SOURCE_LABELS.referral },
@@ -286,19 +307,34 @@ export function NewDealModal({
         // người dùng đính kèm lại ở tab Tài liệu, chứ xoá deal của họ đi thì tệ hơn.  #Huynh
         if (attachments.length > 0) {
           const failed: string[] = [];
+          // Giữ lý do THẬT của lần hỏng đầu tiên. Trước đây chỗ này là `catch {}` trần —
+          // nuốt sạch. Trên staging, backend trả 409 "Object storage chưa được cấu hình"
+          // suốt nhiều tuần mà người dùng chỉ thấy một câu chung chung, nên không ai lần
+          // ra được nguyên nhân.  #Huynh
+          let reason = "";
           for (const file of attachments) {
             try {
               await uploadDealAttachment(created.id, file);
-            } catch {
+            } catch (uploadErr: unknown) {
               failed.push(file.name);
+              reason = reason || apiErrorMessage(uploadErr);
             }
           }
+          queryClient.invalidateQueries({ queryKey: dealAttachmentKeys.forDeal(created.id) });
+
           if (failed.length > 0) {
             toast.error(
-              `Không tải lên được: ${failed.join(", ")}. Hãy đính kèm lại ở tab Tài liệu.`
+              `Đã tạo yêu cầu nhưng không tải lên được: ${failed.join(", ")}.` +
+                (reason ? ` ${reason}` : "") +
+                " Hãy đính kèm lại ở tab Tài liệu."
             );
+            // KHÔNG bắn toast xanh nữa. Trước đây "Đã tạo yêu cầu" hiện ngay sau toast đỏ
+            // và đè lên nó, nên người dùng tưởng mọi thứ ổn — deal thì có mà file thì
+            // không, mãi tới lúc mở Detail thấy trống mới biết.  #Huynh
+            queryClient.invalidateQueries({ queryKey: dealKeys.all });
+            handleClose();
+            return;
           }
-          queryClient.invalidateQueries({ queryKey: dealAttachmentKeys.forDeal(created.id) });
         }
 
         toast.success(`Đã tạo yêu cầu "${created.projectType}" cho ${created.client}.`);
@@ -307,8 +343,7 @@ export function NewDealModal({
       queryClient.invalidateQueries({ queryKey: dealKeys.all });
       handleClose();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(msg ?? "Không thể lưu yêu cầu. Vui lòng thử lại.");
+      toast.error(apiErrorMessage(err) || "Không thể lưu yêu cầu. Vui lòng thử lại.");
     } finally {
       setSubmitting(false);
     }
