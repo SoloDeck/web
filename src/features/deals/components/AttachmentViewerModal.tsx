@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, FileText, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import {
   downloadDealAttachment,
   fetchDealAttachmentBlob,
@@ -78,14 +79,7 @@ export function AttachmentViewerModal({
             >
               <Download className="h-3.5 w-3.5" /> Tải về
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Đóng"
-              className="rounded-md p-1.5 hover:bg-secondary"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
           </div>
         </div>
 

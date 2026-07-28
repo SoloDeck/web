@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CalendarClock, Check, Copy, Loader2, Mail, MessageCircle, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 
 import { useGenerateFollowUp } from "@/features/ai/hooks/useFollowUp";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
@@ -194,9 +195,7 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Đóng">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">

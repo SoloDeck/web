@@ -1,6 +1,6 @@
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { formatVND } from "@/utils/format";
-import type { PaymentMilestone } from "@/features/deals/proposalHtml";
+import { paymentPercentIssue, type PaymentMilestone } from "@/features/deals/proposalHtml";
 
 /**
  * Hai editor có cấu trúc cho phần TIỀN của báo giá — sửa ở màn review (Stage 4).
@@ -64,7 +64,9 @@ export function LineItemsEditor({
               onChange={(event) => replaceAt(index, event.target.value)}
               className={inputClass}
             />
-            <span className="w-32 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+            {/* Cột tiền hẹp lại (w-24, chữ nhỏ): panel này giờ nằm trong cột trái ~400px của
+              modal báo giá, để w-32 là ô nhập nhãn bị bóp còn không đủ đọc.  #Huynh */}
+            <span className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
               {total > 0 ? formatVND(amounts[index]) : "—"}
             </span>
             <button
@@ -109,52 +111,64 @@ export function MilestonesEditor({
   const patchAt = (index: number, patch: Partial<PaymentMilestone>) =>
     onChange(milestones.map((m, i) => (i === index ? { ...m, ...patch } : m)));
 
-  // Chỉ tính tổng khi các đợt dùng %. Đợt nào bỏ trống % thì coi như 0.
+  // Luật 100% dùng CHUNG với nút gửi và với guard bên backend — không tự cộng lại ở đây,
+  // ba chỗ tính khác nhau một chút là ra ba câu trả lời khác nhau về TIỀN.  #Huynh
+  const issue = paymentPercentIssue(milestones);
   const sumPercent = milestones.reduce((sum, m) => sum + (m.percent ?? 0), 0);
   const hasPercent = milestones.some((m) => m.percent != null);
 
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
+        {/* Mỗi đợt = một khối HAI DÒNG (mô tả / tỷ lệ + thời điểm), không còn nhồi bốn thứ
+          trên một hàng. Panel này nằm trong cột trái ~400px của modal báo giá: xếp ngang thì
+          mỗi ô còn ~80px, gõ "Khi nghiệm thu & bàn giao" vào đó là vô phương đọc lại.  #Huynh */}
         {milestones.map((milestone, index) => (
-          <div key={index} className="flex items-center gap-2">
-            <input
-              value={milestone.label}
-              disabled={disabled}
-              placeholder={`Đợt ${index + 1} — mô tả`}
-              onChange={(event) => patchAt(index, { label: event.target.value })}
-              className={inputClass}
-            />
-            <div className="flex w-20 shrink-0 items-center gap-1">
+          <div
+            key={index}
+            className="space-y-1.5 rounded-md border border-border/60 bg-background/40 p-2"
+          >
+            <div className="flex items-center gap-2">
               <input
-                value={milestone.percent ?? ""}
+                value={milestone.label}
                 disabled={disabled}
-                inputMode="numeric"
-                placeholder="%"
-                onChange={(event) => {
-                  const digits = event.target.value.replace(/\D/g, "");
-                  patchAt(index, { percent: digits === "" ? null : Number(digits) });
-                }}
-                className={`${inputClass} text-right`}
+                placeholder={`Đợt ${index + 1} — mô tả`}
+                onChange={(event) => patchAt(index, { label: event.target.value })}
+                className={inputClass}
               />
-              <span className="text-sm text-muted-foreground">%</span>
+              <button
+                type="button"
+                disabled={disabled || milestones.length <= 1}
+                onClick={() => onChange(milestones.filter((_, i) => i !== index))}
+                className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                aria-label="Xoá đợt"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <input
-              value={milestone.due ?? ""}
-              disabled={disabled}
-              placeholder="Thời điểm / điều kiện"
-              onChange={(event) => patchAt(index, { due: event.target.value })}
-              className={`${inputClass} flex-[1.3]`}
-            />
-            <button
-              type="button"
-              disabled={disabled || milestones.length <= 1}
-              onClick={() => onChange(milestones.filter((_, i) => i !== index))}
-              className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
-              aria-label="Xoá đợt"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex w-20 shrink-0 items-center gap-1">
+                <input
+                  value={milestone.percent ?? ""}
+                  disabled={disabled}
+                  inputMode="numeric"
+                  placeholder="%"
+                  onChange={(event) => {
+                    const digits = event.target.value.replace(/\D/g, "");
+                    patchAt(index, { percent: digits === "" ? null : Number(digits) });
+                  }}
+                  className={`${inputClass} text-right`}
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+              <input
+                value={milestone.due ?? ""}
+                disabled={disabled}
+                placeholder="Thời điểm / điều kiện"
+                onChange={(event) => patchAt(index, { due: event.target.value })}
+                className={inputClass}
+              />
+            </div>
           </div>
         ))}
       </div>
@@ -169,18 +183,21 @@ export function MilestonesEditor({
         >
           <Plus className="h-3.5 w-3.5" /> Thêm đợt
         </button>
-        {hasPercent && (
-          <span
-            className={
-              sumPercent === 100
-                ? "text-xs text-muted-foreground"
-                : "text-xs font-medium text-amber-600"
-            }
-          >
-            Tổng tỷ lệ: {sumPercent}%{sumPercent !== 100 ? " — nên bằng 100%" : ""}
+        {hasPercent && !issue && (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Check className="h-3.5 w-3.5 text-emerald-600" /> Tổng tỷ lệ: {sumPercent}%
           </span>
         )}
       </div>
+
+      {/* Sai tổng là CHẶN GỬI, nên phải nói thẳng bằng màu lỗi chứ không phải một dòng cam
+        mờ như trước — người dùng cần biết vì sao nút gửi bị khoá.  #Huynh */}
+      {issue && (
+        <p className="flex items-start gap-1.5 rounded-md bg-destructive/10 p-2 text-xs font-medium leading-4 text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{issue.message}</span>
+        </p>
+      )}
     </div>
   );
 }

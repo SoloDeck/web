@@ -13,9 +13,21 @@ export type DashboardSummary = {
 };
 
 export type RevenueSummary = {
+  /** Theo HOÁ ĐƠN (chứng từ đã xuất) — giữ nguyên ngữ nghĩa cũ. */
   total_invoiced: number;
   total_collected: number;
   total_outstanding: number;
+  /**
+   * Theo MỐC THANH TOÁN của hợp đồng đã ký — nguồn chính của bảng doanh thu.
+   *
+   * Vì sao không dùng mấy trường hoá đơn ở trên: luồng hoàn thành dự án đo bằng task
+   * "Thu tiền:", không đòi hoá đơn nữa. Đo trên bản chạy thật: 7 deal đang triển khai trị
+   * giá 1,24 tỷ mà "còn phải thu" theo hoá đơn ra 0 đ.
+   */
+  total_contracted: number;
+  milestone_collected: number;
+  milestone_outstanding: number;
+  milestones_pending: number;
 };
 
 export type PipelineStageStat = {
@@ -41,7 +53,11 @@ export type WinRateSummary = {
 export type TopClient = {
   client_id: string;
   name: string;
+  /** Đã thu được từ khách này (theo mốc thanh toán đã tick). */
   revenue: number;
+  /** Khách này còn nợ bao nhiêu — "ai mang lại nhiều tiền nhất" mà thiếu vế này thì mới kể nửa câu chuyện. */
+  outstanding: number;
+  deal_count: number;
 };
 
 export type AiUsageSummary = {

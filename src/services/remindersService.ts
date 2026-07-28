@@ -26,6 +26,8 @@ export type ReminderRecord = {
   requires_approval?: boolean;
   /** Do quy tắc tự sinh (khác với lời nhắc người dùng tự đặt). */
   created_by_rule?: boolean;
+  /** Ảnh đã chèn vào thư — mở lại lời nhắc cũ vẫn thấy, không bị lưu đè mất. */
+  attachments?: ReminderImage[];
   created_at: string;
   updated_at: string;
 };
@@ -77,6 +79,14 @@ export type ReminderRuleUpdate = Partial<
   >
 >;
 
+/** Ảnh freelancer chèn vào thư (mã QR chuyển khoản chụp sẵn, ảnh sản phẩm…). */
+export type ReminderImage = {
+  /** Khoá trong kho lưu trữ — do `uploadReminderImage` trả về. */
+  key: string;
+  filename: string;
+  content_type: string;
+};
+
 export type ReminderPayload = {
   target_type: ReminderTargetType;
   target_id: string;
@@ -84,7 +94,25 @@ export type ReminderPayload = {
   channel: ReminderChannel;
   scheduled_at: string;
   message_preview?: string | null;
+  attachments?: ReminderImage[];
 };
+
+/**
+ * POST /reminders/attachments — tải MỘT ảnh lên, nhận về khoá để gắn vào lời nhắc.
+ *
+ * Chỉ nhận ảnh: email không phát được video, còn tệp tài liệu thì trình đọc mail hiện
+ * thành cục tải về chứ không hiện trong thân thư — mà mục đích là để khách NHÌN THẤY ngay
+ * (nhất là mã QR).
+ */
+export async function uploadReminderImage(file: File): Promise<ReminderImage> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await axiosClient.post<ApiEnvelope<ReminderImage>>(
+    "/reminders/attachments",
+    form
+  );
+  return data.data;
+}
 
 export type GetRemindersParams = {
   status?: ReminderStatus;
@@ -116,6 +144,35 @@ export async function updateReminder(id: string, payload: ReminderPayload): Prom
 
 export async function cancelReminder(id: string): Promise<void> {
   await axiosClient.delete(`/reminders/${id}`);
+}
+
+/** Thư xem trước do SERVER dựng — y hệt thư khách sẽ nhận. */
+export type ReminderPreview = {
+  subject: string;
+  /** HTML đầy đủ, gồm khối thanh toán + mã QR (dạng data-URI để trình duyệt hiện được). */
+  html: string;
+  recipient: string | null;
+};
+
+/**
+ * POST /reminders/preview — dựng thử thư, KHÔNG lưu và KHÔNG gửi.
+ *
+ * Vì sao không tự vẽ ở frontend: thư nhắc thanh toán có mã QR và số tài khoản. Dựng lại
+ * một bản "gần giống" thì sớm muộn cũng lệch với thư thật — mà lệch ở đây nghĩa là
+ * freelancer duyệt một đằng, khách nhận một nẻo, và tiền có thể chuyển nhầm chỗ.  #Huynh
+ */
+export async function previewReminder(payload: {
+  reminder_type: ReminderType;
+  target_type: ReminderTargetType;
+  target_id: string;
+  message: string;
+  attachments?: ReminderImage[];
+}): Promise<ReminderPreview> {
+  const { data } = await axiosClient.post<ApiEnvelope<ReminderPreview>>(
+    "/reminders/preview",
+    payload
+  );
+  return data.data;
 }
 
 /**

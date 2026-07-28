@@ -101,72 +101,75 @@ export function PricingPanel({
 
   return (
     <div className="space-y-3">
-      {/* Hàng chính: con số + thanh kéo + mốc tham chiếu. Chừng này là đủ để quyết. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {/* Xếp DỌC, không còn là một thanh ngang.
+          Panel này giờ nằm trong CỘT TRÁI rộng ~400px của modal báo giá. Bản cũ xếp ba thứ
+          (con số | thanh kéo | trạng thái lưu) trên một hàng `flex-wrap` — hợp với dải ngang
+          chiếm hết bề rộng modal, nhưng ở cột hẹp thì thanh kéo bị bóp còn ~180px rồi trạng
+          thái rớt xuống dòng riêng, nhìn vỡ.  #Huynh */}
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Giá bạn chào khách
-          </div>
-          <div className="mt-0.5 flex items-baseline gap-1">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={groupThousands(price)}
-              disabled={readOnly}
-              aria-label="Giá chào khách"
-              // Gõ tay: bóc hết dấu chấm rồi mới ép số, nếu không "371.000.000" thành 371.
-              onChange={(event) =>
-                setPrice(Math.max(0, Number(event.target.value.replace(/\D/g, "")) || 0))
-              }
-              style={{ width: `${groupThousands(price).length + 0.5}ch` }}
-              className="border-0 border-b border-dashed border-transparent bg-transparent p-0 text-2xl font-black tabular-nums text-primary outline-none hover:border-border focus:border-primary disabled:opacity-60"
-            />
-            <span className="text-2xl font-black text-primary">₫</span>
-          </div>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {isSaving ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang lưu…
+              </>
+            ) : (
+              <>
+                <Check className="h-3.5 w-3.5 text-emerald-600" /> Đã lưu
+              </>
+            )}
+          </span>
         </div>
+        <div className="mt-0.5 flex items-baseline gap-1">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={groupThousands(price)}
+            disabled={readOnly}
+            aria-label="Giá chào khách"
+            // Gõ tay: bóc hết dấu chấm rồi mới ép số, nếu không "371.000.000" thành 371.
+            onChange={(event) =>
+              setPrice(Math.max(0, Number(event.target.value.replace(/\D/g, "")) || 0))
+            }
+            style={{ width: `${groupThousands(price).length + 0.5}ch` }}
+            className="border-0 border-b border-dashed border-transparent bg-transparent p-0 text-2xl font-black tabular-nums text-primary outline-none hover:border-border focus:border-primary disabled:opacity-60"
+          />
+          <span className="text-2xl font-black text-primary">₫</span>
+        </div>
+      </div>
 
-        <div className="min-w-[180px] flex-1">
-          <div className="relative">
-            {/* Dải xanh = khoảng đề xuất. Kéo ra ngoài vẫn được, nhưng thấy rõ là ra ngoài. */}
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-muted">
-              <div
-                className="absolute h-full rounded-full bg-primary/25"
-                style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }}
-              />
-            </div>
-            <input
-              type="range"
-              min={sliderMin}
-              max={sliderMax}
-              step={STEP}
-              value={price}
-              disabled={readOnly}
-              onChange={(event) => setPrice(Number(event.target.value))}
-              aria-label="Kéo để chỉnh giá"
-              className="relative w-full cursor-pointer appearance-none bg-transparent disabled:cursor-not-allowed [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md"
+      <div>
+        <div className="relative">
+          {/* Dải xanh = khoảng đề xuất. Kéo ra ngoài vẫn được, nhưng thấy rõ là ra ngoài. */}
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-muted">
+            <div
+              className="absolute h-full rounded-full bg-primary/25"
+              style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }}
             />
           </div>
-          <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-            <span>
-              Đề xuất <span className="font-semibold">{formatVND(detail.suggested)}</span>
-            </span>
-            <span>
-              {formatVND(detail.range_min)} – {formatVND(detail.range_max)}
-            </span>
-          </div>
+          <input
+            type="range"
+            min={sliderMin}
+            max={sliderMax}
+            step={STEP}
+            value={price}
+            disabled={readOnly}
+            onChange={(event) => setPrice(Number(event.target.value))}
+            aria-label="Kéo để chỉnh giá"
+            className="relative w-full cursor-pointer appearance-none bg-transparent disabled:cursor-not-allowed [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md"
+          />
         </div>
-
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {isSaving ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang lưu…
-            </>
-          ) : (
-            <>
-              <Check className="h-3.5 w-3.5 text-emerald-600" /> Đã lưu
-            </>
-          )}
-        </span>
+        <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+          <span>
+            Đề xuất <span className="font-semibold">{formatVND(detail.suggested)}</span>
+          </span>
+          <span>
+            {formatVND(detail.range_min)} – {formatVND(detail.range_max)}
+          </span>
+        </div>
       </div>
 
       {outsideRange && (
