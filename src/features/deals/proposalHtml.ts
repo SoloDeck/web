@@ -63,6 +63,40 @@ export type PaymentMilestone = {
   due?: string;
 };
 
+/**
+ * Tổng tỷ lệ các đợt thanh toán có hợp lệ không. `null` = không có gì để nói.
+ *
+ * Vì sao phải có: đo thật trên bản chạy, một báo giá ba đợt 50% + 50% + 30% = **130%** vẫn in
+ * ra bảng "8. Điều Khoản Thanh Toán" và vẫn gửi được cho khách. Khách tự cộng ra 130% thì
+ * hoặc mình mất uy tín, hoặc cãi nhau lúc đòi tiền — cả hai đều tệ.
+ *
+ * CHỈ xét khi MỌI đợt đều khai bằng %. Lịch hỗn hợp (có đợt ghi số tiền cụ thể) thì cộng %
+ * không có nghĩa gì, báo lỗi là báo oan. Không có đợt nào cũng bỏ qua — báo giá cũ rơi về
+ * lịch chuẩn 50/50 lúc backend sinh task.
+ *
+ * MỘT nguồn cho cả dòng cảnh báo lẫn việc khoá nút gửi, và khớp từng chữ với guard bên
+ * backend (`ProposalsService.transition_status`, nhánh "sent").  #Huynh
+ */
+export function paymentPercentIssue(
+  milestones: PaymentMilestone[] | undefined | null
+): { total: number; message: string } | null {
+  const rows = milestones ?? [];
+  if (rows.length === 0) return null;
+  if (!rows.every((m) => m.percent != null)) return null;
+
+  const total = rows.reduce((sum, m) => sum + (m.percent ?? 0), 0);
+  if (total === 100) return null;
+
+  const gap = Math.abs(total - 100);
+  return {
+    total,
+    message:
+      total > 100
+        ? `Tổng tỷ lệ các đợt đang là ${total}% — dư ${gap}%. Phải bằng 100% mới gửi được.`
+        : `Tổng tỷ lệ các đợt đang là ${total}% — thiếu ${gap}%. Phải bằng 100% mới gửi được.`,
+  };
+}
+
 export type BackendProposalContent = {
   project_overview: string;
   scope_of_work: string[];

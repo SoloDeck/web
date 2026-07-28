@@ -10,15 +10,16 @@ import type { Deal } from "@/features/deals/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { PricingPanel } from "@/features/deals/components/PricingPanel";
 import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
-import type { PaymentMilestone } from "@/features/deals/proposalHtml";
+import { paymentPercentIssue, type PaymentMilestone } from "@/features/deals/proposalHtml";
 import { getProposalPreview, setProposalPrice } from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
-import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal } from "@/features/deals/hooks/useProposals";
+import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO } from "@/services/proposalsService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
@@ -269,7 +270,7 @@ function ManualPriceCard({
   const dirty = price > 0 && price !== committedPrice;
 
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-card p-5">
+    <div className="space-y-2 rounded-xl border border-border bg-card p-4">
       <div className="flex items-center gap-2 text-sm font-semibold">
         <TrendingUp className="h-4 w-4 text-primary" />
         Giá báo cho khách
@@ -398,10 +399,21 @@ export function ProposalModal({
   const generatedKeyRef = useRef<string | null>(null);
   /** Mẫu điều khoản freelancer chọn ở màn đầu — ref để lần "Tạo lại"/retry dùng lại. */
   const templateIdRef = useRef<string | null>(null);
-  /** Đang hiện màn chọn mẫu (báo giá MỚI, có mẫu khớp nghề), chưa sinh. */
+  /** Đang hiện màn chọn (báo giá MỚI: chọn bản nháp có sẵn hoặc mẫu điều khoản), chưa sinh. */
   const [choosing, setChoosing] = useState(false);
   const [chosenTemplateId, setChosenTemplateId] = useState<string | null>(null);
   const termTemplates = useTermTemplates("proposal", !existingProposalId);
+
+  // Bản nháp đang có của deal — để màn chọn cho freelancer mở lại một bản thay vì đẻ bản mới.
+  // DÙNG ĐÚNG query key của trang chi tiết (`{ deal_id, page_size: 10 }`) nên mở từ đó không
+  // phát sinh request thừa, và xoá/sửa bản nháp bên kia là bên này thấy ngay.  #Huynh
+  const proposalList = useProposalList({ deal_id: deal?.id, page_size: 10 });
+  const draftProposals = useMemo(
+    () => (proposalList.data?.data ?? []).filter((item) => item.status === "draft"),
+    [proposalList.data]
+  );
+  /** Mở lại một bản nháp = mở lại chính panel này với `existingProposalId` — đường đã có sẵn. */
+  const openPanel = useAIActivityStore((state) => state.openPanel);
 
   const existing = useProposal(existingProposalId ?? undefined);
 
@@ -460,7 +472,6 @@ export function ProposalModal({
   const contentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Sửa mục 7 (chi phí) + mục 8 (mốc thanh toán): hoãn rồi lưu, giống thanh giá.  #Huynh
   const moneyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [moneyEditorOpen, setMoneyEditorOpen] = useState(false);
 
   // Kéo giá thì hoãn 0.7s rồi mới lưu — không lưu mỗi lần nhích một pixel, nhưng vẫn kịp để
   // bản Xem trước bên dưới hiện ĐÚNG giá đang kéo.
@@ -661,7 +672,13 @@ export function ProposalModal({
     cancelRef.current = false;
 
     // Mở để XEM LẠI: nạp bản nháp đã có, mở sẵn ra, không gọi AI.
+    //
+    // PHẢI tắt `choosing`: chọn một bản nháp ở màn chọn = mở lại chính panel này kèm
+    // `existingProposalId`, mà React tái dùng đúng component instance (cùng vị trí, cùng
+    // loại) nên state cũ còn nguyên — không tắt là màn chọn nằm đè lên bản nháp vừa mở, bấm
+    // xong tưởng như không có gì xảy ra.  #Huynh
     if (existingProposalId) {
+      setChoosing(false);
       setProposalId(existingProposalId);
       setIsGenerating(false);
       return;
@@ -678,27 +695,39 @@ export function ProposalModal({
     // vô hiệu. Ref dưới đây bám theo (deal, lần mở) — nó SỐNG QUA cả hai lần chạy vì cùng
     // một component instance, nên lần thứ hai bị chặn. Nút "Tạo lại" gọi thẳng
     // `triggerGenerate`, không qua effect này, nên vẫn tạo bản mới bình thường.  #Huynh
-    // Đợi biết có mẫu điều khoản hay không rồi mới quyết: có mẫu → hỏi chọn trước; không
-    // có → sinh thẳng. Chưa tra xong thì khoan làm gì.
-    if (!termTemplates.isFetched) return;
+    // Đợi biết CÓ GÌ ĐỂ CHỌN hay không rồi mới quyết — cả mẫu điều khoản lẫn bản nháp đang
+    // có. Chưa tra xong thì khoan làm gì, sinh vội là đốt một lượt AI cho bản mà freelancer
+    // có thể chỉ muốn mở lại bản cũ.
+    if (!termTemplates.isFetched || !proposalList.isFetched) return;
 
     const runKey = `${deal.id}:${openNonce}`;
     if (generatedKeyRef.current === runKey) return;
     generatedKeyRef.current = runKey;
 
-    // Admin có mẫu cho nghề này → hiện màn chọn ("AI tự viết" + các mẫu), chưa sinh.
-    if ((termTemplates.data ?? []).length > 0) {
+    // Có mẫu của admin HOẶC có bản nháp đang dở → hiện màn chọn, chưa sinh gì.
+    //
+    // Trước đây có bản nháp thì trang chi tiết tự nhét thẳng id vào và nhảy luôn vào bản đó —
+    // freelancer không có đường nào để ngó qua các bản nháp rồi chọn, cũng không có đường tạo
+    // bản mới khi đang có nháp.  #Huynh
+    if ((termTemplates.data ?? []).length > 0 || draftProposals.length > 0) {
       setChosenTemplateId(null);
       setChoosing(true);
       return () => { cancelRef.current = true; };
     }
 
-    // Không có mẫu → sinh thẳng như cũ.
+    // Không có gì để chọn → sinh thẳng như cũ, không chen một cú bấm vô nghĩa.
     templateIdRef.current = null;
     startGenerate(deal);
     return () => { cancelRef.current = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal?.id, existingProposalId, openNonce, termTemplates.isFetched]);
+  }, [
+    deal?.id,
+    existingProposalId,
+    openNonce,
+    termTemplates.isFetched,
+    proposalList.isFetched,
+    draftProposals.length,
+  ]);
 
   // Bắt đầu sinh: mở job nền + báo đang chạy + gọi AI. Tách ra để dùng chung cho đường tự
   // sinh (không mẫu) lẫn đường sau khi chọn mẫu.
@@ -840,6 +869,10 @@ export function ProposalModal({
     proposalContent?.pricing_items ??
     (pricingDetail?.line_items?.map((item) => item.label).filter(Boolean) ?? []);
   const milestoneRows: PaymentMilestone[] = proposalContent?.payment_milestones ?? [];
+  // Tổng các đợt không bằng 100% thì KHÔNG gửi được — backend cũng chặn (xem
+  // `ProposalsService.transition_status`), đây là lớp lịch sự để người dùng biết trước lý do
+  // thay vì bấm gửi rồi ăn một thông báo lỗi.  #Huynh
+  const milestoneIssue = paymentPercentIssue(milestoneRows);
 
   /** Một mục trong tờ báo giá vừa được sửa xong (người dùng rời khỏi ô). */
   const handleInlineFieldChange = (field: string, value: string) => {
@@ -1053,7 +1086,11 @@ export function ProposalModal({
           //
           // Còn lúc đang chờ AI thì để khung tự co: dựng sẵn một hộp cao ngoẵng rỗng không
           // suốt mấy chục giây chỉ để chứa cái vòng xoay là tệ hơn.  #Huynh
-          className={`w-full max-w-6xl flex flex-col bg-card rounded-2xl shadow-2xl border border-border overflow-hidden ${isLoading ? "max-h-[92vh]" : "h-[92vh]"
+          // Rộng 1360px = cột trái 400 + tờ báo giá ~820. Tờ báo giá do BE dựng có
+          // `max-width: 780px` nên ~820 là ĐỦ để nó hiện trọn vẹn — hồi một cột, iframe rộng
+          // ~1100px chỉ để phí ~300px viền trắng hai bên. Chỗ cho cột trái lấy từ đó ra, không
+          // cắt của tờ giấy chữ nào.  #Huynh
+          className={`w-full max-w-[1360px] flex flex-col bg-card rounded-2xl shadow-2xl border border-border overflow-hidden ${isLoading ? "max-h-[92vh]" : "h-[92vh]"
             }`}
           onClick={(event) => event.stopPropagation()}
         >
@@ -1079,28 +1116,81 @@ export function ProposalModal({
                   Hủy tác vụ
                 </button>
               )}
-              <button
-                type="button"
+              {/* Nút cửa sổ: CHỈ biểu tượng (nhãn ở tooltip + aria-label), thống nhất với mọi
+                modal khác. "Hủy tác vụ" ở trên cố ý giữ chữ — xem AIPanel.  #Huynh */}
+              <WindowControlButton
+                icon={Minus}
+                label="Thu nhỏ"
                 onClick={() => setMinimized(true)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-              >
-                <Minus className="h-3.5 w-3.5" />
-                Thu nhỏ
-              </button>
-              <button
-                type="button"
+              />
+              <WindowControlButton
+                icon={X}
+                label="Đóng"
                 onClick={isGenerating ? () => setMinimized(true) : handleClose}
-                className="p-1.5 rounded-md hover:bg-secondary"
-                aria-label="Đóng"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              />
             </div>
           </div>
 
-          {/* Màn chọn mẫu điều khoản — hiện trước khi sinh khi admin có mẫu cho nghề này. */}
+          {/* Màn chọn trước khi sinh: mở lại bản nháp đang dở, HOẶC tạo bản mới theo mẫu. */}
           {choosing ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+              {/* ① BẢN NHÁP ĐANG CÓ — để TRÊN phần chọn mẫu, vì "làm tiếp cái đang dở" là
+                việc thường gặp hơn "đẻ thêm bản mới", và mỗi bản mới là một lượt AI.  #Huynh */}
+              {draftProposals.length > 0 && (
+                <div className="mb-5">
+                  <p className="text-sm text-muted-foreground">
+                    Bạn đang có bản nháp chưa gửi. Mở lại để chỉnh tiếp (sửa giá, mốc thanh
+                    toán, nội dung) thay vì tạo bản mới.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {draftProposals.map((draft) => {
+                      const price =
+                        draft.content?.pricing_detail?.final_price ??
+                        (typeof draft.content?.pricing === "object"
+                          ? draft.content.pricing?.total
+                          : undefined);
+                      return (
+                        <button
+                          key={draft.id}
+                          type="button"
+                          onClick={() =>
+                            deal &&
+                            openPanel({
+                              kind: "proposal_generation",
+                              dealId: deal.id,
+                              proposalId: draft.id,
+                            })
+                          }
+                          className="flex w-full items-center gap-3 rounded-xl border border-border px-3.5 py-3 text-left transition-colors hover:border-primary/60 hover:bg-secondary/40"
+                        >
+                          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
+                            <Pencil className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">
+                              Báo giá lần {draft.version_number} · bản nháp
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              Tạo {new Date(draft.created_at).toLocaleDateString("vi-VN")}
+                              {price ? ` · ${formatVND(price)}` : " · chưa chốt giá"}
+                            </span>
+                          </span>
+                          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-5 flex items-center gap-3">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      hoặc tạo bản mới
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                </div>
+              )}
+
+              {/* ② TẠO BẢN MỚI — chọn mẫu điều khoản (hoặc để AI tự viết). */}
               <DocTemplateChooser
                 templates={termTemplates.data ?? []}
                 value={chosenTemplateId}
@@ -1153,77 +1243,68 @@ export function ProposalModal({
             </div>
           ) : (
             <>
-              {/* MỘT CỘT. Tờ báo giá là nhân vật chính, chiếm hết chỗ; thanh giá teo lại thành
-                một dòng ở trên. Bản trước bày hết căn cứ định giá ra màn hình rồi ép tờ báo
-                giá xuống dưới — mà lúc chưa có lịch sử để neo thì cả ba hệ số đều ×1, tức là
-                không làm lệch giá đồng nào, vậy mà mỗi cái vẫn chiếm ba dòng giải thích.  #Huynh */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card text-foreground">
-                {/* ① GIÁ — thứ duy nhất phải quyết. Căn cứ nằm sau "Vì sao giá này?". */}
-                {proposalId && hasAiPricing && pricingDetail && (
-                  <div className="shrink-0 border-b border-border px-5 py-3">
+              {/* HAI CỘT: trái = những thứ phải QUYẾT (giá, hạng mục chi phí, mốc thanh toán),
+                phải = tờ báo giá để REVIEW. Trước đây tất cả xếp chung một cột dọc, nên mở "Vì
+                sao giá này?" hay panel sửa tiền là đẩy tờ báo giá xuống gần hết — freelancer phải
+                gập lại mới xem được chính thứ mình vừa sửa. Hai cột cuộn ĐỘC LẬP: bên trái dài
+                bao nhiêu cũng không ăn một pixel nào của bên phải.  #Huynh */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card text-foreground lg:flex-row">
+                {/* CỘT TRÁI — khu quyết định. `max-h-[45%]` là để lo cho màn HẸP (<1024px), lúc
+                  hai cột buộc phải xếp chồng: khu này bị chặn chiều cao và tự cuộn, nên tờ báo
+                  giá luôn còn ≥55% khung. Không có nó là lỗi cũ tái diễn nguyên si trên laptop
+                  nhỏ.  #Huynh */}
+                <aside className="flex max-h-[45%] shrink-0 flex-col gap-4 overflow-y-auto border-b border-border p-5 lg:max-h-none lg:w-[400px] lg:border-b-0 lg:border-r">
+                  {/* ① GIÁ — thứ duy nhất phải quyết. Căn cứ nằm sau "Vì sao giá này?". */}
+                  {proposalId && hasAiPricing && pricingDetail && (
                     <PricingPanel
                       key={`${proposalId}-${pricingDetail.suggested}`}
                       detail={pricingDetail}
                       isSaving={commitPrice.isPending}
                       onChange={handlePriceChange}
                     />
-                  </div>
-                )}
-                {proposalId && !hasAiPricing && (
-                  <div className="shrink-0 border-b border-border px-5 py-3">
+                  )}
+                  {proposalId && !hasAiPricing && (
                     <ManualPriceCard
                       committedPrice={committedPrice ?? (priceToSend > 0 ? priceToSend : null)}
                       isCommitting={commitPrice.isPending}
                       onCommit={(price) => commitPrice.mutate({ id: proposalId, price })}
                     />
-                  </div>
-                )}
+                  )}
 
-                {/* ①b SỬA CHI PHÍ & MỐC THANH TOÁN — tiền nhạy cảm, để freelancer tự chủ. Panel
-                  gập; sửa xong tờ báo giá refetch vẽ lại mục 7/8. Bảng trong tờ giấy để đọc. */}
-                {proposalId && (
-                  <div className="shrink-0 border-b border-border px-5 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setMoneyEditorOpen((open) => !open)}
-                      className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
-                    >
-                      <ChevronRight
-                        className={`h-3.5 w-3.5 transition-transform ${moneyEditorOpen ? "rotate-90" : ""}`}
-                      />
-                      Sửa chi phí &amp; mốc thanh toán
-                    </button>
-                    {moneyEditorOpen && (
-                      <div className="mt-3 space-y-4">
-                        <div>
-                          <div className="mb-1.5 text-[11px] font-semibold text-foreground">
-                            Hạng mục chi phí (mục 7)
-                          </div>
-                          <LineItemsEditor
-                            items={lineItemLabels}
-                            total={priceToSend}
-                            onChange={(items) => patchMoneyContent({ pricing_items: items })}
-                          />
+                  {/* ①b CHI PHÍ & MỐC THANH TOÁN — LUÔN MỞ, không còn nút gập. Gập chỉ tồn tại
+                    hồi mọi thứ chen nhau trong một cột; giờ có cột riêng thì bắt bấm thêm một
+                    cái để thấy bảng điều khiển là phiền vô cớ. Sửa tới đâu tờ báo giá bên phải
+                    refetch vẽ lại mục 7/8 tới đó. */}
+                  {proposalId && (
+                    <>
+                      <div className="border-t border-border pt-4">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Hạng mục chi phí (mục 7)
                         </div>
-                        <div>
-                          <div className="mb-1.5 text-[11px] font-semibold text-foreground">
-                            Mốc thanh toán (mục 8)
-                          </div>
-                          <MilestonesEditor
-                            milestones={milestoneRows}
-                            onChange={(milestones) =>
-                              patchMoneyContent({ payment_milestones: milestones })
-                            }
-                          />
-                        </div>
+                        <LineItemsEditor
+                          items={lineItemLabels}
+                          total={priceToSend}
+                          onChange={(items) => patchMoneyContent({ pricing_items: items })}
+                        />
                       </div>
-                    )}
-                  </div>
-                )}
+                      <div className="border-t border-border pt-4">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Mốc thanh toán (mục 8)
+                        </div>
+                        <MilestonesEditor
+                          milestones={milestoneRows}
+                          onChange={(milestones) =>
+                            patchMoneyContent({ payment_milestones: milestones })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+                </aside>
 
-                {/* ② TỜ BÁO GIÁ — do server dựng, đúng bản khách nhận. Bấm vào chữ là sửa ngay
-                  tại chỗ; bên dưới vẫn là dữ liệu có cấu trúc chứ không phải một cục HTML. */}
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/20 px-5 pb-4 pt-3">
+                {/* CỘT PHẢI — TỜ BÁO GIÁ, do server dựng, đúng bản khách nhận. Bấm vào chữ là sửa
+                  ngay tại chỗ; bên dưới vẫn là dữ liệu có cấu trúc chứ không phải một cục HTML. */}
+                <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/20 px-5 pb-4 pt-3">
                   <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Bản khách sẽ nhận
@@ -1257,7 +1338,7 @@ export function ProposalModal({
                       Chưa có bản xem trước.
                     </p>
                   )}
-                </div>
+                </section>
               </div>
 
               {/* Footer — MỘT hành động chính. "Tạo lại"/"Tải PDF" là phụ, để nhạt.  #Huynh */}
@@ -1302,11 +1383,17 @@ export function ProposalModal({
                   sau đó bắt đầu từ đáy. BE cũng chặn (409) — đây chỉ là lớp lịch sự.  #Huynh */}
                 <button
                   onClick={() => setSendDialogOpen(true)}
-                  disabled={!proposalId || isSending || isDownloading || priceNotCommitted}
+                  disabled={
+                    !proposalId ||
+                    isSending ||
+                    isDownloading ||
+                    priceNotCommitted ||
+                    Boolean(milestoneIssue)
+                  }
                   title={
                     priceNotCommitted
                       ? "Hãy chốt mức giá bạn muốn chào trước khi gửi cho khách."
-                      : undefined
+                      : (milestoneIssue?.message ?? undefined)
                   }
                   className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95 shadow-lg shadow-primary/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1315,7 +1402,9 @@ export function ProposalModal({
                     ? "Đang xử lý..."
                     : priceNotCommitted
                       ? "Hãy đặt giá trước"
-                      : "Lưu & gửi cho khách hàng"}
+                      : milestoneIssue
+                        ? `Mốc thanh toán đang ${milestoneIssue.total}%`
+                        : "Lưu & gửi cho khách hàng"}
                 </button>
               </div>
             </>

@@ -8,6 +8,11 @@ import { ProposalModal } from "./ProposalModal";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import type { Deal } from "@/features/deals/types";
 
+const mockProposalList = vi.fn(() => ({ data: undefined, isFetched: true }) as {
+  data?: { data: unknown[] };
+  isFetched: boolean;
+});
+const mockOpenPanel = vi.fn();
 const mockGenerateMutate = vi.fn();
 const mockCreateMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
@@ -23,6 +28,9 @@ vi.mock("@/features/deals/hooks/useProposals", () => ({
   // Chỉ dùng khi mở lại một báo giá ĐÃ có (existingProposalId). Các test ở đây đều là
   // luồng tạo mới nên không có dữ liệu.
   useProposal: () => ({ data: undefined, isLoading: false }),
+  // Màn chọn đọc danh sách bản nháp của deal. Mặc định KHÔNG có bản nháp nào → modal đi
+  // thẳng đường tự sinh (đúng như các test cũ mong đợi). Test riêng tự override.
+  useProposalList: () => mockProposalList(),
 }));
 
 vi.mock("@/features/auth/hooks/useAuthStore", () => ({
@@ -62,6 +70,10 @@ vi.mock("@/features/ai/hooks/useAIActivityStore", () => {
     cancelJob: vi.fn(),
     requestView: vi.fn(),
     consumeViewRequest: vi.fn(),
+    // Chọn một bản nháp ở màn chọn = mở lại chính panel này kèm proposalId.
+    // Gọi vòng qua closure: factory của `vi.mock` chạy TRƯỚC khi các const ở đầu file được
+    // khởi tạo (hoisting), tham chiếu thẳng `mockOpenPanel` là nổ ReferenceError.
+    openPanel: (...args: unknown[]) => mockOpenPanel(...args),
     viewRequestId: "ai-proposal-deal-123",
   };
   return {
@@ -104,6 +116,8 @@ describe("ProposalModal", () => {
     vi.clearAllMocks();
     // Mặc định mỗi test: không có mẫu → modal tự sinh. Test chọn-mẫu override sau.
     vi.mocked(useTermTemplates).mockReturnValue(noTemplates);
+    // Mặc định: chưa có bản nháp nào cho deal này.
+    mockProposalList.mockReturnValue({ data: undefined, isFetched: true });
   });
 
   it("returns null when deal is null", () => {
@@ -148,6 +162,82 @@ describe("ProposalModal", () => {
     expect(screen.getByText("Mẫu điều khoản UX")).toBeInTheDocument();
     // Chưa bấm "Tạo báo giá" thì chưa gọi AI.
     expect(mockGenerateMutate).not.toHaveBeenCalled();
+  });
+
+  it("có bản nháp thì màn chọn liệt kê ra, KHÔNG tự sinh bản mới", async () => {
+    // Trước đây trang chi tiết tự nhét id bản nháp vào và nhảy thẳng vào bản đó — freelancer
+    // không có đường ngó qua các bản nháp để chọn, cũng không có đường tạo bản mới khi đang
+    // có nháp. Giờ mọi đường đều đi qua màn chọn.  #Huynh
+    mockProposalList.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "proposal-draft-1",
+            status: "draft",
+            version_number: 2,
+            created_at: "2026-07-27T10:00:00Z",
+            content: { pricing: { total: 150_500_000, currency: "VND" } },
+          },
+        ],
+      },
+      isFetched: true,
+    });
+    mockGenerateMutate.mockImplementation(() => new Promise(() => {}));
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+
+    // Bản nháp hiện ra ngay cả khi nghề này KHÔNG có mẫu điều khoản nào.
+    const draftButton = await screen.findByRole("button", { name: /báo giá lần 2 · bản nháp/i });
+    expect(draftButton).toBeInTheDocument();
+    // Và tuyệt đối chưa đốt lượt AI nào.
+    expect(mockGenerateMutate).not.toHaveBeenCalled();
+
+    // Chọn bản nháp = mở lại chính panel này kèm proposalId — đi đúng đường "mở lại" có sẵn.
+    await userEvent.setup().click(draftButton);
+    expect(mockOpenPanel).toHaveBeenCalledWith({
+      kind: "proposal_generation",
+      dealId: "deal-123",
+      proposalId: "proposal-draft-1",
+    });
+  });
+
+  it("mở lại một bản nháp thì màn chọn phải BIẾN MẤT", async () => {
+    // React tái dùng cùng component instance khi panel mở lại (cùng vị trí, cùng loại) nên
+    // state `choosing` còn nguyên từ lần trước. Không tắt là màn chọn nằm đè lên bản nháp
+    // vừa mở — bấm xong tưởng như không có gì xảy ra.  #Huynh
+    mockProposalList.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "proposal-draft-1",
+            status: "draft",
+            version_number: 2,
+            created_at: "2026-07-27T10:00:00Z",
+            content: {},
+          },
+        ],
+      },
+      isFetched: true,
+    });
+
+    const { rerender } = renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    expect(await screen.findByRole("button", { name: /báo giá lần 2 · bản nháp/i })).toBeInTheDocument();
+
+    // Đúng thứ AIJobViewer làm sau khi openPanel: cùng instance, thêm proposalId + nonce mới.
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ProposalModal
+          deal={makeDeal()}
+          onClose={onClose}
+          existingProposalId="proposal-draft-1"
+          openNonce={2}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /báo giá lần 2 · bản nháp/i })).toBeNull();
+    });
   });
 
   it("hiện tờ báo giá do server dựng, không dựng lại bản riêng", async () => {
@@ -221,6 +311,93 @@ describe("ProposalModal", () => {
     expect(await screen.findByText(/vì sao giá này/i)).toBeInTheDocument();
   });
 
+  it("khu sửa tiền và tờ báo giá hiện CÙNG LÚC, không phải gập cái này mới thấy cái kia", async () => {
+    // Lỗi user báo (27/07): mọi thứ xếp CHUNG MỘT CỘT DỌC, nên mở "Vì sao giá này?" hoặc panel
+    // "Sửa chi phí & mốc thanh toán" là đẩy tờ báo giá xuống gần hết — phải gập lại mới review
+    // được chính thứ vừa sửa. Giờ hai cột: khu quyết định bên trái (luôn mở, cuộn riêng), tờ
+    // báo giá bên phải. Test này khoá đúng chỗ đó: KHÔNG click gì mà cả hai đều có mặt.  #Huynh
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          project_overview: "Ứng dụng di động cho phòng Gym.",
+          pricing: "",
+          payment_milestones: [
+            { label: "Đặt cọc khi ký hợp đồng", percent: 50, amount: "", due: "Khi ký" },
+            { label: "Thanh toán khi bàn giao", percent: 50, amount: "", due: "Khi nghiệm thu" },
+          ],
+          pricing_detail: {
+            anchor: { value: 160_000_000, confidence: "medium", source: "Dự án đã chốt", sample_size: 2 },
+            factors: [],
+            suggested: 160_000_000,
+            range_min: 128_000_000,
+            range_max: 192_000_000,
+            line_items: [{ label: "Tư vấn thiết kế", weight_percent: 100, amount: 160_000_000 }],
+            warnings: [],
+          },
+        },
+      })
+    );
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+
+    // Hai ô sửa tiền bày sẵn — không còn nút gập nào chắn trước.
+    expect(await screen.findByText(/hạng mục chi phí/i)).toBeInTheDocument();
+    expect(screen.getByText(/mốc thanh toán/i)).toBeInTheDocument();
+    // ...và tờ báo giá vẫn nằm đó cùng lúc, chứ không bị đẩy khỏi màn.
+    expect(await screen.findByTitle(/bấm vào chữ để sửa/i)).toBeInTheDocument();
+    // Nút gập cũ phải biến mất hẳn: còn nó là còn đường quay lại lỗi cũ.
+    expect(screen.queryByRole("button", { name: /sửa chi phí/i })).toBeNull();
+  });
+
+  it("tổng mốc thanh toán ≠ 100% thì KHÔNG gửi được cho khách", async () => {
+    // Lỗi thật user báo (27/07): ba đợt 50% + 50% + 30% = 130% vẫn in ra tờ báo giá và vẫn
+    // gửi được. Khách tự cộng ra 130% thì hoặc mình mất uy tín, hoặc cãi nhau lúc đòi tiền.
+    // Backend cũng chặn — nút này chỉ là lớp lịch sự để biết trước lý do.  #Huynh
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          project_overview: "Phòng gym.",
+          pricing: { total: 150_500_000, currency: "VND" },
+          payment_milestones: [
+            { label: "Đặt cọc khi ký hợp đồng", percent: 50 },
+            { label: "Thanh toán khi bàn giao", percent: 50 },
+            { label: "avc", percent: 30 },
+          ],
+        },
+      })
+    );
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+
+    const sendButton = await screen.findByRole("button", { name: /mốc thanh toán đang 130%/i });
+    expect(sendButton).toBeDisabled();
+    // Và nói rõ lý do ngay trong panel sửa mốc, không bắt người dùng tự đoán.
+    expect(screen.getByText(/dư 30%/i)).toBeInTheDocument();
+  });
+
+  it("tổng mốc đủ 100% thì gửi được bình thường", async () => {
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          project_overview: "Phòng gym.",
+          pricing: { total: 150_500_000, currency: "VND" },
+          payment_milestones: [
+            { label: "Đặt cọc khi ký hợp đồng", percent: 50 },
+            { label: "Thanh toán khi bàn giao", percent: 50 },
+          ],
+        },
+      })
+    );
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+
+    const sendButton = await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i });
+    expect(sendButton).toBeEnabled();
+  });
+
   it("falls back to a manual draft when AI generation fails with a client error", async () => {
     mockGenerateMutate.mockImplementation(() => Promise.reject({ response: { status: 400 } }));
 
@@ -249,7 +426,11 @@ describe("ProposalModal", () => {
         new Promise((resolve) =>
           setTimeout(
             () => resolve({ id: "proposal-456", content: { project_overview: "Xong." } }),
-            20
+            // 300ms chứ không phải 20ms. Điều bài này kiểm là "phản hồi về SAU khi effect bị
+            // dọn", 20ms vẫn thoả điều đó — nhưng khi chạy CẢ BỘ trên máy tải nặng thì
+            // promise resolve xong trước cả lúc dòng `findByText` kịp chạy, nên test đỏ vì
+            // không thấy vòng xoay chứ không phải vì lỗi thật. Đã đỏ ngẫu nhiên 2 lần.  #Huynh
+            300
           )
         )
     );
