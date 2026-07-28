@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CheckCircle2, Loader2, Minus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import type { Deal, LeadScore } from "@/features/deals/types";
 import { useTransitionDealStage } from "@/features/deals/hooks/useDeals";
 import { useQueryClient } from "@tanstack/react-query";
@@ -435,23 +436,22 @@ export function AIPanel({
                 Hủy tác vụ
               </button>
             )}
-            <button
-              type="button"
+            {/* Nút cửa sổ: CHỈ biểu tượng, y như Chrome/Cốc Cốc. Nhãn nằm ở tooltip +
+              aria-label. Nút "Hủy tác vụ" ngay bên trái CỐ Ý giữ chữ — nó dừng tác vụ AI đang
+              chạy (mất kết quả), để icon-only cạnh nút ✕ là hai nút trông giống nhau mà hậu
+              quả khác hẳn.  #Huynh */}
+            <WindowControlButton
+              icon={Minus}
+              label="Thu nhỏ"
               onClick={() => setMinimized(true)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              <Minus className="h-3.5 w-3.5" />
-              Thu nhỏ
-            </button>
-            <button
-              type="button"
+            />
+            {/* Nhãn "Đóng" chứ không phải "Hủy": nút này đóng cửa sổ, không hủy gì cả — và khi
+              AI đang chạy nó còn chỉ thu nhỏ. Khớp luôn với mọi modal khác. */}
+            <WindowControlButton
+              icon={X}
+              label="Đóng"
               onClick={isRunning ? () => setMinimized(true) : handleClose}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-              aria-label="Hủy"
-            >
-              <X className="h-3.5 w-3.5" />
-              Hủy
-            </button>
+            />
           </div>
         </div>
 

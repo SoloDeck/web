@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Loader2, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import type { Deal } from "@/features/deals/types";
 import { useCreateContract, useGenerateContractContent, useSendContract } from "@/features/deals/hooks/useContracts";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
@@ -152,9 +153,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
             </span>
             <span className="text-sm font-semibold text-muted-foreground">· {deal.client}</span>
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Đóng">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         {/* Body */}

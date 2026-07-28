@@ -1,4 +1,5 @@
 import { X, Mail, CreditCard, Clock, Construction, Lock } from "lucide-react";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { formatVND } from "@/utils/format";
 import type { Deal, ProjectTask } from "@/features/deals/types";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
@@ -84,9 +85,7 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
             <div id="deal-detail-title" className="text-xs text-muted-foreground">Chi tiết Dự án</div>
             <div className="font-semibold">{selectedDeal.client}</div>
           </div>
-          <button onClick={onClose} aria-label="Đóng chi tiết dự án" className="p-1.5 rounded-md hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng chi tiết dự án" onClick={onClose} />
         </div>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
