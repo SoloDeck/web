@@ -33,7 +33,26 @@ export type UserResponse = {
   intake_share_token: string | null;
   professional_profile: ProfessionalProfile;
   preferences: Preferences;
+  payment_info: PaymentInfo;
+  reminder_defaults: ReminderDefaults;
   created_at: string;
+};
+
+/** Thông tin nhận tiền — in vào thư nhắc thanh toán (QR VietQR + chuyển khoản + MoMo). */
+export type PaymentInfo = {
+  /** Mã BIN VietQR (ví dụ "970436" = Vietcombank). Chọn từ danh sách, không gõ tay. */
+  bank_code: string | null;
+  bank_account_number: string | null;
+  bank_account_holder: string | null;
+  momo_phone_number: string | null;
+  /** Ghi chú thêm (chi nhánh, lời dặn) — hiện dưới khối chính. */
+  bank_account_info: string | null;
+};
+
+export type ReminderDefaults = {
+  reminder_signature: string | null;
+  reminder_default_channel: string | null;
+  reminder_default_hour: number | null;
 };
 
 export type UpdateUserPayload = {
@@ -71,6 +90,15 @@ export type FreelancerProfilePayload = {
   avatar_url?: string;
   portfolio_url?: string;
   is_listed?: boolean;
+  // --- Nhận tiền + mặc định nhắc nhở (cùng endpoint, BE nhận thẳng vào cột) ---
+  bank_code?: string;
+  bank_account_number?: string;
+  bank_account_holder?: string;
+  momo_phone_number?: string;
+  bank_account_info?: string;
+  reminder_signature?: string;
+  reminder_default_channel?: string;
+  reminder_default_hour?: number;
 };
 
 export type ChangePasswordPayload = {

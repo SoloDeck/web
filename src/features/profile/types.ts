@@ -40,6 +40,18 @@ export type Profile = {
   portfolioUrl: string;
   isListed: boolean;
   hourlyRate: number;
+  // --- Nhận tiền: in vào thư nhắc thanh toán để khách biết chuyển vào đâu ---
+  /** Mã BIN VietQR. "" = chưa chọn ngân hàng. Hiện chưa có giao diện khai (đã bỏ tab "Nhận tiền"). */
+  bankCode: string;
+  bankAccountNumber: string;
+  bankAccountHolder: string;
+  momoPhone: string;
+  bankNote: string;
+  // --- Mặc định khi soạn lời nhắc ---
+  reminderSignature: string;
+  reminderChannel: string;
+  /** Giờ trong ngày (0–23) muốn gửi lời nhắc. */
+  reminderHour: number | null;
 };
 
 export const DEFAULT_PROFILE: Profile = {
@@ -55,4 +67,12 @@ export const DEFAULT_PROFILE: Profile = {
   portfolioUrl: "",
   isListed: true,
   hourlyRate: 350000,
+  bankCode: "",
+  bankAccountNumber: "",
+  bankAccountHolder: "",
+  momoPhone: "",
+  bankNote: "",
+  reminderSignature: "",
+  reminderChannel: "email",
+  reminderHour: null,
 };

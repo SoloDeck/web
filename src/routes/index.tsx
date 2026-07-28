@@ -126,6 +126,17 @@ function Index() {
         profession: p.profession || undefined,
         bio: p.bio || undefined,
         avatar_url: p.avatarUrl || undefined,
+        // Thông tin nhận tiền + mặc định nhắc nhở. Gửi cả chuỗi rỗng (không dùng
+        // `|| undefined`) để XOÁ được: freelancer đổi ngân hàng thì phải bỏ được số cũ,
+        // mà số cũ nằm trong thư gửi khách.  #Huynh
+        bank_code: p.bankCode,
+        bank_account_number: p.bankAccountNumber,
+        bank_account_holder: p.bankAccountHolder,
+        momo_phone_number: p.momoPhone,
+        bank_account_info: p.bankNote,
+        reminder_signature: p.reminderSignature,
+        reminder_default_channel: p.reminderChannel || undefined,
+        reminder_default_hour: p.reminderHour ?? undefined,
       });
       updateUser({ fullName: p.fullName });
       toast.success("Đã lưu hồ sơ.");

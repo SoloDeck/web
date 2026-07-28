@@ -29,6 +29,17 @@ export function useProfile() {
           skills: me.professional_profile?.skills?.length
             ? me.professional_profile.skills
             : prev.skills,
+          // Thông tin nhận tiền + mặc định nhắc nhở CHỈ tin server: đây là dữ liệu đi vào
+          // thư gửi khách (số tài khoản!), không được để bản nháp cũ trong localStorage đè
+          // lên. Server chưa có thì để trống, đừng đoán.  #Huynh
+          bankCode: me.payment_info?.bank_code ?? "",
+          bankAccountNumber: me.payment_info?.bank_account_number ?? "",
+          bankAccountHolder: me.payment_info?.bank_account_holder ?? "",
+          momoPhone: me.payment_info?.momo_phone_number ?? "",
+          bankNote: me.payment_info?.bank_account_info ?? "",
+          reminderSignature: me.reminder_defaults?.reminder_signature ?? "",
+          reminderChannel: me.reminder_defaults?.reminder_default_channel ?? "email",
+          reminderHour: me.reminder_defaults?.reminder_default_hour ?? null,
         }));
       })
       .catch(() => {});
