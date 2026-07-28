@@ -18,7 +18,7 @@ interface DealState {
   hydrate: (deals: Deal[]) => void;
   /** Xóa dữ liệu pipeline cũ khi đổi tài khoản để không lộ deal giữa các user. */
   reset: () => void;
-  /** Append a newly-created deal to the board (optimistic after POST /deals). */
+  /** Append a newly-created deal to the board (optimistic after POST /deals) + đánh dấu highlight. */
   addDeal: (deal: Deal) => void;
   /** Replace a deal after PATCH/GET detail so list and detail stay in sync. */
   updateDeal: (deal: Deal) => void;
@@ -47,8 +47,11 @@ export const useDealStore = create<DealState>((set) => ({
 
   reset: () => set({ deals: [], hydrated: false, recentlyMovedId: null }),
 
+  // Deal VỪA TẠO cũng phải nổi bật, không riêng deal vừa đổi giai đoạn — người dùng hỏi
+  // cùng một câu: "cái mình vừa làm nằm đâu?". Không có cờ này thì thẻ mới lẫn vào hàng
+  // chục thẻ khác ở cột đầu.  #Huynh
   addDeal: (deal) =>
-    set((state) => ({ deals: [deal, ...state.deals] })),
+    set((state) => ({ deals: [deal, ...state.deals], recentlyMovedId: deal.id })),
 
   updateDeal: (deal) =>
     set((state) => ({

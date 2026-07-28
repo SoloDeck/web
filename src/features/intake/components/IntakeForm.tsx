@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   getPublicIntakeFormConfig,
   submitIntake,
+  uploadIntakeAttachment,
   type IntakePayload,
   type IntakeResult,
   type PublicIntakeFormFieldResponse,
@@ -88,12 +89,44 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
     });
   }, [fields]);
 
+  /** "Đang gửi tệp 2/3…" — tệp lớn thì bước này lâu, im lặng là người ta bấm gửi lại. */
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+
   const submitMutation = useMutation({
-    mutationFn: (payload: IntakePayload) => submitIntake(shareToken, payload),
+    mutationFn: async (payload: IntakePayload) => {
+      const response = await submitIntake(shareToken, payload);
+
+      // TỆP ĐI SAU PHIẾU: phải có id phiếu mới gắn được, nên đây là các lệnh gọi riêng.
+      //
+      // Tệp lỗi KHÔNG được làm hỏng việc đã gửi form — deal đã tạo bên kia rồi, báo "gửi
+      // thất bại" là nói dối và khách sẽ gửi lại lần nữa, đẻ ra deal trùng.  #Huynh
+      if (attachments.length > 0) {
+        const failed: string[] = [];
+        for (const [index, file] of attachments.entries()) {
+          setUploadProgress({ done: index, total: attachments.length });
+          try {
+            await uploadIntakeAttachment(shareToken, response.id, file);
+          } catch {
+            failed.push(file.name);
+          }
+        }
+        setUploadProgress(null);
+        if (failed.length > 0) {
+          toast.error(
+            `Đã gửi yêu cầu, nhưng không tải lên được ${failed.length} tệp: ${failed.join(", ")}. ` +
+              "Bạn có thể gửi lại các tệp này qua email cho freelancer.",
+          );
+        }
+      }
+      return response;
+    },
     onSuccess: (response) => {
       setResult(response);
     },
     onError: () => {
+      setUploadProgress(null);
       toast.error("Không thể gửi yêu cầu. Vui lòng kiểm tra lại và thử lại sau.");
     },
   });
@@ -120,7 +153,10 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
-    submitMutation.mutate(buildPayload(fields, values));
+    submitMutation.mutate({
+      ...buildPayload(fields, values),
+      attachment_count: attachments.length,
+    });
   };
 
   if (result) {
@@ -342,7 +378,13 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
               <div className="border-t border-border bg-muted/20 px-5 py-5 sm:px-7">
                 <Button type="submit" size="lg" disabled={!canSubmit} className="w-full sm:w-auto sm:min-w-52">
                   {submitMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {submitMutation.isPending ? "Đang gửi yêu cầu..." : "Gửi yêu cầu"}
+                  {/* Tệp lớn thì bước tải lên lâu — im lặng là khách tưởng treo rồi bấm
+                      gửi lại, đẻ ra deal trùng. */}
+                  {submitMutation.isPending
+                    ? uploadProgress
+                      ? `Đang gửi tệp ${uploadProgress.done + 1}/${uploadProgress.total}...`
+                      : "Đang gửi yêu cầu..."
+                    : "Gửi yêu cầu"}
                   {!submitMutation.isPending && <ArrowRight className="size-4" />}
                 </Button>
                 <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">

@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bot, Clock, Flame, Snowflake, Sun } from "lucide-react";
+import { Bot, Clock, Flame, Snowflake, Sparkles, Sun } from "lucide-react";
 import type React from "react";
 import { BrandIcon } from "@/components/solodesk/BrandIcon";
 import { formatVND } from "@/utils/format";
@@ -30,12 +30,15 @@ export function DealCard({
   onClick,
   onDraft,
   highlighted = false,
+  isNew = false,
 }: {
   deal: Deal;
   onClick: () => void;
   onDraft: (d: Deal) => void;
   /** Vừa được chuyển giai đoạn — làm nổi bật tạm thời để user thấy nó đã lên đầu cột. */
   highlighted?: boolean;
+  /** Khách vừa gửi qua biểu mẫu và freelancer CHƯA mở xem lần nào. */
+  isNew?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
@@ -80,11 +83,25 @@ export function DealCard({
         "group min-w-0 cursor-grab rounded-xl border border-border bg-card p-3 shadow-sm transition-all duration-500",
         "hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md active:cursor-grabbing",
         isDragging && "rotate-[1.5deg] shadow-lg",
-        highlighted && "border-primary bg-primary/[0.05] ring-2 ring-primary/50 shadow-md"
+        (highlighted || isNew) && "border-primary bg-primary/[0.05] ring-2 ring-primary/50 shadow-md"
       )}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
+          {/* Viền sáng nói được "thẻ này khác thẻ kia", nhưng KHÔNG nói được vì sao. Nhãn
+              thì nói. Nó ở lại tới khi người dùng bấm vào thẻ (xem KanbanBoard).
+
+              "Mới" (khách vừa gửi, chưa xem lần nào) ưu tiên hơn "Vừa cập nhật": deal chưa
+              ai ngó tới là việc gấp hơn deal mình vừa tự tay đổi giai đoạn.  #Huynh */}
+          {isNew ? (
+            <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+              <Sparkles className="h-2.5 w-2.5" /> Mới · chưa xem
+            </span>
+          ) : highlighted ? (
+            <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              <Sparkles className="h-2.5 w-2.5" /> Vừa cập nhật
+            </span>
+          ) : null}
           <h3 className="line-clamp-2 text-sm font-bold leading-snug text-card-foreground">{deal.projectType}</h3>
           <p className="mt-1 truncate text-xs font-medium text-muted-foreground">{deal.client}</p>
         </div>

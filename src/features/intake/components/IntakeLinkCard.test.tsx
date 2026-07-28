@@ -15,6 +15,18 @@ function makeMe(overrides: Partial<UserResponse> = {}): UserResponse {
     full_name: "Tôi",
     role: "freelancer",
     status: "active",
+    payment_info: {
+      bank_code: null,
+      bank_account_number: null,
+      bank_account_holder: null,
+      momo_phone_number: null,
+      bank_account_info: null,
+    },
+    reminder_defaults: {
+      reminder_signature: null,
+      reminder_default_channel: null,
+      reminder_default_hour: null,
+    },
     phone: null,
     avatar_url: null,
     bio: null,

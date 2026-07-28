@@ -63,6 +63,14 @@ export type IntakePayload = {
   inquiry_text?: string;
   estimated_budget?: string;
   desired_timeline?: string;
+  /**
+   * Số tệp khách SẮP tải lên ngay sau khi phiếu được tạo.
+   *
+   * Backend dùng con số này để quyết định lúc nào gửi thư báo deal mới cho freelancer: có
+   * tệp thì hoãn một nhịp cho tệp lên xong rồi mới đếm, không thì gửi ngay. Số tệp in
+   * trong thư luôn được backend đếm lại từ DB, không tin con số này.
+   */
+  attachment_count?: number;
 };
 
 export type IntakeResult = {
@@ -81,6 +89,26 @@ export async function submitIntake(
     payload,
   );
   return data.data;
+}
+
+/**
+ * POST /intake/{shareToken}/{intakeId}/attachments — khách gửi kèm tệp cho yêu cầu vừa gửi.
+ *
+ * Gọi SAU `submitIntake`, mỗi tệp một lần: tệp phải gắn vào phiếu nên phải có id phiếu
+ * trước. Trước đây form có khu kéo-thả tệp nhưng chẳng ai gửi tệp đi — khách kéo vào, bấm
+ * gửi, tưởng xong, thực tế tệp bị vứt.  #Huynh
+ */
+export async function uploadIntakeAttachment(
+  shareToken: string,
+  intakeId: string,
+  file: File,
+): Promise<void> {
+  const form = new FormData();
+  form.append("file", file);
+  await axiosClient.post(
+    `/intake/${encodeURIComponent(shareToken)}/${encodeURIComponent(intakeId)}/attachments`,
+    form,
+  );
 }
 
 /** GET /intake/{shareToken}/config — lấy cấu hình public để khách hàng điền form. */

@@ -14,6 +14,7 @@ export function KanbanColumn({
   onDraft,
   isDropTarget = false,
   highlightedDealId = null,
+  unseenDealIds,
 }: {
   stage: Stage;
   title: string;
@@ -24,6 +25,8 @@ export function KanbanColumn({
   onAddDeal?: () => void;
   isDropTarget?: boolean;
   highlightedDealId?: string | null;
+  /** Deal khách vừa gửi mà freelancer chưa mở xem (map dealId -> id thông báo). */
+  unseenDealIds?: ReadonlyMap<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const total = deals.reduce((sum, deal) => sum + deal.value, 0);
@@ -71,6 +74,7 @@ export function KanbanColumn({
               onClick={() => onCardClick(deal)}
               onDraft={onDraft}
               highlighted={deal.id === highlightedDealId}
+              isNew={Boolean(unseenDealIds?.has(deal.id))}
             />
           ))}
         </SortableContext>

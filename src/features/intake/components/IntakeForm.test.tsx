@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -7,12 +7,14 @@ import { IntakeForm } from "./IntakeForm";
 import {
   getPublicIntakeFormConfig,
   submitIntake,
+  uploadIntakeAttachment,
   type PublicIntakeFormConfigResponse,
 } from "@/services/intakeService";
 
 vi.mock("@/services/intakeService", () => ({
   getPublicIntakeFormConfig: vi.fn(),
   submitIntake: vi.fn(),
+  uploadIntakeAttachment: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -152,6 +154,9 @@ describe("<IntakeForm />", () => {
       inquiry_text: "Cần làm website",
       estimated_budget: "10.000.000 VNĐ",
       desired_timeline: "Trong 3 tuần",
+      // Báo trước sắp gửi mấy tệp để backend biết nên gửi thư cho freelancer ngay hay đợi
+      // tệp lên xong rồi mới đếm. Không đính kèm gì thì là 0 → thư đi ngay.
+      attachment_count: 0,
     });
     expect(await screen.findByText("Đã nhận yêu cầu của bạn")).toBeInTheDocument();
   }, 20_000);
@@ -196,7 +201,53 @@ describe("<IntakeForm />", () => {
     expect(submitIntake).toHaveBeenCalledWith("tok123", {
       name: "Lê Văn B",
       inquiry_text: "Cần website\nKênh liên hệ ưu tiên: Zalo buổi tối",
+      attachment_count: 0,
     });
+  }, 20_000);
+
+  it("tệp khách kéo vào PHẢI được gửi đi, một tệp lỗi không làm hỏng cả yêu cầu", async () => {
+    // Lỗi thật trước đây: form có khu kéo-thả, liệt kê tệp, hứa "PDF, Word, Excel, hình
+    // ảnh" — nhưng chỉ POST JSON, `PublicIntakeRequest` không có chỗ chứa tệp. Khách kéo
+    // tệp vào, bấm gửi, tưởng xong; thực tế tệp bị vứt im lặng, freelancer không nhận
+    // được gì.  #Huynh
+    const { toast } = await import("sonner");
+    vi.mocked(uploadIntakeAttachment)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("mạng rớt"));
+    const user = userEvent.setup();
+    const { container } = await renderReady();
+
+    // Đi đúng đường người dùng thật hay dùng: KÉO THẢ vào khung. (Ô `input[type=file]` bị
+    // `hidden` nên userEvent từ chối thao tác lên nó.)
+    const dropzone = container.querySelector('[class*="border-dashed"]') as HTMLElement;
+    fireEvent.drop(dropzone, {
+      dataTransfer: {
+        files: [
+          new File(["brief"], "brief.pdf", { type: "application/pdf" }),
+          new File(["anh"], "moodboard.png", { type: "image/png" }),
+        ],
+      },
+    });
+    // Chốt sớm: tệp phải hiện ra trong danh sách, nếu không thì phần sau kiểm nhầm chỗ.
+    expect(await screen.findByText("brief.pdf")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Họ tên khách hàng"), "Lê Văn B");
+    await user.type(screen.getByLabelText("Số điện thoại"), "0901234567");
+    await user.type(screen.getByLabelText("Tên dự án"), "Website bán hàng");
+    await user.type(screen.getByLabelText("Mô tả nhu cầu"), "Cần website");
+    await user.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
+
+    await waitFor(() => expect(uploadIntakeAttachment).toHaveBeenCalledTimes(2));
+    // Gắn vào ĐÚNG phiếu vừa tạo (id trả về từ submitIntake).
+    expect(vi.mocked(uploadIntakeAttachment).mock.calls[0][0]).toBe("tok123");
+    expect(vi.mocked(uploadIntakeAttachment).mock.calls[0][1]).toBe("i1");
+    // Backend cần biết sắp có tệp để hoãn thư báo deal mới lại cho tới khi đếm được.
+    expect(vi.mocked(submitIntake).mock.calls[0][1].attachment_count).toBe(2);
+
+    // Tệp lỗi thì báo rõ tệp nào, nhưng KHÔNG được nói "gửi thất bại": deal đã tạo bên kia
+    // rồi, khách gửi lại lần nữa là đẻ deal trùng.
+    expect(await screen.findByText("Đã nhận yêu cầu của bạn")).toBeInTheDocument();
+    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toMatch(/moodboard\.png/);
   }, 20_000);
 
   it("hiện toast lỗi và giữ form khi submit thất bại", async () => {
