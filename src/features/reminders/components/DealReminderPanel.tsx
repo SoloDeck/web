@@ -1,20 +1,17 @@
 import { useMemo, useState } from "react";
-import { Bell, CalendarClock, CalendarDays, Loader2, Mail, Pencil, Save, Send, Sparkles, Trash2, X, Zap } from "lucide-react";
-import { vi } from "date-fns/locale";
-import { toast } from "sonner";
-import { Calendar } from "@/components/ui/calendar";
+import { Bell, CalendarClock, Loader2, Mail, Pencil, Send, Sparkles, Trash2, Zap } from "lucide-react";
 import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
-import { useZaloStatus } from "@/features/profile/hooks/useZalo";
+import { ReminderComposerModal } from "@/features/reminders/components/ReminderComposerModal";
 import type { Deal } from "@/features/deals/types";
 import {
   useCancelReminder,
-  useCreateReminder,
   useDealReminders,
   useSendReminderNow,
   useUpdateReminder,
 } from "@/features/reminders/hooks/useReminders";
 import type { ReminderChannel, ReminderRecord, ReminderType } from "@/services/remindersService";
 import { cn } from "@/lib/utils";
+import { formatDateForInput, formatTimeForInput } from "@/features/reminders/dateTime";
 
 const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
   { value: "follow_up", label: "Follow-up chung" },
@@ -43,92 +40,20 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
   skipped: { label: "Đã bỏ qua", cls: "bg-slate-50 text-slate-600 border-slate-200" },
 };
 
-type ReminderForm = {
-  reminder_type: ReminderType;
-  channel: ReminderChannel;
-  scheduled_date: string;
-  scheduled_time: string;
-  message_preview: string;
-};
-
 export function DealReminderPanel({ deal }: { deal: Deal }) {
   const remindersQuery = useDealReminders(deal.id);
-  const createReminder = useCreateReminder(deal.id);
   const updateReminder = useUpdateReminder(deal.id);
   const cancelReminder = useCancelReminder(deal.id);
   const sendNow = useSendReminderNow(deal.id);
-  const { data: zaloStatus } = useZaloStatus();
-  const zaloConnected = zaloStatus?.connected ?? false;
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [calendarOpen, setCalendarOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [form, setForm] = useState<ReminderForm>(() => ({
-    reminder_type: "follow_up",
-    channel: "in_app",
-    ...buildDefaultSchedule(),
-    message_preview: buildReminderMessage("follow_up", deal),
-  }));
-
+  /** `null` = soạn mới; có bản ghi = sửa lời nhắc đó. `undefined` = cửa sổ đang đóng. */
+  const [composerFor, setComposerFor] = useState<ReminderRecord | null | undefined>(undefined);
   const reminders = useMemo(
     () => [...(remindersQuery.data ?? [])].sort((a, b) => b.scheduled_at.localeCompare(a.scheduled_at)),
     [remindersQuery.data]
   );
   const pendingCount = reminders.filter((reminder) => reminder.status === "pending").length;
 
-  function patchForm(patch: Partial<ReminderForm>) {
-    setForm((current) => ({ ...current, ...patch }));
-  }
-
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const scheduledAt = parseVietnameseDateTime(form.scheduled_date, form.scheduled_time);
-    if (!scheduledAt) {
-      toast.error("Vui lòng nhập ngày theo định dạng ngày/tháng/năm.");
-      return;
-    }
-
-    const payload = {
-      target_type: "deal",
-      target_id: deal.id,
-      reminder_type: form.reminder_type,
-      channel: form.channel,
-      scheduled_at: scheduledAt.toISOString(),
-      message_preview: form.message_preview.trim() || null,
-    } as const;
-
-    if (editingId) {
-      updateReminder.mutate(
-        { id: editingId, payload },
-        { onSuccess: () => resetForm() }
-      );
-      return;
-    }
-
-    createReminder.mutate(payload, { onSuccess: () => resetForm() });
-  }
-
-  function startEdit(reminder: ReminderRecord) {
-    // BE chỉ cho sửa reminder đang pending theo rule domain, UI cũng chặn trước cho dễ hiểu.
-    if (reminder.status !== "pending") return;
-    setEditingId(reminder.id);
-    setForm({
-      reminder_type: reminder.reminder_type,
-      channel: normalizeChannel(reminder.channel),
-      scheduled_date: formatDateInput(reminder.scheduled_at),
-      scheduled_time: formatTimeInput(reminder.scheduled_at),
-      message_preview: reminder.message_preview ?? "",
-    });
-  }
-
-  function resetForm() {
-    setEditingId(null);
-    setForm({
-      reminder_type: "follow_up",
-      channel: "in_app",
-      ...buildDefaultSchedule(),
-      message_preview: buildReminderMessage("follow_up", deal),
-    });
-  }
 
   function cancel(id: string) {
     const confirmed = window.confirm("Hủy lịch nhắc này?");
@@ -136,11 +61,11 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
     cancelReminder.mutate(id);
   }
 
-  const selectedDate = parseVietnameseDate(form.scheduled_date);
-  const plannedAt = parseVietnameseDateTime(form.scheduled_date, form.scheduled_time);
-
   return (
-    <div className="grid h-full min-h-0 overflow-hidden gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    /* MỘT CỘT, chiếm hết bề ngang. Cột phải trước đây là form "Tạo lịch nhắc mới", sau khi
+      gom việc soạn về cửa sổ riêng thì nó chỉ còn là một tấm bảng chỉ đường — chiếm 340px
+      để nói một câu, trong khi danh sách lịch nhắc mới là thứ người ta vào đây để xem.  #Huynh */
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">Lịch nhắc của dự án</h2>
@@ -148,14 +73,14 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
             <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold">
               {pendingCount} đang chờ
             </span>
-            {/* AI soạn tin trước đây là nút riêng "Nhắc follow-up" ở sidebar deal — gộp vào
-                đây để chỉ còn MỘT chỗ lo mọi việc nhắc, thay vì hai cửa dễ lẫn.  #Huynh */}
+            {/* MỘT cửa duy nhất để soạn: cửa sổ riêng 2 cột, có chọn giọng, có nút AI, có
+                mẫu sẵn, và xem trước ĐÚNG lá thư khách nhận (kể cả khối QR + số tài khoản). */}
             <button
               type="button"
-              onClick={() => setAiOpen(true)}
+              onClick={() => setComposerFor(null)}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
             >
-              <Sparkles className="h-3.5 w-3.5" /> AI soạn tin
+              <Sparkles className="h-3.5 w-3.5" /> Soạn lời nhắc
             </button>
           </div>
         </div>
@@ -175,14 +100,27 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               <p className="mt-1 text-sm text-muted-foreground">
                 Tạo lịch nhắc để không bỏ sót follow-up, báo giá, hợp đồng hoặc thanh toán.
               </p>
+              {/* Nút ngay tại chỗ trống: bỏ cột phải rồi thì đây là chỗ mắt người dùng đang
+                nhìn, bắt họ ngước lên góc trên tìm nút là thừa một bước.  #Huynh */}
+              <button
+                type="button"
+                onClick={() => setComposerFor(null)}
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              >
+                <Sparkles className="h-4 w-4" /> Soạn lời nhắc
+              </button>
             </div>
           )}
 
           {reminders.map((reminder) => (
+            // Sửa cũng mở CỬA SỔ SOẠN, không còn đổ ngược vào form bên phải. BE chỉ cho
+            // sửa lời nhắc đang chờ nên giao diện chặn trước cho dễ hiểu.
             <ReminderRow
               key={reminder.id}
               reminder={reminder}
-              onEdit={() => startEdit(reminder)}
+              onEdit={() =>
+                reminder.status === "pending" ? setComposerFor(reminder) : undefined
+              }
               onCancel={() => cancel(reminder.id)}
               onSendNow={() => sendNow.mutate(reminder.id)}
               busy={cancelReminder.isPending || updateReminder.isPending || sendNow.isPending}
@@ -191,149 +129,17 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
         </div>
       </section>
 
-      <form onSubmit={submit} className="h-full min-h-0 overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Bell className="h-4 w-4 text-primary" />
-          Tạo lịch nhắc mới
-        </div>
-        {editingId && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            Đang sửa lịch nhắc. Lưu lại hoặc hủy sửa để tạo lịch mới.
-          </div>
-        )}
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Loại nhắc</label>
-            <select
-              value={form.reminder_type}
-              onChange={(event) => {
-                const reminderType = event.target.value as ReminderType;
-                patchForm({
-                  reminder_type: reminderType,
-                  message_preview: buildReminderMessage(reminderType, deal),
-                });
-              }}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {REMINDER_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Kênh nhắc</label>
-            <select
-              value={form.channel}
-              onChange={(event) => patchForm({ channel: event.target.value as ReminderChannel })}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {CHANNELS.map((channel) => {
-                const zaloLocked = channel.value === "zalo" && !zaloConnected;
-                return (
-                  <option key={channel.value} value={channel.value} disabled={zaloLocked}>
-                    {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
-                  </option>
-                );
-              })}
-            </select>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {form.channel === "zalo" && !zaloConnected
-                ? "Chưa kết nối Zalo OA. Vào Cài đặt hồ sơ › Zalo OA để kết nối."
-                : CHANNELS.find((channel) => channel.value === form.channel)?.hint}
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Thời gian nhắc</label>
-            <div className="grid grid-cols-[1fr_108px] gap-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.scheduled_date}
-                  onChange={(event) => patchForm({ scheduled_date: event.target.value })}
-                  placeholder="dd/mm/yyyy"
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-ring"
-                />
-                <button
-                  type="button"
-                  onClick={() => setCalendarOpen((open) => !open)}
-                  className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  aria-label="Chọn ngày nhắc"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                </button>
-                {calendarOpen && (
-                  <div className="absolute left-0 top-[calc(100%+8px)] z-30 rounded-xl border border-border bg-popover p-1 shadow-lg">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate ?? undefined}
-                      locale={vi}
-                      // Calendar chỉ phục vụ chọn ngày; giờ vẫn lấy từ input time bên cạnh.
-                      onSelect={(date) => {
-                        if (!date) return;
-                        patchForm({ scheduled_date: formatDateForInput(date) });
-                        setCalendarOpen(false);
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-              <input
-                type="time"
-                value={form.scheduled_time}
-                onChange={(event) => patchForm({ scheduled_time: event.target.value })}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            {/* Ô ngày mặc định sẵn là NGÀY MAI — không nói ra thì người dùng sửa mỗi giờ
-                rồi tưởng gửi hôm nay, đợi mãi không thấy email. */}
-            {plannedAt && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                → gửi {formatRelative(plannedAt.toISOString())}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Nội dung nhắc</label>
-            <textarea
-              value={form.message_preview}
-              onChange={(event) => patchForm({ message_preview: event.target.value })}
-              rows={5}
-              placeholder="Nhập nội dung nhắc để freelancer xem lại trước khi liên hệ khách..."
-              className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={createReminder.isPending || updateReminder.isPending || !form.scheduled_date || !form.scheduled_time}
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {createReminder.isPending || updateReminder.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {createReminder.isPending || updateReminder.isPending ? "Đang lưu..." : editingId ? "Lưu thay đổi" : "Lưu lịch nhắc"}
-        </button>
-        {editingId && (
-          <button
-            type="button"
-            onClick={resetForm}
-            disabled={updateReminder.isPending}
-            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X className="h-4 w-4" /> Hủy sửa
-          </button>
-        )}
-      </form>
 
       {/* FollowUpModal tự tạo lời nhắc + gửi qua React Query, nên đóng lại là danh sách
           bên trái tự cập nhật, không cần truyền callback. */}
       {aiOpen && <FollowUpModal deal={deal} onClose={() => setAiOpen(false)} />}
+      {composerFor !== undefined && (
+        <ReminderComposerModal
+          deal={deal}
+          reminder={composerFor}
+          onClose={() => setComposerFor(undefined)}
+        />
+      )}
     </div>
   );
 }
@@ -475,87 +281,6 @@ function ChannelBadge({ channel, label }: { channel: ReminderChannel; label: str
   );
 }
 
-function buildDefaultSchedule(): Pick<ReminderForm, "scheduled_date" | "scheduled_time"> {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setHours(9, 0, 0, 0);
-  return {
-    scheduled_date: formatDateForInput(date),
-    scheduled_time: formatTimeForInput(date),
-  };
-}
-
-function buildReminderMessage(reminderType: ReminderType, deal: Deal): string {
-  const typeLabel = REMINDER_TYPES.find((type) => type.value === reminderType)?.label ?? "Nhắc việc";
-  return `${typeLabel} tới ${deal.client} - dự án "${deal.projectType}".`;
-}
-
-function formatDateInput(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return buildDefaultSchedule().scheduled_date;
-  return formatDateForInput(date);
-}
-
-function formatTimeInput(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return buildDefaultSchedule().scheduled_time;
-  return formatTimeForInput(date);
-}
-
-function formatDateForInput(date: Date): string {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${day}/${month}/${date.getFullYear()}`;
-}
-
-function formatTimeForInput(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-function parseVietnameseDateTime(dateValue: string, timeValue: string): Date | null {
-  const match = dateValue.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!match || !timeValue) return null;
-  const [, dayRaw, monthRaw, yearRaw] = match;
-  const day = Number(dayRaw);
-  const month = Number(monthRaw);
-  const year = Number(yearRaw);
-  const [hourRaw, minuteRaw] = timeValue.split(":");
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
-  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
-
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day ||
-    Number.isNaN(date.getTime())
-  ) {
-    return null;
-  }
-
-  return date;
-}
-
-function parseVietnameseDate(dateValue: string): Date | null {
-  const match = dateValue.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!match) return null;
-  const [, dayRaw, monthRaw, yearRaw] = match;
-  const day = Number(dayRaw);
-  const month = Number(monthRaw);
-  const year = Number(yearRaw);
-  const date = new Date(year, month - 1, day);
-
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day ||
-    Number.isNaN(date.getTime())
-  ) {
-    return null;
-  }
-
-  return date;
-}
 
 function normalizeChannel(channel: string): ReminderChannel {
   if (channel === "email" || channel === "in_app" || channel === "zalo" || channel === "both") {

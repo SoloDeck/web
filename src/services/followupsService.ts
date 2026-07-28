@@ -22,11 +22,19 @@ export type ReminderType =
 /** Khớp `ReminderTargetType` trong contracts/openapi.yaml. */
 export type ReminderTargetType = "deal" | "client" | "invoice" | "contract";
 
+/**
+ * Giọng văn — Phiếu SU26SE083 (dòng 105) đòi "chọn được giọng trang trọng hoặc thân mật".
+ * Mặc định trang trọng: gửi nhầm giọng suồng sã cho khách công ty thì mất mặt, còn gửi
+ * nhầm giọng lịch sự cho khách quen thì cùng lắm hơi khách sáo.
+ */
+export type FollowUpTone = "formal" | "friendly";
+
 export type FollowUpRequest = {
   reminder_type: ReminderType;
   target_type: ReminderTargetType;
   target_id: string;
   language?: "vi" | "en";
+  tone?: FollowUpTone;
 };
 
 export type FollowUpResponse = {

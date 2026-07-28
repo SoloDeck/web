@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
@@ -49,6 +50,7 @@ import {
   useToggleTask,
   useUpdateTask,
   useDeleteTask,
+  projectTaskKeys,
 } from "@/features/deals/hooks/useProjectTasks";
 import { useClient, useUpdateClient } from "@/features/clients/hooks/useClients";
 import {
@@ -238,7 +240,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     title: "",
     notes: "",
   });
-  const projectStageUnlocked = deal?.stage === "active" || deal?.stage === "completed_and_billed";
+  const contractItems = contracts.data?.data ?? [];
+  const hasActiveContract = contractItems.some((contract) => contract.status === "active");
+  // MỞ TAB CÔNG VIỆC TỪ LÚC GHI NHẬN ĐÃ KÝ, không đợi bấm "Bắt đầu triển khai".
+  //
+  // Đợt thanh toán đầu tiên của mọi báo giá ghi "Khi ký hợp đồng / trước khi bắt đầu" — mà
+  // trước đây task "Thu tiền:" chỉ hiện sau khi deal vào "active", tức sau khi đã bắt tay
+  // làm. Hệ thống nhắc đi đòi cọc MUỘN hơn đúng thời điểm nó bảo phải thu. Backend giờ sinh
+  // task ngay lúc hợp đồng chuyển active (`ContractsService.transition_status`), nên chỗ này
+  // phải mở theo, nếu không task có mà không ai nhìn thấy.  #Huynh
+  const projectStageUnlocked =
+    hasActiveContract || deal?.stage === "active" || deal?.stage === "completed_and_billed";
   const taskQuery = useProjectTasks(deal?.id, projectStageUnlocked);
   const projectId = taskQuery.data?.projectId ?? "";
   const addTaskMutation = useAddTask(deal?.id ?? "", projectId);
@@ -247,16 +259,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const deleteTaskMutation = useDeleteTask(deal?.id ?? "");
 
   const proposalItems = proposals.data?.data ?? [];
-  const contractItems = contracts.data?.data ?? [];
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
-  // Bản nháp báo giá để TÁI DÙNG khi bấm "Tạo báo giá" — mở lại bản nháp có sẵn thay vì
-  // đẻ thêm bản mới mỗi lần bấm (mục 5). Cùng ý với `draftContract`.  #Huynh
-  const draftProposal = proposalItems.find((proposal) => proposal.status === "draft");
+  // Bản nháp báo giá KHÔNG còn được chọn hộ ở đây nữa: `ProposalModal` tự liệt kê các bản
+  // nháp trong màn chọn để freelancer quyết mở lại bản nào (hoặc tạo bản mới).  #Huynh
   const latestProposal = proposalItems[0];
   const latestContract = contractItems[0];
   // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
   const draftContract = contractItems.find((contract) => contract.status === "draft");
-  const hasActiveContract = contractItems.some((contract) => contract.status === "active");
   // Chỉ tin trạng thái THẬT từ backend. Trước đây còn cộng thêm một Set trong useState —
   // freelancer bấm "Khách đã ký" thì nút triển khai mở ra, nhưng F5 là mất sạch vì nó
   // chưa bao giờ được gửi lên server. Giao diện nói dối chính người dùng.  #Huynh
@@ -748,7 +757,14 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     // PATCH /contracts/{id}/status -> active, backend ghi cả hai mốc chữ ký.  #Huynh
     recordSignature.mutate(contract.id, {
       onSuccess: () => {
-        toast.success("Đã ghi nhận khách ký hợp đồng. Bạn có thể bắt đầu triển khai.");
+        // Backend vừa sinh các mốc "Thu tiền:" trên project (xem
+        // `ContractsService.transition_status`). Không nạp lại danh sách task ở đây thì tab
+        // Công việc vừa mở ra đã trống trơn, phải F5 mới thấy — mà thứ nằm trong đó lại đúng
+        // là việc phải làm NGAY: đi thu cọc.  #Huynh
+        queryClient.invalidateQueries({ queryKey: projectTaskKeys.all(deal.id) });
+        toast.success(
+          "Đã ghi nhận khách ký hợp đồng. Xem tab Công việc để thu đợt đầu trước khi bắt đầu."
+        );
         addDealHistoryEntry(deal.id, {
           date: new Date().toISOString(),
           text: "Ghi nhận: khách đã ký hợp đồng (ký ngoài hệ thống).",
@@ -1109,12 +1125,10 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
               onProposal={() => {
                 const target = dealForProposal ?? deal;
                 if (!target) return;
-                // Có bản nháp cho đúng deal này thì mở lại nó (không sinh bản mới).  #Huynh
-                openAiPanel({
-                  kind: "proposal_generation",
-                  dealId: target.id,
-                  proposalId: target.id === deal.id ? draftProposal?.id : undefined,
-                });
+                // KHÔNG nhét sẵn id bản nháp nữa: modal tự hiện màn chọn (bản nháp đang có +
+                // mẫu điều khoản) rồi freelancer quyết mở lại bản nào hay tạo bản mới. Nhảy
+                // thẳng vào bản nháp là cướp mất quyền chọn đó.  #Huynh
+                openAiPanel({ kind: "proposal_generation", dealId: target.id });
               }}
               onContract={handleGenerateContract}
               onStartProject={handleStartProject}
@@ -2052,9 +2066,7 @@ function InvoiceComposerModal({
               {canEdit ? "Soạn nội dung trước khi lưu hóa đơn vào hệ thống." : "Hóa đơn đã gửi nên chỉ xem và ghi nhận thanh toán."}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-secondary">
-            <X className="h-5 w-5" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-6 lg:grid-cols-[380px_minmax(0,1fr)]">
@@ -2621,27 +2633,35 @@ function DocumentsTab({
             <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
               {proposalStatusLabel[item.status] ?? item.status}
             </span>
-            <button
-              type="button"
-              onClick={() => onViewProposal(item.id)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
-            >
-              <FileText className="h-3.5 w-3.5" /> Xem nội dung
-            </button>
+            {/* BẢN NHÁP KHÔNG CÓ NÚT "XEM NỘI DUNG" RIÊNG.
+                Trước đây draft có hai cửa cho một việc: "Xem nội dung" mở bản CHỈ ĐỌC, "Soạn
+                & gửi" mở modal sửa được. Bấm nhầm cửa thứ nhất là ngồi nhìn tờ báo giá mà
+                không sửa được chữ nào — trong khi modal soạn thảo hiện ĐÚNG tờ đó (cùng
+                `getProposalPreview` do server dựng), lại còn sửa được giá/mốc và gửi.  #Huynh */}
+            {item.status !== "draft" && (
+              <button
+                type="button"
+                onClick={() => onViewProposal(item.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+              >
+                <FileText className="h-3.5 w-3.5" /> Xem nội dung
+              </button>
+            )}
             <DownloadPdfButton
               fetchPdf={() => downloadProposalPdf(item.id)}
               filename={`bao-gia-lan-${item.version_number}.pdf`}
             />
             {item.status === "draft" && (
               <>
-                {/* "Soạn & gửi" mở cửa sổ soạn thảo — nơi chốt giá rồi gửi khách (backend
-                    chặn gửi khi chưa chốt giá, nên bước gửi phải qua đó).  #Huynh */}
+                {/* Một cửa duy nhất cho bản nháp: xem, sửa giá/mốc/nội dung, rồi gửi — tất cả
+                    trong modal soạn thảo (backend chặn gửi khi chưa chốt giá và khi tổng mốc
+                    thanh toán ≠ 100%, nên bước gửi buộc phải qua đó).  #Huynh */}
                 <button
                   type="button"
                   onClick={() => onEditProposal(item.id)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
                 >
-                  <Pencil className="h-3.5 w-3.5" /> Soạn &amp; gửi
+                  <Pencil className="h-3.5 w-3.5" /> Mở &amp; chỉnh sửa
                 </button>
                 <button
                   type="button"
@@ -2814,9 +2834,7 @@ function QualificationViewModal({
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">Đã lưu ngày {formatDate(document.generated_at)}</p>
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -2925,9 +2943,7 @@ function ProposalViewModal({
               </p>
             )}
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
@@ -3048,9 +3064,7 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
               </p>
             )}
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-secondary">
-            <X className="h-4 w-4" />
-          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
