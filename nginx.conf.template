@@ -14,6 +14,20 @@ server {
     gzip_disable "MSIE [1-6]\.";
 
     location /api/ {
+        # Deal attachments (client brief PDFs, scanned contracts) come through
+        # here: the built app has no VITE_API_URL, so axios falls back to the
+        # same-origin "/api/v1" and every upload is proxied by this block.
+        #
+        # nginx defaults to 1m. The backend accepts 10m, so without this line
+        # anything above 1 MB died on nginx's bare 413 page before FastAPI ever
+        # saw it — attachments looked broken on the server while working locally
+        # against the Vite dev server, which talks to the API directly.
+        #
+        # 12m, not 10m: leave room for multipart overhead so the size limit is
+        # enforced in ONE place — the backend, which answers in Vietnamese with
+        # the actual file size.
+        client_max_body_size 12m;
+
         proxy_pass ${API_URL};
         proxy_ssl_server_name on;
         proxy_set_header X-Real-IP $remote_addr;
