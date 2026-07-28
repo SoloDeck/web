@@ -23,7 +23,7 @@ export function MonthlyRevenueChart({ data }: { data: MonthlyRevenue[] }) {
   if (totalInvoiced === 0) {
     return (
       <ChartFrame>
-        <div className="grid h-48 place-items-center text-sm text-muted-foreground">
+        <div className="grid h-full min-h-32 place-items-center text-sm text-muted-foreground">
           Chưa có hoá đơn nào trong khoảng thời gian này.
         </div>
       </ChartFrame>
@@ -32,9 +32,9 @@ export function MonthlyRevenueChart({ data }: { data: MonthlyRevenue[] }) {
 
   return (
     <ChartFrame totalInvoiced={totalInvoiced} totalCollected={totalCollected}>
-      <div className="relative">
+      <div className="relative flex h-full min-h-0 flex-col">
         {/* Vùng vẽ. Tooltip nổi theo cột đang hover. */}
-        <div className="flex h-48 items-end gap-1.5">
+        <div className="flex min-h-0 flex-1 items-end gap-1.5">
           {data.map((month, index) => {
             const invoicedPct = max > 0 ? (month.invoiced / max) * 100 : 0;
             const collectedPct = month.invoiced > 0 ? (month.collected / month.invoiced) * 100 : 0;
@@ -115,24 +115,27 @@ function ChartFrame({
   totalCollected?: number;
 }) {
   return (
-    <div className="rounded-xl border border-border p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-border p-4">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
+        {/* Tên là "HOÁ ĐƠN theo tháng", không phải "doanh thu": biểu đồ này đếm chứng từ đã
+            xuất, còn khối tiền phía trên đếm mốc thanh toán của hợp đồng. Hai nguồn khác
+            nhau mà gọi chung một tên thì người đọc tự cộng nhầm.  #Huynh */}
         <div className="flex items-center gap-2 font-semibold">
-          <BarChart3 className="h-4 w-4 text-primary" /> Doanh thu theo tháng
+          <BarChart3 className="h-4 w-4 text-primary" /> Hoá đơn theo tháng
         </div>
-        {/* Legend: bắt buộc vì có 2 phần (đã thu / còn phải thu). Cùng một hông màu, hai
-            độ đậm — nhận diện bằng nhãn, không chỉ bằng màu. */}
+        {/* Legend: bắt buộc vì có 2 phần. Cùng một hông màu, hai độ đậm — nhận diện bằng
+            nhãn, không chỉ bằng màu. */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Đã thu
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-primary/20" /> Còn phải thu
+            <span className="h-2.5 w-2.5 rounded-sm bg-primary/20" /> Chưa thu
           </span>
         </div>
       </div>
       {totalInvoiced !== undefined && (
-        <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        <div className="mb-3 flex shrink-0 flex-wrap gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">
             Đã xuất: <span className="font-semibold text-foreground">{formatVND(totalInvoiced)}</span>
           </span>
@@ -141,7 +144,9 @@ function ChartFrame({
           </span>
         </div>
       )}
-      {children}
+      {/* Vùng vẽ co giãn theo chỗ còn lại — trang không cuộn nên biểu đồ phải tự vừa khung,
+          thay vì ghim cứng 192px như trước.  #Huynh */}
+      <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
 }

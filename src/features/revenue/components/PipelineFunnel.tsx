@@ -30,8 +30,8 @@ export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
   const totalActive = rows.reduce((s, r) => s + r.count, 0);
 
   return (
-    <div className="rounded-xl border border-border p-5">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="rounded-xl border border-border p-4">
+      <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 font-semibold">
           <Filter className="h-4 w-4 text-primary" /> Phễu deal theo giai đoạn
         </div>
@@ -39,42 +39,44 @@ export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
       </div>
 
       {totalActive === 0 ? (
-        <div className="grid h-32 place-items-center text-sm text-muted-foreground">
+        <div className="grid h-20 place-items-center text-sm text-muted-foreground">
           Chưa có deal nào trong pipeline.
         </div>
       ) : (
-        <div className="space-y-2.5">
+        /* XẾP NGANG, không xếp dọc.
+           Bản trước là 6 hàng chồng lên nhau, ăn ~290px chiều cao — chính chỗ đó làm cả
+           trang phải cuộn khi thêm card Top khách hàng. Nằm ngang thì mỗi giai đoạn là một
+           cột, đọc từ trái sang phải đúng chiều vòng đời deal, và cả phễu gọn trong ~130px.
+             #Huynh */
+        <div className="grid grid-cols-3 gap-x-4 gap-y-3 sm:grid-cols-6">
           {rows.map((row) => {
             const pct = maxCount > 0 ? (row.count / maxCount) * 100 : 0;
             return (
-              <div key={row.stage} className="group">
-                <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="font-medium">{row.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {row.count} deal
-                    {row.value > 0 && (
-                      <span className="ml-2 text-foreground">{formatVND(row.value)}</span>
-                    )}
-                  </span>
+              <div key={row.stage} className="min-w-0">
+                <div className="truncate text-xs font-medium" title={row.label}>
+                  {row.label}
                 </div>
-                {/* Thanh mảnh, đầu bo tròn, neo về mép trái. Cột 0 vẫn để lại một vệt mờ
-                    để hàng không trống trơn. */}
-                <div className="h-2.5 overflow-hidden rounded-full bg-secondary">
+                <div className="mt-0.5 text-lg font-bold tabular-nums leading-tight">
+                  {row.count}
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                   <div
-                    className="h-full rounded-full bg-primary transition-all group-hover:opacity-90"
-                    style={{ width: `${Math.max(pct, row.count > 0 ? 4 : 0)}%` }}
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.max(pct, row.count > 0 ? 6 : 0)}%` }}
                   />
+                </div>
+                <div className="mt-1 truncate text-[11px] tabular-nums text-muted-foreground">
+                  {row.value > 0 ? formatVND(row.value) : "—"}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
 
-          {lost && lost.deal_count > 0 && (
-            <div className="mt-3 flex items-center justify-between border-t border-dashed border-border pt-3 text-sm">
-              <span className="text-muted-foreground">Không chốt được</span>
-              <span className="tabular-nums text-muted-foreground">{lost.deal_count} deal</span>
-            </div>
-          )}
+      {lost && lost.deal_count > 0 && (
+        <div className="mt-3 border-t border-dashed border-border pt-2 text-[11px] text-muted-foreground">
+          Không chốt được: <span className="tabular-nums">{lost.deal_count} deal</span>
         </div>
       )}
     </div>
