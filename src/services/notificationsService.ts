@@ -12,19 +12,42 @@ import type { ApiResponse } from "@/features/auth/types";
 // đỏ luôn hiện vĩnh viễn bất kể có gì mới hay không. Bấm vào không ra gì.  #Huynh
 // ---------------------------------------------------------------------------
 
-/** Khớp `type` bên backend (`src/modules/notifications/application/service.py`). */
+/**
+ * Khớp `type` bên backend (`src/modules/notifications/application/service.py`).
+ *
+ * Bốn loại `reminder_*` sinh ra lúc làm module nhắc nhở, SAU khi cái chuông này đã xong,
+ * và danh sách ở đây quên cập nhật theo. Chúng vẫn hiện bình thường nhờ fallback trong
+ * `TYPE_UI`, nhưng đều đeo chung một cái chuông xám — nên liếc vào không phân biệt được
+ * `reminder_sent` ("đã gửi xong, yên tâm") với `reminder_failed` ("khách KHÔNG nhận được,
+ * phải xử lý"). Với freelancer, bỏ sót cái thứ hai nghĩa là khách không nhận được nhắc
+ * thanh toán mà mình không hay.
+ *
+ * Giữ `Record<NotificationType, …>` (không phải `Partial`) ở `TYPE_UI` là CỐ Ý: thêm loại
+ * vào đây mà quên khai giao diện thì TypeScript báo lỗi ngay, không để lặp lại chuyện
+ * lặng lẽ rơi vào chuông xám như lần này.  #Huynh
+ */
 export type NotificationType =
   | "intake_submitted"
   | "deal_qualified"
-  | "invoice_overdue";
+  | "invoice_overdue"
+  | "reminder_due"
+  | "reminder_sent"
+  | "reminder_failed"
+  | "reminder_drafted";
 
 export type AppNotification = {
   id: string;
   type: NotificationType;
   title: string;
   body: string | null;
-  /** `entity_type` + `entity_id` để bấm vào là nhảy thẳng tới deal/hoá đơn liên quan. */
-  entity_type: "deal" | "invoice" | "client" | null;
+  /**
+   * `entity_type` + `entity_id` để bấm vào là nhảy thẳng tới deal/hoá đơn liên quan.
+   *
+   * `"reminder"` là loại backend BẮN THẬT (bốn loại `reminder_*`) nhưng trước đây thiếu ở
+   * đây; còn `"client"` thì khai sẵn mà backend chưa bao giờ bắn — bỏ đi cho khỏi hiểu
+   * nhầm là đã có.  #Huynh
+   */
+  entity_type: "deal" | "invoice" | "reminder" | null;
   entity_id: string | null;
   is_read: boolean;
   read_at: string | null;
