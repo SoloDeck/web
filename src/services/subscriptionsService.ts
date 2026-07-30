@@ -5,7 +5,14 @@ export type PlanResponse = {
   id: string;
   name: string;
   slug: "free" | "pro" | "agency";
-  price_monthly: number;
+  /**
+   * CHUỖI, không phải số: backend là `Decimal` nên serialize ra `"199000.00"` / `"0.00"`.
+   *
+   * Khai nhầm là `number` khiến `price_monthly === 0` LUÔN sai — gói Free hiện nút "Nâng
+   * cấp qua MoMo" dù chẳng có gì để trả tiền, và giá hiện "0 đ" thay vì "Miễn phí". Dùng
+   * `planPrice()` để đọc ra số, đừng so sánh trực tiếp.
+   */
+  price_monthly: string;
   currency: string;
   can_use_ai: boolean;
   can_export_pdf: boolean;
@@ -64,6 +71,12 @@ export type PaymentIntentResponse = {
   expires_at: string;
   failure_reason: string | null;
 };
+
+/** Giá gói ra số. Backend trả chuỗi Decimal (`"199000.00"`), đọc hỏng thì coi như 0. */
+export function planPrice(plan: Pick<PlanResponse, "price_monthly">): number {
+  const value = Number(plan.price_monthly);
+  return Number.isFinite(value) ? value : 0;
+}
 
 export async function listPlans(): Promise<PlanResponse[]> {
   const { data } = await axiosClient.get<ApiResponse<PlanResponse[]>>("/subscriptions/plans");

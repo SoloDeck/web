@@ -18,11 +18,26 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
     ...actual,
     usePlans: () => ({
       data: [
+        // Gói hiện tại là một gói RIÊNG, không phải Free — đúng như màn hình thật khi
+        // admin tạo thêm gói thử nghiệm. Nhờ vậy thẻ Free vẫn render NÚT (thay vì "Đang
+        // sử dụng"), tức là tái hiện được ca gói Free hiện nút mua.
+        {
+          id: "plan-test",
+          name: "Pro Test (Huynh)",
+          slug: "pro-test",
+          price_monthly: "0.00",
+          currency: "VND",
+          can_use_ai: true,
+          can_export_pdf: true,
+          max_clients: null,
+          max_deals: null,
+          max_ai_generations_per_month: 100000,
+        },
         {
           id: "plan-free",
           name: "Free",
           slug: "free",
-          price_monthly: 0,
+          price_monthly: "0.00",
           currency: "VND",
           can_use_ai: false,
           can_export_pdf: false,
@@ -34,7 +49,7 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
           id: "plan-pro",
           name: "Pro",
           slug: "pro",
-          price_monthly: 199000,
+          price_monthly: "199000.00",
           currency: "VND",
           can_use_ai: true,
           can_export_pdf: true,
@@ -49,9 +64,9 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
       data: {
         id: "sub-1",
         user_id: "u-1",
-        plan_id: "plan-free",
-        plan_name: "Free",
-        plan_slug: "free",
+        plan_id: "plan-test",
+        plan_name: "Pro Test (Huynh)",
+        plan_slug: "pro-test",
         status: "active",
         current_period_start: "2026-01-01T00:00:00Z",
         current_period_end: "2126-01-01T00:00:00Z",
@@ -182,12 +197,21 @@ describe("<SubscriptionPage /> — mua gói", () => {
   });
 
   it("chỉ gói trả phí mới có nút thanh toán", () => {
-    // Mock đang ở gói free, nên thẻ free hiện "Đang sử dụng"; chỉ còn đúng thẻ Pro là mua
-    // được. Khẳng định số lượng để nếu sau này ai đó vô tình gắn nút mua vào gói free —
-    // thứ không có gì để trả tiền — thì test đổ.
+    // Gói hiện tại là "Pro Test" nên nó hiện "Đang sử dụng"; Free và Pro đều render nút.
+    // Chỉ Pro được mua — khẳng định số lượng để ai đó gắn nhầm nút mua vào gói 0đ là test đổ.
     render(<SubscriptionPage />, { wrapper });
 
     expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(1);
     expect(screen.getByText(/đang sử dụng/i)).toBeInTheDocument();
+  });
+
+  it("gói 0đ KHÔNG mua được, dù giá về dạng chuỗi Decimal", () => {
+    // Lỗi thật đã gặp: backend serialize Decimal thành CHUỖI ("0.00"), mà FE khai
+    // `price_monthly: number` rồi so `=== 0` → luôn sai → gói Free hiện nút "Nâng cấp qua
+    // MoMo" dù chẳng có gì để trả tiền. Test cũ dùng số nên không bắt được.  #Huynh
+    render(<SubscriptionPage />, { wrapper });
+
+    const nutFree = screen.getByRole("button", { name: /^miễn phí$/i });
+    expect(nutFree).toBeDisabled();
   });
 });

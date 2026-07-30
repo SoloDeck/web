@@ -11,6 +11,7 @@ import {
 } from "@/features/subscriptions/hooks/useSubscriptions";
 import { useAiUsage } from "@/features/revenue/hooks/useAnalytics";
 import {
+  planPrice,
   SETTLED_PAYMENT_STATUSES,
   type PlanResponse,
 } from "@/services/subscriptionsService";
@@ -97,7 +98,9 @@ function PlanCard({
   const meta = PLAN_META[plan.slug] ?? PLAN_META.free;
   const Icon = meta.icon;
   const rows = featureRows(plan);
-  const isFree = plan.price_monthly === 0;
+  // `planPrice` chứ không so thẳng: backend trả Decimal dạng CHUỖI ("0.00"), nên
+  // `price_monthly === 0` luôn sai và gói Free hiện nút mua.  #Huynh
+  const isFree = planPrice(plan) === 0;
 
   return (
     <div
@@ -132,7 +135,7 @@ function PlanCard({
         <h3 className="text-base font-bold">{plan.name}</h3>
         <div className="mt-1.5 flex items-baseline gap-1.5">
           <span className="text-3xl font-black tracking-tight">
-            {isFree ? "0 ₫" : formatPrice(plan.price_monthly, plan.currency)}
+            {isFree ? "Miễn phí" : formatPrice(planPrice(plan), plan.currency)}
           </span>
           <span className="text-sm text-muted-foreground">{isFree ? "mãi mãi" : "/ tháng"}</span>
         </div>
