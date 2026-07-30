@@ -129,20 +129,27 @@ export function splitEqually(total: number, n: number): number[] {
  * phản ánh công sức thật của từng phần, sát thực tế hơn nhiều so với chia đều. Đổi giá thì
  * giãn theo, đừng san phẳng.
  *
+ * `base` là MẪU SỐ và phải truyền vào, không tự cộng các dòng: backend chia theo
+ * `pricing_detail.suggested` (giá ĐỀ XUẤT), mà tổng các `line_items` không có gì bảo đảm
+ * bằng đúng `suggested`. Tự cộng lấy mẫu số khác là hai bên lại ra hai bảng khác nhau — đúng
+ * con bug đang đi sửa. Chỉ khi không có `base` hợp lệ mới cộng các dòng làm phương án chót.
+ *
  * Dòng cuối gánh phần lẻ để tổng khớp tuyệt đối — bảng cộng không ra tổng là thứ khách soi
  * ra ngay.  #Huynh
  */
-export function rescaleToTotal(items: CostItem[], total: number): CostItem[] {
-  const base = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+export function rescaleToTotal(items: CostItem[], total: number, base: number): CostItem[] {
   if (items.length === 0) return [];
   if (total <= 0) return items.map((item) => ({ ...item, amount: 0 }));
+
+  const denominator =
+    base > 0 ? base : items.reduce((sum, item) => sum + (item.amount || 0), 0);
   // Không có gốc để giãn (mọi dòng đều 0) thì chia đều là lựa chọn duy nhất còn lại.
-  if (base <= 0) {
+  if (denominator <= 0) {
     const amounts = splitEqually(total, items.length);
     return items.map((item, i) => ({ ...item, amount: amounts[i] ?? 0 }));
   }
 
-  const ratio = total / base;
+  const ratio = total / denominator;
   const out: CostItem[] = [];
   let allocated = 0;
   items.forEach((item, index) => {

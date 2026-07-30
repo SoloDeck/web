@@ -39,33 +39,60 @@ describe("splitEqually", () => {
 });
 
 describe("rescaleToTotal", () => {
+  const BO_DINH_GIA = [
+    item("BE", 200_000_000),
+    item("FE", 150_000_000),
+    item("Design", 75_000_000),
+    item("QA", 75_000_000),
+  ];
+
   it("GIỮ tỷ lệ giữa các hạng mục khi đổi tổng", () => {
-    // Bộ định giá chia 200/150/75/75 cho tổng 500tr. Hạ giá còn 250tr thì mọi dòng giảm một
-    // nửa — KHÔNG san phẳng thành 62.5tr × 4.
-    const out = rescaleToTotal(
-      [item("BE", 200_000_000), item("FE", 150_000_000), item("Design", 75_000_000), item("QA", 75_000_000)],
-      250_000_000
-    );
+    // Bộ định giá chia 200/150/75/75 cho giá đề xuất 500tr. Hạ giá còn 250tr thì mọi dòng
+    // giảm một nửa — KHÔNG san phẳng thành 62.5tr × 4.
+    const out = rescaleToTotal(BO_DINH_GIA, 250_000_000, 500_000_000);
     expect(out.map((x) => x.amount)).toEqual([
       100_000_000, 75_000_000, 37_500_000, 37_500_000,
     ]);
     expect(out.reduce((a, b) => a + b.amount, 0)).toBe(250_000_000);
   });
 
-  it("tổng không đổi thì giữ nguyên từng dòng", () => {
-    const rows = [item("BE", 200_000_000), item("FE", 300_000_000)];
-    expect(rescaleToTotal(rows, 500_000_000).map((x) => x.amount)).toEqual([
-      200_000_000, 300_000_000,
+  it("tổng bằng giá đề xuất thì giữ nguyên từng dòng", () => {
+    const out = rescaleToTotal(BO_DINH_GIA, 500_000_000, 500_000_000);
+    expect(out.map((x) => x.amount)).toEqual([
+      200_000_000, 150_000_000, 75_000_000, 75_000_000,
     ]);
   });
 
-  it("mọi dòng đều 0 thì chia đều — không còn tỷ lệ nào để giãn", () => {
-    const out = rescaleToTotal([item("A", 0), item("B", 0)], 100_000_000);
+  it("MẪU SỐ là giá đề xuất, KHÔNG phải tổng các dòng", () => {
+    // Backend chia theo `pricing_detail.suggested`. Tổng các `line_items` không có gì bảo
+    // đảm bằng đúng `suggested` — tự cộng lấy mẫu số khác là panel lại nói khác tờ báo giá,
+    // đúng con bug đang đi sửa.  #Huynh
+    const rows = [item("A", 100_000_000), item("B", 100_000_000)]; // tổng 200tr
+    const out = rescaleToTotal(rows, 400_000_000, 400_000_000); // suggested = 400tr
+
+    // ratio = 400/400 = 1 → dòng đầu GIỮ NGUYÊN 100tr.
+    // Nếu lấy mẫu số là tổng các dòng (200tr) thì ratio = 2 và nó đã thành 200tr.
+    expect(out[0].amount).toBe(100_000_000);
+    // Dòng cuối gánh phần lẻ để tổng khớp tuyệt đối.
+    expect(out.reduce((a, b) => a + b.amount, 0)).toBe(400_000_000);
+  });
+
+  it("không có mẫu số hợp lệ thì cộng các dòng làm phương án chót", () => {
+    const out = rescaleToTotal(
+      [item("A", 100_000_000), item("B", 100_000_000)],
+      400_000_000,
+      0
+    );
+    expect(out.map((x) => x.amount)).toEqual([200_000_000, 200_000_000]);
+  });
+
+  it("mọi dòng đều 0 và không có mẫu số thì chia đều", () => {
+    const out = rescaleToTotal([item("A", 0), item("B", 0)], 100_000_000, 0);
     expect(out.map((x) => x.amount)).toEqual([50_000_000, 50_000_000]);
   });
 
   it("giữ nguyên nhãn", () => {
-    const out = rescaleToTotal([item("Phát triển backend", 100)], 500);
+    const out = rescaleToTotal([item("Phát triển backend", 100)], 500, 100);
     expect(out[0].label).toBe("Phát triển backend");
   });
 });

@@ -209,7 +209,9 @@ const INLINE_FIELD_MAP: Record<string, keyof EditFields> = {
 function deriveCostItems(
   saved: unknown,
   detailItems: { label: string; amount: number }[] | undefined,
-  agreedTotal: number
+  agreedTotal: number,
+  /** Giá ĐỀ XUẤT — mẫu số backend dùng để co giãn. Phải truyền để hai bên ra cùng bảng. */
+  suggested: number
 ): CostItem[] {
   if (Array.isArray(saved) && saved.length > 0) {
     if (saved.every((x) => typeof x === "object" && x !== null)) {
@@ -227,7 +229,8 @@ function deriveCostItems(
   if (items.length === 0) return [];
   return rescaleToTotal(
     items.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
-    agreedTotal
+    agreedTotal,
+    suggested
   );
 }
 
@@ -927,7 +930,8 @@ export function ProposalModal({
   const costItems = deriveCostItems(
     proposalContent?.pricing_items,
     pricingDetail?.line_items,
-    priceToSend
+    priceToSend,
+    pricingDetail?.suggested ?? 0
   );
 
   const costIssue = costItemsIssue(costItems, priceToSend);
