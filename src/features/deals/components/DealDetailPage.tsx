@@ -2345,6 +2345,33 @@ function DownloadPdfButton({
   );
 }
 
+/**
+ * Màu badge trạng thái cho báo giá / hợp đồng / hoá đơn.
+ *
+ * Trước đây CẢ BA đều dùng chung một sắc xám `bg-secondary`, nên "Khách chấp nhận" trông y
+ * hệt "Khách từ chối" — hai kết cục trái ngược mà phải đọc chữ mới phân biệt được. Trên màn
+ * hình chi tiết deal, người dùng liếc chứ không đọc.
+ *
+ * Chia theo Ý NGHĨA chứ không theo từng trạng thái, để ba loại tài liệu nói cùng một ngôn
+ * ngữ màu: xong xuôi thì xanh lá, hỏng thì đỏ, đang chờ ai đó thì xanh dương, hết hạn/dở
+ * dang thì hổ phách, còn chưa có gì xảy ra thì xám.  #Huynh
+ */
+type StatusBadge = { label: string; cls: string };
+
+/** Chưa có gì xảy ra (bản nháp, đã huỷ, đã thay thế). */
+const NEUTRAL_BADGE = "bg-secondary text-muted-foreground";
+/** Đang chờ phía bên kia (đã gửi, chờ ký). */
+const WAITING_BADGE = "bg-primary/10 text-primary";
+/** Kết cục tốt (khách chấp nhận, đã thanh toán, hợp đồng hiệu lực). */
+const GOOD_BADGE = "bg-success/10 text-success";
+/** Kết cục xấu (khách từ chối, quá hạn, chấm dứt). */
+const BAD_BADGE = "bg-destructive/10 text-destructive";
+/** Hết hạn hoặc dở dang — chưa hỏng hẳn nhưng cần để mắt.
+ *
+ * Bốn màu kia là design token nên tự hợp với nền; riêng amber là màu Tailwind trần, phải
+ * kèm `dark:` cho đủ tương phản — bám theo mẫu sẵn có ở `DealDetailModal.tsx`.  #Huynh */
+const STALE_BADGE = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+
 function DocumentsTab({
   attachments,
   onViewAttachment,
@@ -2397,32 +2424,32 @@ function DocumentsTab({
   contractActionLoading: boolean;
   invoiceActionLoading: boolean;
 }) {
-  const proposalStatusLabel: Record<string, string> = {
-    draft: "Bản nháp",
-    sent: "Đã gửi khách",
-    accepted: "Khách chấp nhận",
-    rejected: "Khách từ chối",
-    expired: "Hết hiệu lực",
-    superseded: "Đã thay thế",
+  const proposalStatusLabel: Record<string, StatusBadge> = {
+    draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
+    sent: { label: "Đã gửi khách", cls: WAITING_BADGE },
+    accepted: { label: "Khách chấp nhận", cls: GOOD_BADGE },
+    rejected: { label: "Khách từ chối", cls: BAD_BADGE },
+    expired: { label: "Hết hiệu lực", cls: STALE_BADGE },
+    superseded: { label: "Đã thay thế", cls: NEUTRAL_BADGE },
   };
 
-  const contractStatusLabel: Record<string, string> = {
-    draft: "Bản nháp",
-    pending_signatures: "Chờ ký",
-    active: "Đang hiệu lực",
-    completed: "Hoàn thành",
-    terminated: "Đã chấm dứt",
-    expired: "Hết hiệu lực",
+  const contractStatusLabel: Record<string, StatusBadge> = {
+    draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
+    pending_signatures: { label: "Chờ ký", cls: WAITING_BADGE },
+    active: { label: "Đang hiệu lực", cls: GOOD_BADGE },
+    completed: { label: "Hoàn thành", cls: GOOD_BADGE },
+    terminated: { label: "Đã chấm dứt", cls: BAD_BADGE },
+    expired: { label: "Hết hiệu lực", cls: STALE_BADGE },
   };
 
-  const invoiceStatusLabel: Record<string, string> = {
-    draft: "Bản nháp",
-    sent: "Đã gửi",
-    partially_paid: "Thanh toán một phần",
-    paid: "Đã thanh toán",
-    overdue: "Quá hạn",
-    void: "Đã hủy",
-    cancelled: "Đã hủy",
+  const invoiceStatusLabel: Record<string, StatusBadge> = {
+    draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
+    sent: { label: "Đã gửi", cls: WAITING_BADGE },
+    partially_paid: { label: "Thanh toán một phần", cls: STALE_BADGE },
+    paid: { label: "Đã thanh toán", cls: GOOD_BADGE },
+    overdue: { label: "Quá hạn", cls: BAD_BADGE },
+    void: { label: "Đã hủy", cls: NEUTRAL_BADGE },
+    cancelled: { label: "Đã hủy", cls: NEUTRAL_BADGE },
   };
 
   // Bản báo giá ĐANG DÙNG. Backend trả về mới-nhất-trước, nhưng "mới nhất" KHÔNG phải
@@ -2483,8 +2510,13 @@ function DocumentsTab({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
-                {invoiceStatusLabel[invoice.status] ?? invoice.status}
+              <span
+                className={cn(
+                  "rounded-full px-2 py-1 text-xs font-semibold",
+                  invoiceStatusLabel[invoice.status]?.cls ?? NEUTRAL_BADGE
+                )}
+              >
+                {invoiceStatusLabel[invoice.status]?.label ?? invoice.status}
               </span>
               {invoice.status === "paid" && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2 py-1 text-xs font-semibold text-success">
@@ -2630,8 +2662,13 @@ function DocumentsTab({
             )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
-              {proposalStatusLabel[item.status] ?? item.status}
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-xs font-semibold",
+                proposalStatusLabel[item.status]?.cls ?? NEUTRAL_BADGE
+              )}
+            >
+              {proposalStatusLabel[item.status]?.label ?? item.status}
             </span>
             {/* BẢN NHÁP KHÔNG CÓ NÚT "XEM NỘI DUNG" RIÊNG.
                 Trước đây draft có hai cửa cho một việc: "Xem nội dung" mở bản CHỈ ĐỌC, "Soạn
@@ -2703,8 +2740,13 @@ function DocumentsTab({
             <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium">
-              {contractStatusLabel[item.status] ?? item.status}
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-xs font-semibold",
+                contractStatusLabel[item.status]?.cls ?? NEUTRAL_BADGE
+              )}
+            >
+              {contractStatusLabel[item.status]?.label ?? item.status}
             </span>
             <button
               type="button"
