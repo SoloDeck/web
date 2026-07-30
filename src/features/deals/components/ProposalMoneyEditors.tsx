@@ -1,6 +1,12 @@
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { formatVND } from "@/utils/format";
-import { paymentPercentIssue, type PaymentMilestone } from "@/features/deals/proposalHtml";
+import {
+  costItemsIssue,
+  paymentPercentIssue,
+  splitEqually,
+  type CostItem,
+  type PaymentMilestone,
+} from "@/features/deals/proposalHtml";
 
 /**
  * Hai editor có cấu trúc cho phần TIỀN của báo giá — sửa ở màn review (Stage 4).
@@ -14,61 +20,62 @@ import { paymentPercentIssue, type PaymentMilestone } from "@/features/deals/pro
 const inputClass =
   "min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary";
 
-/**
- * Chia đều `total` cho `n` hạng mục, làm tròn tới 1.000 ₫, dòng CUỐI gánh phần lẻ.
- *
- * PHẢI khớp TUYỆT ĐỐI với backend (`pdf_content._structured_pricing`) — panel và tờ báo giá
- * cùng một con số thì mới không mâu thuẫn nhau.  #Huynh
- */
-function splitEqually(total: number, n: number): number[] {
-  if (n <= 0 || total <= 0) return new Array(Math.max(n, 0)).fill(0);
-  const out: number[] = [];
-  let allocated = 0;
-  for (let i = 0; i < n; i += 1) {
-    if (i === n - 1) {
-      out.push(total - allocated);
-    } else {
-      const amount = Math.round(total / n / 1000) * 1000;
-      out.push(amount);
-      allocated += amount;
-    }
-  }
-  return out;
+/** Chỉ giữ chữ số — gõ "200.000.000" hay "200000000" đều ra cùng một số. */
+function onlyDigits(value: string): number {
+  const digits = value.replace(/\D/g, "");
+  return digits ? Number(digits) : 0;
 }
 
 export function LineItemsEditor({
   items,
-  total,
+  agreedTotal,
   onChange,
   disabled,
 }: {
-  /** Danh sách NHÃN hạng mục. Số tiền tự chia, không gõ tay. */
-  items: string[];
-  total: number;
-  onChange: (items: string[]) => void;
+  /** Hạng mục kèm SỐ TIỀN — freelancer gõ tay, không còn chia đều tự động. */
+  items: CostItem[];
+  /** Giá chào khách, để đối chiếu. Lệch thì cảnh báo và khoá nút gửi. */
+  agreedTotal: number;
+  onChange: (items: CostItem[]) => void;
   disabled?: boolean;
 }) {
-  const amounts = splitEqually(total, items.length);
-  const replaceAt = (index: number, value: string) =>
-    onChange(items.map((item, i) => (i === index ? value : item)));
+  const patchAt = (index: number, patch: Partial<CostItem>) =>
+    onChange(items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+
+  // Luật khớp tổng dùng CHUNG với nút gửi và với guard bên backend — ba chỗ tự cộng lại mỗi
+  // nơi một kiểu là ra ba câu trả lời khác nhau về TIỀN.  #Huynh
+  const issue = costItemsIssue(items, agreedTotal);
+  const sum = items.reduce((acc, item) => acc + (item.amount || 0), 0);
+
+  /** Chia đều lại cho khớp giá chào — lối thoát nhanh khi đang lệch. */
+  const splitEvenly = () => {
+    const amounts = splitEqually(agreedTotal, items.length);
+    onChange(items.map((item, i) => ({ ...item, amount: amounts[i] ?? 0 })));
+  };
 
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
-        {items.map((label, index) => (
+        {items.map((item, index) => (
           <div key={index} className="flex items-center gap-2">
             <input
-              value={label}
+              value={item.label}
               disabled={disabled}
               placeholder={`Hạng mục ${index + 1}`}
-              onChange={(event) => replaceAt(index, event.target.value)}
+              onChange={(event) => patchAt(index, { label: event.target.value })}
               className={inputClass}
             />
-            {/* Cột tiền hẹp lại (w-24, chữ nhỏ): panel này giờ nằm trong cột trái ~400px của
-              modal báo giá, để w-32 là ô nhập nhãn bị bóp còn không đủ đọc.  #Huynh */}
-            <span className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-              {total > 0 ? formatVND(amounts[index]) : "—"}
-            </span>
+            {/* Ô tiền GÕ ĐƯỢC. Trước đây là <span> chỉ để đọc, hiện số chia đều mà số đó
+              không bao giờ được gửi đi — panel nói một đằng, tờ báo giá in một nẻo.  #Huynh */}
+            <input
+              value={item.amount ? item.amount.toLocaleString("vi-VN") : ""}
+              disabled={disabled}
+              inputMode="numeric"
+              placeholder="0"
+              aria-label={`Số tiền hạng mục ${index + 1}`}
+              onChange={(event) => patchAt(index, { amount: onlyDigits(event.target.value) })}
+              className="w-28 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-right text-sm tabular-nums outline-none focus:border-primary"
+            />
             <button
               type="button"
               disabled={disabled || items.length <= 1}
@@ -85,16 +92,36 @@ export function LineItemsEditor({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onChange([...items, ""])}
+          onClick={() => onChange([...items, { label: "", amount: 0 }])}
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary disabled:opacity-40"
         >
           <Plus className="h-3.5 w-3.5" /> Thêm hạng mục
         </button>
         <span className="text-xs text-muted-foreground">
-          Tổng <span className="font-semibold text-foreground">{formatVND(total)}</span> · chia đều
-          theo số hạng mục
+          Tổng <span className="font-semibold text-foreground">{formatVND(sum)}</span>
         </span>
       </div>
+
+      {issue ? (
+        <div className="flex items-start gap-1.5 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{issue.message}</span>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={splitEvenly}
+            className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80 disabled:opacity-40"
+          >
+            Chia đều
+          </button>
+        </div>
+      ) : (
+        agreedTotal > 0 && (
+          <div className="flex items-center gap-1.5 text-xs text-success">
+            <Check className="h-3.5 w-3.5" /> Khớp giá chào khách
+          </div>
+        )
+      )}
     </div>
   );
 }
