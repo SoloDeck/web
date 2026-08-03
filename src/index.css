@@ -92,6 +92,10 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings: "cv11", "ss01";
+    /* Chặn tràn ngang ở đây thay vì trên div gốc của trang: `overflow-x` khác `visible`
+       biến phần tử thành khối cuộn, làm header `sticky` bên trong neo vào nó chứ không
+       neo vào khung nhìn — navbar sẽ trôi mất khi cuộn.  #Huynh */
+    overflow-x: hidden;
   }
 }
 
@@ -129,6 +133,16 @@
 @keyframes aurora-3 {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50%       { transform: translate(30px, -50px) scale(1.1); }
+}
+
+/* Các khối aurora chạy vô hạn — đúng thứ phải tắt đầu tiên khi người dùng bật "giảm
+   chuyển động". Dùng class đánh dấu thay vì reset `*`: component @base-ui/react (dialog,
+   popover, drawer…) dựa vào sự kiện `animationend` để unmount, reset toàn cục sẽ làm
+   kẹt overlay.  #Huynh */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob {
+    animation: none !important;
+  }
 }
 
 /* ── Hero dot grid ─────────────────────────────────────────────────────────── */
