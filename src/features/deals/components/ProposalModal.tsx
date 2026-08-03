@@ -16,7 +16,14 @@ import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChoos
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
-import { paymentPercentIssue, type PaymentMilestone } from "@/features/deals/proposalHtml";
+import {
+  costItemsIssue,
+  paymentPercentIssue,
+  rescaleToTotal,
+  splitEqually,
+  type CostItem,
+  type PaymentMilestone,
+} from "@/features/deals/proposalHtml";
 import { getProposalPreview, setProposalPrice } from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
 import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
@@ -187,6 +194,46 @@ const INLINE_FIELD_MAP: Record<string, keyof EditFields> = {
 };
 
 /** Bóc content (bất kể shape AI hay DTO) ra các trường soạn thảo được — trừ GIÁ. */
+/**
+ * Hạng mục chi phí mục 7 — LUÔN trả về nhãn kèm số tiền, gộp ba trạng thái về một.
+ *
+ * 1. Freelancer đã gõ tiền (`{label, amount}[]`) → dùng nguyên.
+ * 2. Bản nháp CŨ chỉ có nhãn (`string[]`) → chia đều theo giá chốt, đúng như backend làm.
+ * 3. Chưa sửa gì → lấy nhãn + tiền từ bộ định giá, CO GIÃN theo giá chốt — mirror nhánh dự
+ *    phòng của backend (`pdf_content._structured_pricing`).
+ *
+ * Trạng thái 3 mới là chỗ từng sai. Panel cũ LUÔN hiện chia đều bất kể trạng thái, trong khi
+ * tờ báo giá giữ tỷ lệ của bộ định giá. Chốt giá 500tr thì trái hiện "125tr × 4" còn phải in
+ * "200/150/75/75" — hai bên nói hai kiểu, và người dùng tin bên nào cũng sai.  #Huynh
+ */
+function deriveCostItems(
+  saved: unknown,
+  detailItems: { label: string; amount: number }[] | undefined,
+  agreedTotal: number,
+  /** Giá ĐỀ XUẤT — mẫu số backend dùng để co giãn. Phải truyền để hai bên ra cùng bảng. */
+  suggested: number
+): CostItem[] {
+  if (Array.isArray(saved) && saved.length > 0) {
+    if (saved.every((x) => typeof x === "object" && x !== null)) {
+      return (saved as CostItem[]).map((x) => ({
+        label: String(x.label ?? ""),
+        amount: Number(x.amount) || 0,
+      }));
+    }
+    const labels = (saved as unknown[]).map(String).filter(Boolean);
+    const amounts = splitEqually(agreedTotal, labels.length);
+    return labels.map((label, i) => ({ label, amount: amounts[i] ?? 0 }));
+  }
+
+  const items = detailItems ?? [];
+  if (items.length === 0) return [];
+  return rescaleToTotal(
+    items.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
+    agreedTotal,
+    suggested
+  );
+}
+
 function deriveEditFields(content: unknown): EditFields {
   const c = (content ?? {}) as Record<string, unknown>;
   const asLines = (v: unknown): string =>
@@ -864,10 +911,30 @@ export function ProposalModal({
     moneyTimerRef.current = setTimeout(saveMoneyAndRefresh, 700);
   };
 
-  // Nguồn cho editor mục 7: nhãn freelancer đã sửa, chưa có thì lấy từ bộ định giá.  #Huynh
-  const lineItemLabels: string[] =
-    proposalContent?.pricing_items ??
-    (pricingDetail?.line_items?.map((item) => item.label).filter(Boolean) ?? []);
+  /**
+   * Nguồn cho editor mục 7 — LUÔN trả về hạng mục kèm số tiền.
+   *
+   * Ba trạng thái phải gộp về một:
+   * 1. Freelancer đã gõ tiền → dùng nguyên (dạng `{label, amount}`).
+   * 2. Bản nháp CŨ chỉ có nhãn (`string[]`) → chia đều theo giá chốt, đúng như backend làm.
+   * 3. Chưa sửa gì → lấy nhãn + tiền từ bộ định giá, CO GIÃN theo giá chốt — mirror nhánh
+   *    dự phòng của backend (`pdf_content._structured_pricing`).
+   *
+   * Trạng thái 3 mới là chỗ từng sai: panel cũ luôn hiện chia đều, trong khi tờ báo giá giữ
+   * tỷ lệ bộ định giá. Kéo giá lên 500tr thì trái hiện "125tr × 4" còn phải in
+   * "200/150/75/75" — hai bên nói hai kiểu, và người dùng tin bên nào cũng sai.  #Huynh
+   */
+  // KHÔNG dùng `useMemo`: chỗ này nằm SAU `if (!deal || minimized) return null` nên hook sẽ
+  // chạy không đều giữa các lần render. Mà việc tính cũng chỉ là vài phép map trên dăm dòng —
+  // rẻ hơn nhiều so với cái bẫy vừa nêu.  #Huynh
+  const costItems = deriveCostItems(
+    proposalContent?.pricing_items,
+    pricingDetail?.line_items,
+    priceToSend,
+    pricingDetail?.suggested ?? 0
+  );
+
+  const costIssue = costItemsIssue(costItems, priceToSend);
   const milestoneRows: PaymentMilestone[] = proposalContent?.payment_milestones ?? [];
   // Tổng các đợt không bằng 100% thì KHÔNG gửi được — backend cũng chặn (xem
   // `ProposalsService.transition_status`), đây là lớp lịch sự để người dùng biết trước lý do
@@ -1282,8 +1349,8 @@ export function ProposalModal({
                           Hạng mục chi phí (mục 7)
                         </div>
                         <LineItemsEditor
-                          items={lineItemLabels}
-                          total={priceToSend}
+                          items={costItems}
+                          agreedTotal={priceToSend}
                           onChange={(items) => patchMoneyContent({ pricing_items: items })}
                         />
                       </div>
@@ -1388,12 +1455,13 @@ export function ProposalModal({
                     isSending ||
                     isDownloading ||
                     priceNotCommitted ||
-                    Boolean(milestoneIssue)
+                    Boolean(milestoneIssue) ||
+                    Boolean(costIssue)
                   }
                   title={
                     priceNotCommitted
                       ? "Hãy chốt mức giá bạn muốn chào trước khi gửi cho khách."
-                      : (milestoneIssue?.message ?? undefined)
+                      : (milestoneIssue?.message ?? costIssue?.message ?? undefined)
                   }
                   className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-primary-glow px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95 shadow-lg shadow-primary/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1404,7 +1472,9 @@ export function ProposalModal({
                       ? "Hãy đặt giá trước"
                       : milestoneIssue
                         ? `Mốc thanh toán đang ${milestoneIssue.total}%`
-                        : "Lưu & gửi cho khách hàng"}
+                        : costIssue
+                          ? "Hạng mục chi phí chưa khớp giá"
+                          : "Lưu & gửi cho khách hàng"}
                 </button>
               </div>
             </>

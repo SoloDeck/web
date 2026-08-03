@@ -97,6 +97,106 @@ export function paymentPercentIssue(
   };
 }
 
+/** Một hạng mục chi phí ở mục 7 — nhãn kèm số tiền freelancer tự đặt. */
+export type CostItem = { label: string; amount: number };
+
+/**
+ * Chia đều `total` cho `n` hạng mục, làm tròn tới 1.000 ₫, dòng CUỐI gánh phần lẻ.
+ *
+ * PHẢI khớp TUYỆT ĐỐI với backend (`pdf_content._structured_pricing`, nhánh dạng cũ) — panel
+ * và tờ báo giá cùng một con số thì mới không mâu thuẫn nhau.  #Huynh
+ */
+export function splitEqually(total: number, n: number): number[] {
+  if (n <= 0 || total <= 0) return new Array(Math.max(n, 0)).fill(0);
+  const out: number[] = [];
+  let allocated = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (i === n - 1) {
+      out.push(total - allocated);
+    } else {
+      const amount = Math.round(total / n / 1000) * 1000;
+      out.push(amount);
+      allocated += amount;
+    }
+  }
+  return out;
+}
+
+/**
+ * Co giãn các hạng mục theo `total` mới, GIỮ NGUYÊN TỶ LỆ giữa chúng.
+ *
+ * Mirror nhánh dự phòng của backend: bộ định giá chia 200/150/75/75 cho một dự án — tỷ lệ đó
+ * phản ánh công sức thật của từng phần, sát thực tế hơn nhiều so với chia đều. Đổi giá thì
+ * giãn theo, đừng san phẳng.
+ *
+ * `base` là MẪU SỐ và phải truyền vào, không tự cộng các dòng: backend chia theo
+ * `pricing_detail.suggested` (giá ĐỀ XUẤT), mà tổng các `line_items` không có gì bảo đảm
+ * bằng đúng `suggested`. Tự cộng lấy mẫu số khác là hai bên lại ra hai bảng khác nhau — đúng
+ * con bug đang đi sửa. Chỉ khi không có `base` hợp lệ mới cộng các dòng làm phương án chót.
+ *
+ * Dòng cuối gánh phần lẻ để tổng khớp tuyệt đối — bảng cộng không ra tổng là thứ khách soi
+ * ra ngay.  #Huynh
+ */
+export function rescaleToTotal(items: CostItem[], total: number, base: number): CostItem[] {
+  if (items.length === 0) return [];
+  if (total <= 0) return items.map((item) => ({ ...item, amount: 0 }));
+
+  const denominator =
+    base > 0 ? base : items.reduce((sum, item) => sum + (item.amount || 0), 0);
+  // Không có gốc để giãn (mọi dòng đều 0) thì chia đều là lựa chọn duy nhất còn lại.
+  if (denominator <= 0) {
+    const amounts = splitEqually(total, items.length);
+    return items.map((item, i) => ({ ...item, amount: amounts[i] ?? 0 }));
+  }
+
+  const ratio = total / denominator;
+  const out: CostItem[] = [];
+  let allocated = 0;
+  items.forEach((item, index) => {
+    if (index === items.length - 1) {
+      out.push({ ...item, amount: total - allocated });
+    } else {
+      const amount = Math.round(((item.amount || 0) * ratio) / 1000) * 1000;
+      out.push({ ...item, amount });
+      allocated += amount;
+    }
+  });
+  return out;
+}
+
+/**
+ * Tổng các hạng mục chi phí có khớp giá chào khách không. `null` = không có gì để nói.
+ *
+ * Cùng lý do với `paymentPercentIssue`: khách cầm tờ báo giá tự cộng cột "Thành tiền" ra một
+ * số, rồi đọc dòng "Tổng báo giá" ra số khác. Mất uy tín ngay tại bàn, và không cãi được.
+ *
+ * Bỏ qua khi chưa chốt giá (`agreed <= 0`) hoặc chưa có hạng mục nào — lúc đó chưa có gì để
+ * đối chiếu, cảnh báo là báo oan.
+ *
+ * MỘT nguồn cho cả dòng cảnh báo lẫn việc khoá nút gửi, và khớp với guard bên backend
+ * (`ProposalsService.transition_status`, nhánh "sent").  #Huynh
+ */
+export function costItemsIssue(
+  items: CostItem[] | undefined | null,
+  agreed: number
+): { total: number; message: string } | null {
+  const rows = items ?? [];
+  if (rows.length === 0 || agreed <= 0) return null;
+
+  const total = rows.reduce((sum, item) => sum + (item.amount || 0), 0);
+  if (total === agreed) return null;
+
+  const gap = Math.abs(total - agreed);
+  const fmt = (n: number) => n.toLocaleString("vi-VN");
+  return {
+    total,
+    message:
+      total > agreed
+        ? `Tổng hạng mục đang là ${fmt(total)} đ — dư ${fmt(gap)} đ so với giá chào. Phải khớp mới gửi được.`
+        : `Tổng hạng mục đang là ${fmt(total)} đ — thiếu ${fmt(gap)} đ so với giá chào. Phải khớp mới gửi được.`,
+  };
+}
+
 export type BackendProposalContent = {
   project_overview: string;
   scope_of_work: string[];

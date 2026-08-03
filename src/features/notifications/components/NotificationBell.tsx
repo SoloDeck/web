@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Bell, CheckCheck, FileWarning, Loader2, Sparkles, UserPlus } from "lucide-react";
+import {
+  Bell,
+  BellRing,
+  CheckCheck,
+  FilePen,
+  FileWarning,
+  Loader2,
+  MailCheck,
+  MailX,
+  Sparkles,
+  UserPlus,
+} from "lucide-react";
 import type { AppNotification, NotificationType } from "@/services/notificationsService";
 import {
   useMarkAllRead,
@@ -9,11 +20,26 @@ import {
   useUnreadCount,
 } from "@/features/notifications/hooks/useNotifications";
 
-/** Mỗi loại thông báo một biểu tượng + màu, để liếc là biết chuyện gì. */
+/** Mỗi loại thông báo một biểu tượng + màu, để liếc là biết chuyện gì.
+ *
+ * `Record` (không phải `Partial<Record>`) là CỐ Ý: thêm loại vào `NotificationType` mà quên
+ * khai ở đây thì `tsc` báo lỗi ngay. Trước đây bảng này chỉ có 3 loại trong khi backend bắn
+ * 7, bốn loại `reminder_*` lặng lẽ rơi vào chuông xám suốt mà không ai biết.  #Huynh
+ */
 const TYPE_UI: Record<NotificationType, { icon: typeof Bell; className: string }> = {
   intake_submitted: { icon: UserPlus, className: "bg-blue-500/10 text-blue-600" },
   deal_qualified: { icon: Sparkles, className: "bg-violet-500/10 text-violet-600" },
   invoice_overdue: { icon: FileWarning, className: "bg-amber-500/10 text-amber-600" },
+  // Đến giờ nhắc — việc phải làm, chưa phải chuyện xấu.
+  reminder_due: { icon: BellRing, className: "bg-sky-500/10 text-sky-600" },
+  // Biên nhận: hệ thống đã thay mặt freelancer gửi cho khách. Xanh lá = xong xuôi.
+  reminder_sent: { icon: MailCheck, className: "bg-emerald-500/10 text-emerald-600" },
+  // Khách KHÔNG nhận được. Đây là loại cần nổi nhất trong danh sách — dùng đúng màu
+  // destructive của hệ màu, không phải cam như "quá hạn" (quá hạn là biết trước, còn cái
+  // này là hỏng ngoài dự tính).
+  reminder_failed: { icon: MailX, className: "bg-destructive/10 text-destructive" },
+  // Máy soạn sẵn, đang chờ freelancer duyệt.
+  reminder_drafted: { icon: FilePen, className: "bg-violet-500/10 text-violet-600" },
 };
 
 /** "5 phút trước", "2 giờ trước"... — mốc thời gian tuyệt đối ở đây là vô dụng. */

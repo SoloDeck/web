@@ -1,8 +1,20 @@
-import { Bot, Check, CreditCard, Loader2, Mail, Shield, Sparkles, X, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bot, Check, CreditCard, Loader2, Shield, Sparkles, X, Zap } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { usePlans, useMySubscription } from "@/features/subscriptions/hooks/useSubscriptions";
+import { getApiErrorMessage } from "@/lib/api-error";
+import {
+  useCreateCheckout,
+  useMySubscription,
+  usePaymentIntent,
+  usePlans,
+} from "@/features/subscriptions/hooks/useSubscriptions";
 import { useAiUsage } from "@/features/revenue/hooks/useAnalytics";
-import type { PlanResponse } from "@/services/subscriptionsService";
+import {
+  planPrice,
+  SETTLED_PAYMENT_STATUSES,
+  type PlanResponse,
+} from "@/services/subscriptionsService";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,14 +87,20 @@ function featureRows(plan: PlanResponse) {
 function PlanCard({
   plan,
   isCurrent,
+  onBuy,
+  buying,
 }: {
   plan: PlanResponse;
   isCurrent: boolean;
+  onBuy: (plan: PlanResponse) => void;
+  buying: boolean;
 }) {
   const meta = PLAN_META[plan.slug] ?? PLAN_META.free;
   const Icon = meta.icon;
   const rows = featureRows(plan);
-  const isFree = plan.price_monthly === 0;
+  // `planPrice` chứ không so thẳng: backend trả Decimal dạng CHUỖI ("0.00"), nên
+  // `price_monthly === 0` luôn sai và gói Free hiện nút mua.  #Huynh
+  const isFree = planPrice(plan) === 0;
 
   return (
     <div
@@ -117,7 +135,7 @@ function PlanCard({
         <h3 className="text-base font-bold">{plan.name}</h3>
         <div className="mt-1.5 flex items-baseline gap-1.5">
           <span className="text-3xl font-black tracking-tight">
-            {isFree ? "0 ₫" : formatPrice(plan.price_monthly, plan.currency)}
+            {isFree ? "Miễn phí" : formatPrice(planPrice(plan), plan.currency)}
           </span>
           <span className="text-sm text-muted-foreground">{isFree ? "mãi mãi" : "/ tháng"}</span>
         </div>
@@ -152,28 +170,37 @@ function PlanCard({
           Đang sử dụng
         </div>
       ) : (
-        // Backend CHƯA có endpoint nâng cấp: openapi.yaml khai /subscriptions/me/upgrade
-        // nhưng router chỉ có 2 endpoint đọc (GET /plans, GET /me). Nên nút này mở email
-        // liên hệ — và nói rõ như vậy, thay vì để người dùng bấm rồi ngỡ ngàng thấy hộp
-        // thư bật lên.  #Huynh
-        <a
-          href={`mailto:solodeskai@gmail.com?subject=${encodeURIComponent(`Đăng ký gói ${plan.name}`)}&body=${encodeURIComponent(`Tôi muốn nâng cấp lên gói ${plan.name}.`)}`}
+        // Gói free không có gì để trả tiền, nên không dựng phiên thanh toán.
+        //
+        // Nút này trước đây là một link `mailto:` kèm ghi chú "backend CHƯA có endpoint
+        // nâng cấp". Ghi chú đó đã lỗi thời từ lúc PR #77 thêm POST /subscriptions/checkout
+        // — router hiện có 4 endpoint, không phải 2. Người dùng bấm "nâng cấp" xong thấy
+        // hộp thư bật lên, trong khi hệ thống thừa sức tự bán.  #Huynh
+        <button
+          type="button"
+          disabled={isFree || buying}
+          onClick={() => onBuy(plan)}
           className={cn(
             "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
             isFree
-              ? "border border-border hover:bg-secondary"
-              : "bg-primary text-primary-foreground hover:opacity-90"
+              ? "border border-border text-muted-foreground"
+              : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
           )}
         >
           {isFree ? (
-            "Dùng miễn phí"
+            "Miễn phí"
+          ) : buying ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Đang mở trang thanh toán…
+            </>
           ) : (
             <>
-              <Mail className="h-4 w-4" />
-              Liên hệ nâng cấp
+              <CreditCard className="h-4 w-4" />
+              Nâng cấp qua MoMo
             </>
           )}
-        </a>
+        </button>
       )}
     </div>
   );
@@ -183,9 +210,57 @@ function PlanCard({
 // Main page
 // ---------------------------------------------------------------------------
 
+/** Query param MoMo đá về kèm — dùng để biết CẦN HỎI intent nào, không phải để tin kết quả. */
+const INTENT_PARAM = "intent";
+
 export function SubscriptionPage() {
   const { data: plans, isLoading: plansLoading } = usePlans();
   const { data: subscription, isLoading: subLoading } = useMySubscription();
+
+  // Đọc MỘT LẦN lúc mount, từ hai nguồn theo thứ tự ưu tiên:
+  //   1. `?intent=` trên URL — cho phép mở thẳng bằng link (tiện lúc test).
+  //   2. sessionStorage — đường thường: id được nhớ ngay trước khi rời trang sang MoMo,
+  //      vì `return_url` không mang được id (xem `handleBuy`).
+  const [intentId] = useState<string | null>(
+    () =>
+      new URLSearchParams(window.location.search).get(INTENT_PARAM) ??
+      sessionStorage.getItem(INTENT_PARAM)
+  );
+  const { data: intent } = usePaymentIntent(intentId);
+  const checkout = useCreateCheckout();
+
+  async function handleBuy(plan: PlanResponse) {
+    try {
+      const created = await checkout.mutateAsync({
+        planId: plan.id,
+        // Không nhét id vào đây được: id do chính lời gọi này sinh ra, nên lúc gửi
+        // `return_url` thì chưa có. Vì vậy URL quay về chỉ trỏ đúng tab, còn id thì nhớ
+        // bằng sessionStorage ngay bên dưới.  #Huynh
+        returnUrl: `${window.location.origin}/?tab=subscription`,
+      });
+
+      const link = created.payment_link?.url;
+      if (!link) {
+        toast.error("MoMo không trả về link thanh toán. Thử lại giúp mình nhé.");
+        return;
+      }
+
+      // Nhớ TRƯỚC khi rời trang. sessionStorage (không phải localStorage) vì đây là một
+      // hành trình trong CÙNG một tab: người dùng sang MoMo rồi quay lại. Dùng
+      // localStorage thì một tab khác mở sau đó cũng tưởng mình đang chờ thanh toán.
+      sessionStorage.setItem(INTENT_PARAM, created.id);
+      window.location.href = link;
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Không mở được trang thanh toán. Thử lại giúp mình nhé."));
+    }
+  }
+
+  // Chốt xong thì dọn, để lần vào sau không hỏi lại một giao dịch cũ.
+  useEffect(() => {
+    if (intent && SETTLED_PAYMENT_STATUSES.includes(intent.status)) {
+      sessionStorage.removeItem(INTENT_PARAM);
+    }
+  }, [intent]);
 
   const isLoading = plansLoading || subLoading;
 
@@ -208,6 +283,46 @@ export function SubscriptionPage() {
           Chọn gói phù hợp với quy mô công việc freelance của bạn.
         </p>
       </div>
+
+      {/* Kết quả lần thanh toán vừa rồi.
+          Hiện cả trạng thái "đang chờ": tiền vào qua IPN — một đường server-to-server chạy
+          song song với việc trình duyệt quay về — nên lúc trang mở lại backend có thể chưa
+          kịp nhận. Không nói gì thì người dùng tưởng trả tiền hụt và bấm mua lần nữa. */}
+      {intent && (
+        <div
+          role="status"
+          className={cn(
+            "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
+            intent.status === "succeeded"
+              ? "border-success/30 bg-success/10 text-success"
+              : intent.status === "pending" || intent.status === "processing"
+                ? "border-border bg-muted/40 text-muted-foreground"
+                : "border-destructive/30 bg-destructive/10 text-destructive"
+          )}
+        >
+          {intent.status === "pending" || intent.status === "processing" ? (
+            <>
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+              <span>Đang xác nhận thanh toán với MoMo… Bạn cứ ở lại trang này một lát nhé.</span>
+            </>
+          ) : intent.status === "succeeded" ? (
+            <>
+              <Check className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Thanh toán thành công. Gói của bạn đã được kích hoạt.</span>
+            </>
+          ) : (
+            <>
+              <X className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {intent.failure_reason?.trim() ||
+                  (intent.status === "expired"
+                    ? "Phiên thanh toán đã hết hạn. Bạn có thể bấm nâng cấp lại."
+                    : "Giao dịch chưa hoàn tất. Bạn có thể bấm nâng cấp lại.")}
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* MỘT thẻ tổng quan, không phải hai thẻ xếp chồng.
           Trước đây "gói đang dùng" và "hạn mức AI" là hai khối full-width nằm chồng lên
@@ -291,6 +406,8 @@ export function SubscriptionPage() {
               key={plan.id}
               plan={plan}
               isCurrent={subscription?.plan_slug === plan.slug}
+              onBuy={handleBuy}
+              buying={checkout.isPending}
             />
           ))}
         </div>
