@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from "react";
-import { toast } from "sonner";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -8,14 +7,9 @@ import {
   Briefcase,
   CheckCircle2,
   ChevronRight,
-  Code2,
-  Megaphone,
-  Palette,
-  PenLine,
   Search,
   Sparkles,
   Star,
-  TrendingUp,
   Users,
   X,
 } from "lucide-react";
@@ -23,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { RevealOnScroll } from "@/components/solodesk/RevealOnScroll";
 import { useFreelancers } from "@/features/freelancers/hooks/useFreelancers";
 import type { Freelancer } from "@/features/freelancers/types";
+import { CATEGORIES, CATEGORY_LABEL } from "@/features/freelancers/data/categories";
 
 export const Route = createFileRoute("/find-freelancer")({
   component: FindFreelancerPage,
@@ -31,65 +26,6 @@ export const Route = createFileRoute("/find-freelancer")({
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 type Step = "skills" | "list";
-
-// ─── Data: Categories (top-level only) ────────────────────────────────────────
-
-const CATEGORIES = [
-  {
-    id: "design",
-    label: "Thiết kế",
-    desc: "UI/UX, Logo, Đồ họa, Video",
-    Icon: Palette,
-    iconColor: "text-violet-500",
-    iconBg: "bg-violet-500/10",
-    selectedBg: "bg-violet-500/10",
-    selectedBorder: "border-violet-500",
-  },
-  {
-    id: "dev",
-    label: "Lập trình",
-    desc: "Web, Mobile, Backend, AI",
-    Icon: Code2,
-    iconColor: "text-blue-500",
-    iconBg: "bg-blue-500/10",
-    selectedBg: "bg-blue-500/10",
-    selectedBorder: "border-blue-500",
-  },
-  {
-    id: "marketing",
-    label: "Marketing",
-    desc: "SEO, Ads, Social Media",
-    Icon: Megaphone,
-    iconColor: "text-orange-500",
-    iconBg: "bg-orange-500/10",
-    selectedBg: "bg-orange-500/10",
-    selectedBorder: "border-orange-500",
-  },
-  {
-    id: "content",
-    label: "Nội dung",
-    desc: "Copywriting, Blog, Kịch bản",
-    Icon: PenLine,
-    iconColor: "text-green-500",
-    iconBg: "bg-green-500/10",
-    selectedBg: "bg-green-500/10",
-    selectedBorder: "border-green-500",
-  },
-  {
-    id: "consulting",
-    label: "Tư vấn",
-    desc: "Kinh doanh, Tài chính, Pháp lý",
-    Icon: TrendingUp,
-    iconColor: "text-teal-500",
-    iconBg: "bg-teal-500/10",
-    selectedBg: "bg-teal-500/10",
-    selectedBorder: "border-teal-500",
-  },
-];
-
-const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.id, c.label]),
-);
 
 // ─── Data: Mock Freelancers ────────────────────────────────────────────────────
 
@@ -474,13 +410,16 @@ function FreelancerCard({
             {f.projects}
           </span>
         </div>
-        <button
-          onClick={() => toast.info("Tính năng xem hồ sơ đang được phát triển.")}
+        {/* Trước đây nút này chỉ bắn toast "đang được phát triển" — tìm ra freelancer rồi
+            là hết đường đi. Giờ dẫn sang hồ sơ, nơi có nút gửi yêu cầu.  #Huynh */}
+        <Link
+          to="/freelancer/$id"
+          params={{ id: f.id }}
           className="inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline transition-colors"
         >
           Xem hồ sơ
           <ChevronRight className="h-3.5 w-3.5" />
-        </button>
+        </Link>
       </div>
     </article>
   );

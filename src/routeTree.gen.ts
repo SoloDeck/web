@@ -23,6 +23,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
+import { Route as FreelancerIdRouteImport } from './routes/freelancer.$id'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
@@ -97,6 +98,11 @@ const BieuMauTokenRoute = BieuMauTokenRouteImport.update({
   path: '/bieu-mau/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FreelancerIdRoute = FreelancerIdRouteImport.update({
+  id: '/freelancer/$id',
+  path: '/freelancer/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   id: '/clients/$clientId',
   path: '/clients/$clientId',
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/freelancer/$id': typeof FreelancerIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/freelancer/$id': typeof FreelancerIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/freelancer/$id': typeof FreelancerIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
+    | '/freelancer/$id'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
+    | '/freelancer/$id'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -226,6 +237,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
+    | '/freelancer/$id'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -246,6 +258,7 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   OnboardingRoute: typeof OnboardingRoute
   BieuMauTokenRoute: typeof BieuMauTokenRoute
+  FreelancerIdRoute: typeof FreelancerIdRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
@@ -351,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BieuMauTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/freelancer/$id': {
+      id: '/freelancer/$id'
+      path: '/freelancer/$id'
+      fullPath: '/freelancer/$id'
+      preLoaderRoute: typeof FreelancerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/clients/$clientId': {
       id: '/clients/$clientId'
       path: '/clients/$clientId'
@@ -390,6 +410,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   OnboardingRoute: OnboardingRoute,
   BieuMauTokenRoute: BieuMauTokenRoute,
+  FreelancerIdRoute: FreelancerIdRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,
   IntakeTokenRoute: IntakeTokenRoute,

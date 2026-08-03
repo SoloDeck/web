@@ -143,10 +143,12 @@ function HeroSection() {
         </h1>
 
         {/* Subtitle */}
+        {/* Trước đây đoạn này chỉ nói với freelancer, trong khi ngay dưới có nút "Tìm
+            Freelancer" dành cho khách — người đọc không biết nút đó dành cho mình.  #Huynh */}
         <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-          SoloDesk giúp freelancer quản lý khách hàng, theo dõi dự án, tạo biểu
-          mẫu yêu cầu và đánh giá tiềm năng bằng AI — tất cả trong một nơi duy
-          nhất.
+          Freelancer quản lý khách hàng, dự án và biểu mẫu yêu cầu, có AI chấm
+          điểm khách tiềm năng. Khách hàng tìm đúng người và gửi yêu cầu thẳng
+          cho họ — không cần tạo tài khoản.
         </p>
 
         {/* CTA buttons */}
@@ -155,14 +157,15 @@ function HeroSection() {
             to="/login"
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 transition-all duration-200 w-full sm:w-auto justify-center"
           >
-            Bắt đầu miễn phí <ArrowRight className="h-4 w-4" />
+            Tôi là freelancer — Bắt đầu miễn phí{" "}
+            <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
             to="/find-freelancer"
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold hover:bg-secondary hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0 transition-all duration-200 w-full sm:w-auto justify-center"
           >
             <Search className="h-4 w-4" />
-            Tìm Freelancer
+            Tôi cần thuê — Tìm freelancer
           </Link>
         </div>
 
@@ -437,8 +440,8 @@ function UserGroupsSection() {
                 </div>
                 <h3 className="text-xl font-bold mb-2">Khách hàng (Client)</h3>
                 <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
-                  Gửi yêu cầu và theo dõi tiến độ dự án một cách dễ dàng, không
-                  cần tạo tài khoản.
+                  Tìm đúng người cho công việc của bạn và gửi yêu cầu thẳng cho
+                  họ, không cần tạo tài khoản.
                 </p>
                 <ul className="space-y-2.5 mb-8">
                   {CLIENT_FEATURES.map((f) => (
@@ -485,9 +488,8 @@ function CTASection() {
                 Sẵn sàng nâng cấp công việc tự do?
               </h2>
               <p className="text-muted-foreground mb-8 text-sm sm:text-base leading-relaxed">
-                Tham gia cùng hàng nghìn freelancer đang dùng SoloDesk để quản
-                lý khách hàng và dự án hiệu quả hơn. Hoàn toàn miễn phí để bắt
-                đầu.
+                Tạo tài khoản freelancer để quản lý khách hàng, dự án và báo giá
+                trong cùng một nơi. Hoàn toàn miễn phí để bắt đầu.
               </p>
               <Link
                 to="/login"
@@ -495,6 +497,17 @@ function CTASection() {
               >
                 Đăng nhập để bắt đầu <ArrowRight className="h-4 w-4" />
               </Link>
+              {/* Section cuối trước footer mà chỉ nói với freelancer thì khách đọc hết trang
+                  vẫn không có đường đi tiếp.  #Huynh */}
+              <p className="mt-6 text-sm text-muted-foreground">
+                Đang cần thuê freelancer?{" "}
+                <Link
+                  to="/find-freelancer"
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Xem danh bạ
+                </Link>
+              </p>
             </div>
           </div>
         </div>
@@ -604,6 +617,10 @@ const FREELANCER_FEATURES = [
   "Trợ lý AI phân tích khách hàng tiềm năng",
 ];
 
+// Chỉ liệt kê thứ khách bấm vào là tới được: danh bạ, hồ sơ công khai, biểu mẫu tiếp nhận.
+// Bản cũ hứa "theo dõi tiến độ dự án" nhưng không có trang nào cho khách làm việc đó.  #Huynh
 const CLIENT_FEATURES = [
-  "Gửi yêu cầu qua form — không cần đăng nhập",
+  "Tìm freelancer theo nhóm dịch vụ và kỹ năng",
+  "Xem hồ sơ công khai: giới thiệu, portfolio, đánh giá",
+  "Gửi yêu cầu qua biểu mẫu — không cần đăng nhập",
 ];

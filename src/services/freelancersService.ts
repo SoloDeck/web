@@ -20,6 +20,8 @@ type FreelancerApiResponse = {
   completed_project_count: number;
   is_new: boolean;
   created_at: string;
+  /** Chỉ có ở `GET /public/freelancers/{id}`; danh sách tìm kiếm trả `null`. */
+  intake_share_token?: string | null;
 };
 
 // PaginatedResponse shape (different from ApiResponse<T>)
@@ -85,6 +87,8 @@ function mapFreelancer(r: FreelancerApiResponse): Freelancer {
     verified: false,
     badge: r.is_new ? "Mới" : null,
     portfolioUrl: r.portfolio_url ?? undefined,
+    skills: r.skills ?? [],
+    intakeShareToken: r.intake_share_token ?? undefined,
   };
 }
 
