@@ -6,7 +6,11 @@ import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import type { Deal, LeadScore } from "@/features/deals/types";
 import { useTransitionDealStage } from "@/features/deals/hooks/useDeals";
 import { useQueryClient } from "@tanstack/react-query";
-import { dealQualificationKeys } from "@/features/deals/hooks/useDealQualifications";
+import {
+  dealQualificationKeys,
+  useSaveDealQualification,
+} from "@/features/deals/hooks/useDealQualifications";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
@@ -213,6 +217,7 @@ export function AIPanel({
   const { data: job } = useAiJob(jobId ?? undefined);
 
   const transitionStage = useTransitionDealStage();
+  const saveQualification = useSaveDealQualification();
   const qc = useQueryClient();
   const upsertJob = useAIActivityStore((state) => state.upsertJob);
   const updateJob = useAIActivityStore((state) => state.updateJob);
@@ -327,33 +332,41 @@ export function AIPanel({
       toast.error("Chưa có kết quả đánh giá để lưu.");
       return;
     }
-    // KHÔNG còn ghi localStorage ở đây. Backend đã lưu bản chấm vào lịch sử NGAY LÚC chấm
-    // (`/deals/{id}/qualify` ghi một dòng `lead_scores` kèm bảng căn cứ). Chỉ cần làm mới
-    // cache để tab Tài liệu đọc lại từ server.
+    // Backend đã ghi bản chấm vào lịch sử NGAY LÚC chấm (`/deals/{id}/qualify` đẻ một dòng
+    // `lead_scores` kèm bảng căn cứ), nên đóng panel giữa chừng không mất kết quả.
     //
-    // Lợi thêm: đóng panel giữa chừng cũng không mất kết quả nữa — trước đây chưa bấm nút
-    // này là kết quả bay sạch, dù đã tốn một lượt AI.  #Huynh
+    // Nhưng "đã chấm" KHÁC "đã chốt". Mọi lần chấm — kể cả chấm thử rồi bỏ — đều nằm ở tab
+    // Lịch sử. Chỉ bản bấm nút này mới được đóng dấu `saved_at` và hiện ở tab Tài liệu.
+    // Trước đây không có bước đóng dấu, nên câu thông báo hứa "đã lưu vào tab Tài liệu" mà
+    // sang đó chẳng thấy gì — người dùng tưởng mất kết quả.  #Huynh
     const refreshHistory = () =>
       qc.invalidateQueries({ queryKey: dealQualificationKeys.forDeal(deal.id) });
 
-    if (deal.stage !== "new_lead") {
+    const done = () => {
       refreshHistory();
-      toast.success("Đánh giá đã được lưu vào tab Tài liệu.");
+      toast.success("Đã lưu vào tab Tài liệu.");
       if (jobId) removeJob(jobId);
       onClose();
+    };
+
+    const stamp = () =>
+      saveQualification.mutate(deal.id, {
+        onSuccess: done,
+        onError: (err) => {
+          // Nói ra vì sao, đừng nuốt: không đóng dấu được thì tab Tài liệu sẽ trống, mà
+          // người dùng lại vừa đọc thông báo "đã lưu".
+          console.error("[qualification] không đóng dấu được bản đánh giá", err);
+          toast.error(
+            getApiErrorMessage(err, "Không lưu được bản đánh giá. Vui lòng thử lại.")
+          );
+        },
+      });
+
+    if (deal.stage !== "new_lead") {
+      stamp();
       return;
     }
-    transitionStage.mutate(
-      { id: deal.id, stage: "qualified" },
-      {
-        onSuccess: () => {
-          refreshHistory();
-          toast.success("Đã lưu đánh giá AI vào tab Tài liệu.");
-          if (jobId) removeJob(jobId);
-          onClose();
-        },
-      }
-    );
+    transitionStage.mutate({ id: deal.id, stage: "qualified" }, { onSuccess: stamp });
   }
 
   function handleClose() {

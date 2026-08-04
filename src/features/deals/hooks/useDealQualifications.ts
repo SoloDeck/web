@@ -1,5 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
-import { getDealQualifications, type DealQualification } from "@/services/dealsService";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  getDealQualifications,
+  saveDealQualification,
+  type DealQualification,
+} from "@/services/dealsService";
 import type { QualificationView } from "@/features/ai/components/QualificationResult";
 import { LEVEL_UI } from "@/features/ai/qualificationUi";
 import type { LeadScore } from "@/features/deals/types";
@@ -22,6 +26,29 @@ export function useDealQualifications(dealId?: string) {
     enabled: Boolean(dealId),
     staleTime: 30_000,
   });
+}
+
+/**
+ * Chốt bản chấm mới nhất — đóng dấu `saved_at` để nó hiện ở tab Tài liệu.
+ *
+ * "Đã chấm" KHÁC "đã chốt": mọi lần chấm đều vào tab Lịch sử, chỉ bản bấm "Lưu & chuyển sang
+ * Đã đánh giá" mới thành tài liệu. Không có bước này thì tab Tài liệu trống, dù giao diện đã
+ * báo "đã lưu".  #Huynh
+ */
+export function useSaveDealQualification() {
+  return useMutation({ mutationFn: (dealId: string) => saveDealQualification(dealId) });
+}
+
+/**
+ * Những bản ĐÃ CHỐT, mới chốt trước — nguồn của tab Tài liệu.
+ *
+ * Lọc theo `saved_at` chứ đừng lấy "bản mới nhất": chấm thử rồi bỏ cũng là một dòng mới
+ * nhất, và nó không phải tài liệu.  #Huynh
+ */
+export function savedQualifications(rows: DealQualification[] | undefined): DealQualification[] {
+  return (rows ?? [])
+    .filter((row) => Boolean(row.saved_at))
+    .sort((a, b) => (b.saved_at ?? "").localeCompare(a.saved_at ?? ""));
 }
 
 /**
