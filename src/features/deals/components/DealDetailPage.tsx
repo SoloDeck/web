@@ -102,7 +102,11 @@ import {
   MAX_FILE_SIZE_MB,
   type DealAttachment,
 } from "@/services/dealAttachmentsService";
-import { toQualificationView } from "@/features/deals/hooks/useDealQualifications";
+import {
+  savedQualifications,
+  toQualificationView,
+  useDealQualifications,
+} from "@/features/deals/hooks/useDealQualifications";
 import type { DealQualification } from "@/services/dealsService";
 
 type DetailTab = "overview" | "tasks" | "documents" | "reminders" | "history";
@@ -265,6 +269,10 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [paymentTaskPrompt, setPaymentTaskPrompt] = useState<ProjectTask | null>(null);
 
   const proposalItems = proposals.data?.data ?? [];
+  // Tài liệu chỉ kể bản đánh giá ĐÃ CHỐT; tab Lịch sử vẫn kể hết mọi lần chấm. Dùng chung
+  // một query nên bấm "Lưu" xong là cả hai tab cùng cập nhật.  #Huynh
+  const qualifications = useDealQualifications(deal?.id);
+  const savedQualificationDocs = savedQualifications(qualifications.data);
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
   // Bản nháp báo giá KHÔNG còn được chọn hộ ở đây nữa: `ProposalModal` tự liệt kê các bản
   // nháp trong màn chọn để freelancer quyết mở lại bản nào (hoặc tạo bản mới).  #Huynh
@@ -1131,7 +1139,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     Công việc {projectStageUnlocked ? `(${taskQuery.data?.total ?? 0})` : "(chưa mở)"}
                   </TabsTrigger>
                   <TabsTrigger value="documents">
-                    Tài liệu ({proposalItems.length + contractItems.length + dealAttachments.length + (invoices.data?.length ?? 0)})
+                    Tài liệu ({proposalItems.length + contractItems.length + dealAttachments.length + (invoices.data?.length ?? 0) + savedQualificationDocs.length})
                   </TabsTrigger>
                   <TabsTrigger value="reminders">Nhắc nhở ({reminders.data?.length ?? 0})</TabsTrigger>
                   <TabsTrigger value="history">Lịch sử</TabsTrigger>
@@ -1207,6 +1215,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     onSendContract={handleSendContract}
                     onSignContract={handleSignContract}
                     onViewContract={(id) => setViewContractId(id)}
+                    savedQualifications={savedQualificationDocs}
+                    onViewQualification={setViewQualificationDoc}
                     contractActionLoading={sendContract.isPending}
                     invoiceActionLoading={
                       createInvoice.isPending ||
@@ -2595,7 +2605,11 @@ function DocumentsTab({
   onViewContract,
   contractActionLoading,
   invoiceActionLoading,
+  savedQualifications: savedQualificationItems,
+  onViewQualification,
 }: {
+  savedQualifications: DealQualification[];
+  onViewQualification: (row: DealQualification) => void;
   attachments: DealAttachment[];
   proposals: Array<{ id: string; status: string; version_number: number; created_at: string; content?: ProposalContentDTO }>;
   contracts: Array<{
@@ -2984,7 +2998,52 @@ function DocumentsTab({
         </div>
       ))}
 
-      {attachments.length + proposals.length + contracts.length + invoices.length === 0 && (
+      {/* Bản đánh giá ĐÃ CHỐT — chỉ những bản freelancer bấm "Lưu & chuyển sang Đã đánh
+          giá", lọc bằng `saved_at`. Mọi lần chấm (kể cả chấm thử rồi bỏ) vẫn nằm nguyên ở
+          tab Lịch sử; nếu kể hết ở đây thì chấm nghịch mấy lần là đẻ ra mấy "tài liệu", và
+          tài liệu mất nghĩa.  #Huynh */}
+      {savedQualificationItems.map((item) => (
+        <div
+          key={`qualification-${item.id}`}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Kết quả đánh giá AI — {item.score}/100</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              Chốt ngày {formatDate(item.saved_at as string)} · chấm lúc{" "}
+              {formatDate(item.generated_at)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-xs font-semibold",
+                item.level === "hot"
+                  ? GOOD_BADGE
+                  : item.level === "cold"
+                    ? NEUTRAL_BADGE
+                    : WAITING_BADGE
+              )}
+            >
+              {item.level === "hot" ? "Tiềm năng cao" : item.level === "cold" ? "Cần hỏi thêm" : "Trung bình"}
+            </span>
+            <button
+              type="button"
+              onClick={() => onViewQualification(item)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+            >
+              <FileText className="h-3.5 w-3.5" /> Xem
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {attachments.length +
+        proposals.length +
+        contracts.length +
+        invoices.length +
+        savedQualificationItems.length ===
+        0 && (
         <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Chưa có tài liệu nào cho deal này.
         </div>

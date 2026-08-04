@@ -384,6 +384,14 @@ export type DealQualification = {
   next_step: string | null;
   detected_signals: { text: string; is_positive: boolean }[] | null;
   prompt_version: string | null;
+  /**
+   * Lúc freelancer bấm "Lưu & chuyển sang Đã đánh giá". `null` = mới chấm, chưa chốt.
+   *
+   * Đây là thứ phân biệt hai tab: **Lịch sử** kể HẾT mọi lần chấm, **Tài liệu** chỉ kể bản
+   * đã chốt. Lọc theo trường này chứ đừng đoán theo "bản mới nhất" — chấm thử rồi bỏ cũng
+   * là một dòng mới nhất.
+   */
+  saved_at: string | null;
 };
 
 /** GET /deals/{id}/qualifications — lịch sử chấm điểm, mới nhất trước. */
@@ -392,4 +400,17 @@ export async function getDealQualifications(dealId: string): Promise<DealQualifi
     `/deals/${dealId}/qualifications`
   );
   return data.data ?? [];
+}
+
+/**
+ * POST /deals/{id}/qualifications/save — chốt bản chấm mới nhất để nó vào tab Tài liệu.
+ *
+ * Không gửi id: bảng đánh giá luôn hiển thị lần chấm vừa xong, nên "chốt cái đang xem"
+ * chính là "chốt bản mới nhất". Chưa chấm lần nào thì BE trả 404.
+ */
+export async function saveDealQualification(dealId: string): Promise<DealQualification> {
+  const { data } = await axiosClient.post<ApiResponse<DealQualification>>(
+    `/deals/${dealId}/qualifications/save`
+  );
+  return data.data;
 }
