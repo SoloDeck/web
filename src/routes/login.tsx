@@ -134,7 +134,7 @@ function HeroPanel() {
         aria-hidden
       >
         <div
-          className="absolute rounded-full blur-[140px] opacity-[0.22] animate-[aurora-1_14s_ease-in-out_infinite]"
+          className="aurora-blob absolute rounded-full blur-[140px] opacity-[0.22] animate-[aurora-1_14s_ease-in-out_infinite]"
           style={{
             width: 600,
             height: 600,
@@ -144,7 +144,7 @@ function HeroPanel() {
           }}
         />
         <div
-          className="absolute rounded-full blur-[110px] opacity-[0.12] animate-[aurora-2_19s_ease-in-out_infinite]"
+          className="aurora-blob absolute rounded-full blur-[110px] opacity-[0.12] animate-[aurora-2_19s_ease-in-out_infinite]"
           style={{
             width: 480,
             height: 480,

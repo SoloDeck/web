@@ -1,6 +1,32 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach, beforeEach } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
+
+// jsdom has no IntersectionObserver, and `useScrollReveal` calls the constructor
+// directly — so every test rendering a `RevealOnScroll` subtree would throw
+// ReferenceError. Report the target as visible immediately so revealed content is
+// assertable; nothing in the app depends on the reveal being deferred.
+class NoopIntersectionObserver implements IntersectionObserver {
+  readonly root = null
+  readonly rootMargin = ''
+  readonly scrollMargin = ''
+  readonly thresholds: readonly number[] = []
+  // Explicit field, not a constructor parameter property — tsconfig sets
+  // `erasableSyntaxOnly`, which forbids the shorthand.
+  private readonly cb: IntersectionObserverCallback
+  constructor(cb: IntersectionObserverCallback) {
+    this.cb = cb
+  }
+  observe(target: Element): void {
+    this.cb([{ isIntersecting: true, target } as IntersectionObserverEntry], this)
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+}
+vi.stubGlobal('IntersectionObserver', NoopIntersectionObserver)
 
 // Node 26 ships a native (disabled) `localStorage` global that shadows jsdom's
 // Storage, leaving both `localStorage` and `window.localStorage` undefined. The

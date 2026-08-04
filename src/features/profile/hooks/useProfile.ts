@@ -20,10 +20,18 @@ export function useProfile() {
           ...prev,
           fullName: me.full_name,
           email: me.email,
-          phone: me.phone ?? prev.phone,
+          // Server chưa có số thì để TRỐNG, đừng giữ bản nháp cũ: số điện thoại là
+          // UNIQUE ở backend, gửi nhầm số của người khác lên là 409 và cả lượt lưu
+          // hỏng theo.  #Huynh
+          phone: me.phone ?? "",
           avatarUrl: me.avatar_url ?? prev.avatarUrl,
           bio: me.bio ?? prev.bio,
           profession: me.profession ?? prev.profession,
+          // CHỈ tin server cho trạng thái công khai: đây là thứ quyết định hồ sơ có
+          // lên danh bạ hay không, để bản nháp localStorage đè lên là hiển thị sai
+          // với chính chủ.  #Huynh
+          isListed: me.is_listed ?? false,
+          serviceCategories: me.service_categories ?? prev.serviceCategories,
           hourlyRate: Number.isFinite(rate) && rate > 0 ? rate : prev.hourlyRate,
           portfolioUrl: me.professional_profile?.portfolio_url ?? prev.portfolioUrl,
           skills: me.professional_profile?.skills?.length

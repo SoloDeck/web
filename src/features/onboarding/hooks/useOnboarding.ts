@@ -54,7 +54,9 @@ export function useCompleteOnboarding() {
           professional_title: spec.label,
           bio: bio.trim() || undefined,
           skills: spec.skills,
-          service_categories: [spec.id],
+          // Slug danh bạ, KHÔNG phải `spec.id`. Ghi `spec.id` ("Web Developer") thì
+          // /find-freelancer lọc mãi không ra, và giờ backend cũng trả 422.  #Huynh
+          service_categories: [spec.categorySlug],
           avatar_url: avatarUrl || undefined,
         }),
         updateProfessionalProfile({

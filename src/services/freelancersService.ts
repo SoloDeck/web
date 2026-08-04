@@ -20,6 +20,8 @@ type FreelancerApiResponse = {
   completed_project_count: number;
   is_new: boolean;
   created_at: string;
+  /** Chỉ có ở `GET /public/freelancers/{id}`; danh sách tìm kiếm trả `null`. */
+  intake_share_token?: string | null;
 };
 
 // PaginatedResponse shape (different from ApiResponse<T>)
@@ -30,20 +32,6 @@ type PaginatedApiResponse = {
   data: FreelancerApiResponse[];
   pagination: { total: number; page: number; page_size: number; total_pages: number };
 };
-
-// ---------------------------------------------------------------------------
-// Category slug mapping (frontend "dev" ↔ backend "programming")
-// ---------------------------------------------------------------------------
-
-const TO_BACKEND: Record<string, string> = { dev: "programming" };
-const FROM_BACKEND: Record<string, string> = { programming: "dev" };
-
-function toBackendSlug(slug: string): string {
-  return TO_BACKEND[slug] ?? slug;
-}
-function fromBackendSlug(slug: string): string {
-  return FROM_BACKEND[slug] ?? slug;
-}
 
 // ---------------------------------------------------------------------------
 // Mapping helpers
@@ -77,7 +65,7 @@ function mapFreelancer(r: FreelancerApiResponse): Freelancer {
     title: r.professional_title ?? "",
     initials: getInitials(r.full_name),
     avatarBg: getAvatarBg(r.full_name),
-    categoryIds: r.service_categories.map(fromBackendSlug),
+    categoryIds: r.service_categories,
     rating: r.rating_average ?? 0,
     reviews: r.rating_count,
     projects: r.completed_project_count,
@@ -85,6 +73,8 @@ function mapFreelancer(r: FreelancerApiResponse): Freelancer {
     verified: false,
     badge: r.is_new ? "Mới" : null,
     portfolioUrl: r.portfolio_url ?? undefined,
+    skills: r.skills ?? [],
+    intakeShareToken: r.intake_share_token ?? undefined,
   };
 }
 
@@ -100,7 +90,7 @@ export async function listFreelancers(params: {
   const { data } = await axiosClient.get<PaginatedApiResponse>("/public/freelancers", {
     params: {
       q: params.search || undefined,
-      categories: params.categoryIds?.map(toBackendSlug),
+      categories: params.categoryIds,
       page: params.page ?? 1,
       page_size: 20,
     },
