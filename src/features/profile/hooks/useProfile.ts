@@ -48,6 +48,9 @@ export function useProfile() {
           reminderSignature: me.reminder_defaults?.reminder_signature ?? "",
           reminderChannel: me.reminder_defaults?.reminder_default_channel ?? "email",
           reminderHour: me.reminder_defaults?.reminder_default_hour ?? null,
+          // `?? true` chứ không `?? false`: backend cũ chưa trả trường này thì coi như ĐÃ có
+          // mật khẩu, để form vẫn hỏi mật khẩu cũ. Đoán ngược lại là bỏ mất một lớp kiểm.
+          hasPassword: me.has_password ?? true,
         }));
       })
       .catch(() => {});

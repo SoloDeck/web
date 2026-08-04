@@ -25,6 +25,7 @@ import {
   PROFESSIONS,
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
+import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
@@ -46,6 +47,17 @@ export function ProfileSettings({ profile, onSave }: Props) {
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [pwLoading, setPwLoading] = useState(false);
+  // Vừa đặt mật khẩu xong thì `profile.hasPassword` vẫn còn là `false` cho tới lần tải lại
+  // trang (nó lấy từ `GET /users/me` lúc mount). Giữ cờ tại chỗ để form đổi NGAY sang dạng
+  // "Đổi mật khẩu" — không thì người dùng đặt lần hai sẽ bị 401 mà không hiểu vì sao.  #Huynh
+  const [pwJustSet, setPwJustSet] = useState(false);
+
+  /**
+   * Điều kiện của TÀI KHOẢN, không phải của phiên đăng nhập: người đã có mật khẩu rồi mới gắn
+   * thêm Google vẫn phải nhập mật khẩu cũ. Đổi thành "hôm nay vào bằng Google thì miễn" là biến
+   * đúng nhóm đó thành lỗ hổng — cướp được phiên là đổi được mật khẩu.
+   */
+  const hasPassword = profile.hasPassword || pwJustSet;
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
 
@@ -67,11 +79,29 @@ export function ProfileSettings({ profile, onSave }: Props) {
     }
     setPwLoading(true);
     try {
-      await changePassword({ current_password: pwForm.current, new_password: pwForm.next });
-      toast.success("Đổi mật khẩu thành công.");
+      // Tài khoản chưa có mật khẩu (đăng nhập bằng Google) thì KHÔNG gửi `current_password` —
+      // họ không có gì để nhập. Backend tự phân nhánh theo tài khoản, không tin cờ này.
+      await changePassword(
+        hasPassword
+          ? { current_password: pwForm.current, new_password: pwForm.next }
+          : { new_password: pwForm.next }
+      );
+      toast.success(hasPassword ? "Đổi mật khẩu thành công." : "Đã đặt mật khẩu thành công.");
       setPwForm({ current: "", next: "", confirm: "" });
-    } catch {
-      toast.error("Mật khẩu hiện tại không đúng hoặc có lỗi xảy ra.");
+      setPwJustSet(true);
+    } catch (err) {
+      // Bản cũ gộp MỌI nguyên nhân vào một câu "Mật khẩu hiện tại không đúng hoặc có lỗi xảy
+      // ra" — mất mạng, server 500 hay sai mật khẩu đều hiện y hệt, người dùng không biết
+      // đường sửa. Chỉ 401 mới thật sự là sai mật khẩu.  #Huynh
+      console.error("[change-password] đổi mật khẩu thất bại", err);
+      const status = getApiErrorStatus(err);
+      if (status === 401) {
+        toast.error("Mật khẩu hiện tại không đúng.");
+      } else if (status === undefined) {
+        toast.error("Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.");
+      } else {
+        toast.error(getApiErrorMessage(err, "Không đổi được mật khẩu. Vui lòng thử lại."));
+      }
     } finally {
       setPwLoading(false);
     }
@@ -233,30 +263,43 @@ export function ProfileSettings({ profile, onSave }: Props) {
             {tab === "security" && (
               <div className="space-y-6 max-w-md">
                 <div>
-                  <div className="text-sm font-semibold mb-1">Đổi mật khẩu</div>
+                  <div className="text-sm font-semibold mb-1">
+                    {hasPassword ? "Đổi mật khẩu" : "Thêm mật khẩu"}
+                  </div>
                   <div className="text-xs text-muted-foreground mb-4">
-                    Mật khẩu mới phải có ít nhất 8 ký tự.
+                    {hasPassword ? (
+                      "Mật khẩu mới phải có ít nhất 8 ký tự."
+                    ) : (
+                      <>
+                        Bạn đang đăng nhập bằng Google nên chưa có mật khẩu. Đặt thêm mật khẩu để
+                        đăng nhập được bằng cả hai cách. Mật khẩu phải có ít nhất 8 ký tự.
+                      </>
+                    )}
                   </div>
                   <div className="space-y-3">
-                    <Field label="Mật khẩu hiện tại">
-                      <div className="relative">
-                        <input
-                          type={showPw.current ? "text" : "password"}
-                          value={pwForm.current}
-                          onChange={(e) => setPwForm({ ...pwForm, current: e.target.value })}
-                          className={`${inputCls} pr-10`}
-                          placeholder="••••••••"
-                          autoComplete="current-password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPw((s) => ({ ...s, current: !s.current }))}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showPw.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </Field>
+                    {/* Chưa có mật khẩu thì KHÔNG hiện ô này: đòi một thứ không thể tồn tại, gõ
+                        gì vào cũng sai, và người dùng Google kẹt vĩnh viễn ở đây.  #Huynh */}
+                    {hasPassword && (
+                      <Field label="Mật khẩu hiện tại">
+                        <div className="relative">
+                          <input
+                            type={showPw.current ? "text" : "password"}
+                            value={pwForm.current}
+                            onChange={(e) => setPwForm({ ...pwForm, current: e.target.value })}
+                            className={`${inputCls} pr-10`}
+                            placeholder="••••••••"
+                            autoComplete="current-password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPw((s) => ({ ...s, current: !s.current }))}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showPw.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </Field>
+                    )}
                     <Field label="Mật khẩu mới">
                       <div className="relative">
                         <input
@@ -298,11 +341,18 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   </div>
                   <button
                     onClick={handleChangePassword}
-                    disabled={pwLoading || !pwForm.current || !pwForm.next || !pwForm.confirm}
+                    disabled={
+                      pwLoading ||
+                      // Ô "hiện tại" chỉ bắt buộc khi tài khoản THẬT SỰ có mật khẩu — nếu không
+                      // thì nút khoá vĩnh viễn với người dùng Google, đúng cái bế tắc đang sửa.
+                      (hasPassword && !pwForm.current) ||
+                      !pwForm.next ||
+                      !pwForm.confirm
+                    }
                     className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-95 disabled:opacity-40"
                   >
                     {pwLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                    Đổi mật khẩu
+                    {hasPassword ? "Đổi mật khẩu" : "Thêm mật khẩu"}
                   </button>
                 </div>
               </div>

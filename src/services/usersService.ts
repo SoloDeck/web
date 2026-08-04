@@ -35,6 +35,13 @@ export type UserResponse = {
   service_categories: string[];
   is_listed: boolean;
   intake_share_token: string | null;
+  /**
+   * Tài khoản này đã có mật khẩu chưa. Tài khoản tạo bằng đăng nhập Google thì CHƯA có.
+   *
+   * Là điều kiện của TÀI KHOẢN, không phải của phiên đăng nhập: người đã có mật khẩu rồi mới
+   * gắn thêm Google vẫn là `true`, và vẫn phải nhập mật khẩu cũ khi đổi.
+   */
+  has_password: boolean;
   professional_profile: ProfessionalProfile;
   preferences: Preferences;
   payment_info: PaymentInfo;
@@ -106,7 +113,11 @@ export type FreelancerProfilePayload = {
 };
 
 export type ChangePasswordPayload = {
-  current_password: string;
+  /**
+   * Bỏ trống khi tài khoản CHƯA có mật khẩu (đăng nhập bằng Google) — họ không có gì để nhập.
+   * Tài khoản đã có mật khẩu thì backend vẫn bắt buộc trường này, gửi thiếu là 401.
+   */
+  current_password?: string;
   new_password: string;
 };
 
