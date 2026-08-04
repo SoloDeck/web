@@ -15,6 +15,21 @@ export type Channel = "Zalo" | "Email" | "Facebook";
 export type TaskStatus = "todo" | "done";
 export type TaskPriority = "high" | "medium" | "low";
 
+/**
+ * Hóa đơn đã xuất cho một mốc "Thu tiền:". CHỈ có ở loại task đó.
+ *
+ * Hàng task hiện nhãn suy từ `status` của hóa đơn, KHÔNG thêm trạng thái mới cho task:
+ * `task_status` bên backend là enum 4 giá trị (todo/in_progress/review/done), mà "đã gửi
+ * hóa đơn" vốn là chuyện của hóa đơn chứ không phải của việc phải làm.  #Huynh
+ */
+export type TaskInvoice = {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  total: number;
+  amountPaid: number;
+};
+
 export type ProjectTask = {
   id: string;
   title: string;
@@ -26,6 +41,8 @@ export type ProjectTask = {
   completed: boolean;
   createdAt: string;
   completedAt: string | null;
+  /** `null`/vắng mặt = chưa xuất hóa đơn cho mốc này. */
+  invoice?: TaskInvoice | null;
 };
 
 export type DealHistoryItem = {

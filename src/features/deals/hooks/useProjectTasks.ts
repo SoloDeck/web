@@ -7,6 +7,13 @@ import {
   updateTask,
   deleteTask,
 } from "@/services/projectsService";
+import {
+  createInvoiceForTask,
+  recordInvoicePayment,
+  sendInvoice,
+  type PaymentPayload,
+} from "@/services/invoicesService";
+import { invoiceKeys } from "@/features/deals/hooks/useInvoices";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -77,6 +84,58 @@ export function useUpdateTask(dealId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Hóa đơn của mốc "Thu tiền:"
+// ---------------------------------------------------------------------------
+
+/**
+ * Sau mọi thao tác hóa đơn phải làm mới CẢ HAI danh sách.
+ *
+ * Cùng một hóa đơn hiện ở hai chỗ: hàng task trong tab Công việc, và dòng chứng từ trong tab
+ * Tài liệu. Chỉ nạp lại một bên thì người dùng bấm gửi ở tab này rồi mở tab kia thấy vẫn "Bản
+ * nháp" — tưởng bấm hụt nên bấm lại, mà bấm lại là gửi cho khách lá thư thứ hai.  #Huynh
+ */
+function useRefreshTaskAndInvoices(dealId: string) {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
+    qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+  };
+}
+
+/** Xuất hóa đơn cho một mốc thu tiền. Số tiền do server tính, FE không gửi đồng nào. */
+export function useCreateTaskInvoice(dealId: string) {
+  const refresh = useRefreshTaskAndInvoices(dealId);
+  return useMutation({
+    mutationFn: (taskId: string) => createInvoiceForTask(taskId),
+    onSuccess: refresh,
+  });
+}
+
+/** Gửi hóa đơn cho khách qua email (thư đi thật, kèm mã QR đã gắn sẵn số tiền). */
+export function useSendTaskInvoice(dealId: string) {
+  const refresh = useRefreshTaskAndInvoices(dealId);
+  return useMutation({
+    mutationFn: (invoiceId: string) => sendInvoice(invoiceId),
+    onSuccess: refresh,
+  });
+}
+
+/**
+ * Ghi nhận khách đã trả tiền cho hóa đơn của mốc này.
+ *
+ * Đây là mắt xích mà luồng cũ bỏ quên: tick task nghĩa là tiền đã về, nhưng nếu không ai cập
+ * nhật `amount_paid` thì hóa đơn nằm mãi ở "đã gửi" và bảng doanh thu không bao giờ đúng.
+ */
+export function useRecordTaskPayment(dealId: string) {
+  const refresh = useRefreshTaskAndInvoices(dealId);
+  return useMutation({
+    mutationFn: ({ invoiceId, payload }: { invoiceId: string; payload: PaymentPayload }) =>
+      recordInvoicePayment(invoiceId, payload),
+    onSuccess: refresh,
   });
 }
 

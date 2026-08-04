@@ -67,6 +67,15 @@ export type Profile = {
   reminderChannel: string;
   /** Giờ trong ngày (0–23) muốn gửi lời nhắc. */
   reminderHour: number | null;
+  /**
+   * Tài khoản đã có mật khẩu chưa — quyết định tab Bảo mật hiện "Đổi mật khẩu" (3 ô) hay
+   * "Thêm mật khẩu" (2 ô).
+   *
+   * `false` với tài khoản tạo bằng đăng nhập Google. Mặc định `true` để lỡ backend chưa trả
+   * trường này thì vẫn hiện form ĐẦY ĐỦ — thà bắt nhập thừa một ô còn hơn lỡ bỏ mất lớp kiểm
+   * mật khẩu cũ của người đã có mật khẩu.  #Huynh
+   */
+  hasPassword: boolean;
 };
 
 /**
@@ -91,6 +100,9 @@ export const DEFAULT_PROFILE: Profile = {
   portfolioUrl: "",
   isListed: false,
   hourlyRate: 0,
+  // Mặc định an toàn: coi như ĐÃ có mật khẩu, để form hiện đủ ô "Mật khẩu hiện tại" trong lúc
+  // chưa tải xong hồ sơ. Đoán ngược lại là mời người dùng đặt mật khẩu mà không cần mật khẩu cũ.
+  hasPassword: true,
   bankCode: "",
   bankAccountNumber: "",
   bankAccountHolder: "",

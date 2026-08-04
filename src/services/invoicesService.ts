@@ -85,9 +85,29 @@ export async function deleteInvoice(invoiceId: string): Promise<void> {
   await axiosClient.delete<ApiResponse<{ detail: string }>>(`/invoices/${invoiceId}`);
 }
 
-/** POST /invoices/{invoice_id}/send — chuyển hóa đơn nháp sang đã gửi để có thể ghi nhận thanh toán. */
+/**
+ * POST /invoices/{invoice_id}/send — GỬI EMAIL cho khách rồi đánh dấu đã gửi.
+ *
+ * Trước đây endpoint này chỉ đổi trạng thái chứ không gửi gì, nên nút "Gửi cho khách" là một
+ * lời nói dối. Nay thư đi thật, kèm chi tiết hóa đơn và mã QR VietQR đã gắn sẵn số tiền.
+ * Gửi hỏng thì hóa đơn ở nguyên `draft` và trả 502 kèm lý do — đừng bắt lỗi rồi coi như xong.
+ */
 export async function sendInvoice(invoiceId: string): Promise<InvoiceResponse> {
   const { data } = await axiosClient.post<ApiResponse<InvoiceResponse>>(`/invoices/${invoiceId}/send`);
+  return data.data;
+}
+
+/**
+ * POST /tasks/{task_id}/invoice — xuất hóa đơn cho một mốc "Thu tiền:".
+ *
+ * KHÔNG gửi số tiền lên: server tự tính từ mốc thanh toán của báo giá đã chốt, dùng chung bộ
+ * tính với bảng doanh thu. Hai chỗ cùng tính tiền là kiểu gì cũng có ngày lệch, mà lệch ở đây
+ * nghĩa là hóa đơn gửi khách khác số liệu nội bộ.
+ *
+ * Task đã có hóa đơn thì server trả về CHÍNH hóa đơn đó, không đẻ cái thứ hai.  #Huynh
+ */
+export async function createInvoiceForTask(taskId: string): Promise<InvoiceResponse> {
+  const { data } = await axiosClient.post<ApiResponse<InvoiceResponse>>(`/tasks/${taskId}/invoice`);
   return data.data;
 }
 

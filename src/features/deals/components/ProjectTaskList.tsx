@@ -13,6 +13,11 @@ import {
   X,
 } from "lucide-react";
 import {
+  PaymentTaskInvoice,
+  type PaymentInvoiceActions,
+} from "@/features/deals/components/PaymentTaskInvoice";
+import { isPaymentTask } from "@/features/deals/paymentTasks";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -92,6 +97,22 @@ type ProjectTaskPanelProps = {
   onDeleteTask: (taskId: string) => void;
   onToggleTask: (taskId: string, completed: boolean) => void;
   onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  /**
+   * Bỏ trống thì mốc "Thu tiền:" hiện y như task thường — dùng cho những chỗ chỉ liệt kê
+   * việc chứ không phải nơi làm chứng từ (ví dụ cửa sổ deal thu nhỏ).
+   */
+  invoiceActions?: PaymentInvoiceActions;
+  /**
+   * Panel tự chốt chiều cao (`"cap"`) hay lấp đầy khung chứa (`"fill"`).
+   *
+   * Mặc định `"cap"` = 560px, đúng như trước — cửa sổ deal thu nhỏ đang dựa vào mốc đó.
+   *
+   * Dùng `"fill"` khi panel nằm trong một khung ĐÃ TỰ CUỘN (như tab Công việc): panel chốt
+   * 560px trong một khung cuộn được sẽ đẻ ra HAI thanh cuộn lồng nhau, người dùng không biết
+   * kéo cái nào. Lấp đầy đúng khung thì khung ngoài không còn gì để cuộn, chỉ còn một thanh
+   * của danh sách bên trong — mà phần đầu panel vẫn dính tại chỗ.  #Huynh
+   */
+  height?: "cap" | "fill";
 };
 
 export function ProjectTaskPanel({
@@ -101,6 +122,8 @@ export function ProjectTaskPanel({
   onDeleteTask,
   onToggleTask,
   onClick,
+  invoiceActions,
+  height = "cap",
 }: ProjectTaskPanelProps) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -178,7 +201,10 @@ export function ProjectTaskPanel({
         role="region"
         aria-labelledby="project-task-panel-title"
         onClick={onClick}
-        className="flex max-h-[560px] min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+          height === "fill" ? "h-full" : "max-h-[560px]"
+        )}
       >
         <header className="border-b border-border p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -265,6 +291,7 @@ export function ProjectTaskPanel({
                       onSaveEdit={() => saveEditing(task.id)}
                       onToggle={(completed) => onToggleTask(task.id, completed)}
                       onDelete={() => confirmDelete(task)}
+                      invoiceActions={invoiceActions}
                     />
                   ))}
                 </div>
@@ -308,6 +335,7 @@ export function ProjectTaskPanel({
                               onSaveEdit={() => saveEditing(task.id)}
                               onToggle={(completed) => onToggleTask(task.id, completed)}
                               onDelete={() => confirmDelete(task)}
+                              invoiceActions={invoiceActions}
                             />
                           ))}
                         </div>
@@ -432,6 +460,7 @@ function TaskRow({
   onSaveEdit,
   onToggle,
   onDelete,
+  invoiceActions,
 }: {
   task: ProjectTask;
   editing: boolean;
@@ -444,6 +473,7 @@ function TaskRow({
   onSaveEdit: () => void;
   onToggle: (completed: boolean) => void;
   onDelete: () => void;
+  invoiceActions?: PaymentInvoiceActions;
 }) {
   return (
     <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
@@ -505,6 +535,12 @@ function TaskRow({
           <span>Tạo: {formatTaskDate(task.createdAt)}</span>
           {task.completed && <span>Hoàn thành: {formatTaskDate(task.completedAt)}</span>}
         </div>
+
+        {/* Chỉ mốc "Thu tiền:" mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
+            `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}
+        {invoiceActions && isPaymentTask(task) && !editing && (
+          <PaymentTaskInvoice task={task} actions={invoiceActions} />
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <button type="button" onClick={onStartEdit} aria-label={`Sửa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary">

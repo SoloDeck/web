@@ -34,6 +34,7 @@ function makeMe(overrides: Partial<UserResponse> = {}): UserResponse {
     service_categories: [],
     is_listed: false,
     profession: null,
+    has_password: true,
     intake_share_token: "tok-abc123",
     professional_profile: {
       skills: null,
