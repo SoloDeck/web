@@ -40,6 +40,7 @@ import { getProposalPreview } from "@/services/proposalsService";
 import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
+import { PAYMENT_TASK_PREFIX, isPaymentTask, paymentMilestoneLabel } from "@/features/deals/paymentTasks";
 import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { DealReminderPanel } from "@/features/reminders/components/DealReminderPanel";
@@ -50,6 +51,9 @@ import {
   useToggleTask,
   useUpdateTask,
   useDeleteTask,
+  useCreateTaskInvoice,
+  useSendTaskInvoice,
+  useRecordTaskPayment,
   projectTaskKeys,
 } from "@/features/deals/hooks/useProjectTasks";
 import { useClient, useUpdateClient } from "@/features/clients/hooks/useClients";
@@ -83,7 +87,7 @@ import { downloadProposalPdf } from "@/services/proposalsService";
 import { useContractInlineEditor } from "@/features/deals/hooks/useContractInlineEditor";
 import type { InvoicePayload, InvoiceResponse, InvoiceUpdatePayload } from "@/services/invoicesService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
-import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { getApiErrorCode, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { QualificationResultView } from "@/features/ai/components/QualificationResult";
 import {
@@ -106,11 +110,6 @@ type DealDetailDraft = {
   title: string;
   notes: string;
 };
-
-// Tiền tố các task "Thu tiền:" mà backend tự sinh từ mốc thanh toán của báo giá đã chốt
-// (Phase B — mục 8/9). Guard "hoàn thành dự án" dựa vào tiền tố này. Phải khớp
-// PAYMENT_TASK_PREFIX ở backend (src/modules/tasks/application/service.py).
-const PAYMENT_TASK_PREFIX = "Thu tiền:";
 
 function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -257,6 +256,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const toggleTaskMutation = useToggleTask(deal?.id ?? "");
   const updateTaskMutation = useUpdateTask(deal?.id ?? "");
   const deleteTaskMutation = useDeleteTask(deal?.id ?? "");
+  const createTaskInvoice = useCreateTaskInvoice(deal?.id ?? "");
+  const sendTaskInvoice = useSendTaskInvoice(deal?.id ?? "");
+  const recordTaskPayment = useRecordTaskPayment(deal?.id ?? "");
+  // Mốc đang chạy thao tác hóa đơn — khoá nút để bấm hai lần không đẻ hai chứng từ.
+  const [invoiceBusyTaskId, setInvoiceBusyTaskId] = useState<string | null>(null);
+  // Mốc vừa được tick, đang chờ trả lời "gửi hóa đơn / ghi nhận thanh toán / để sau".
+  const [paymentTaskPrompt, setPaymentTaskPrompt] = useState<ProjectTask | null>(null);
 
   const proposalItems = proposals.data?.data ?? [];
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
@@ -787,8 +793,108 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     updateTaskMutation.mutate({ taskId, title: patch.title, note: patch.note });
   }
 
+  // --- Mốc "Thu tiền:" ↔ hóa đơn ------------------------------------------------------
+  //
+  // Tick một mốc thu tiền nghĩa là TIỀN ĐÃ VỀ. Nhưng nếu chỉ tick suông thì `amount_paid`
+  // của hóa đơn không ai cập nhật — hóa đơn nằm mãi ở "đã gửi" và bảng doanh thu không bao
+  // giờ đúng. Nên lúc tick phải hỏi, và câu hỏi đổi theo việc mốc đó đã có chứng từ chưa.
+  //  #Huynh
+
+  /** Câu tiếng Việt cho lỗi thao tác hóa đơn, nói rõ lý do thay vì "có lỗi xảy ra". */
+  function invoiceErrorMessage(err: unknown, fallback: string): string {
+    if (getApiErrorStatus(err) === undefined) {
+      return "Không kết nối được máy chủ. Kiểm tra đường mạng rồi thử lại.";
+    }
+    // 502 + EMAIL_DELIVERY_FAILED: backend đã phân loại sẵn (hộp thư sai cấu hình / chạm
+    // giới hạn gửi / không nối được máy chủ thư) và soạn câu an toàn. Hiện nguyên câu đó.
+    if (getApiErrorCode(err) === "EMAIL_DELIVERY_FAILED") {
+      return getApiErrorMessage(err, "Hệ thống thư đang gặp sự cố. Vui lòng thử lại sau.");
+    }
+    return getApiErrorMessage(err, fallback);
+  }
+
+  function createAndSendInvoice(task: ProjectTask) {
+    setInvoiceBusyTaskId(task.id);
+    createTaskInvoice.mutate(task.id, {
+      onSuccess: (invoice) => {
+        // Tạo xong gửi luôn — người dùng bấm "Tạo & gửi" là muốn một việc, không phải hai.
+        sendTaskInvoice.mutate(invoice.id, {
+          onSuccess: () => {
+            toast.success(`Đã gửi hóa đơn ${invoice.invoice_number} cho khách.`);
+            setInvoiceBusyTaskId(null);
+          },
+          onError: (err) => {
+            // Hóa đơn ĐÃ tạo nhưng thư chưa đi. Nói rõ cả hai vế, không thì người dùng bấm
+            // lại và tưởng mình vừa tạo thêm một hóa đơn nữa.
+            toast.error(
+              `Đã tạo hóa đơn ${invoice.invoice_number} nhưng chưa gửi được: ` +
+                invoiceErrorMessage(err, "lỗi không rõ.")
+            );
+            setInvoiceBusyTaskId(null);
+          },
+        });
+      },
+      onError: (err) => {
+        toast.error(invoiceErrorMessage(err, "Không tạo được hóa đơn cho mốc này."));
+        setInvoiceBusyTaskId(null);
+      },
+    });
+  }
+
+  function sendExistingInvoice(task: ProjectTask) {
+    if (!task.invoice) return;
+    setInvoiceBusyTaskId(task.id);
+    sendTaskInvoice.mutate(task.invoice.id, {
+      onSuccess: () => toast.success(`Đã gửi hóa đơn ${task.invoice?.invoiceNumber} cho khách.`),
+      onError: (err) => toast.error(invoiceErrorMessage(err, "Chưa gửi được hóa đơn.")),
+      onSettled: () => setInvoiceBusyTaskId(null),
+    });
+  }
+
+  function recordFullPayment(task: ProjectTask) {
+    if (!task.invoice) return;
+    const conLai = task.invoice.total - task.invoice.amountPaid;
+    if (conLai <= 0) return;
+    setInvoiceBusyTaskId(task.id);
+    recordTaskPayment.mutate(
+      {
+        invoiceId: task.invoice.id,
+        payload: {
+          amount: conLai,
+          payment_date: new Date().toISOString().slice(0, 10),
+          payment_method: "bank_transfer",
+        },
+      },
+      {
+        onSuccess: () => toast.success(`Đã ghi nhận thu ${formatVND(conLai)}.`),
+        onError: (err) => toast.error(invoiceErrorMessage(err, "Không ghi nhận được thanh toán.")),
+        onSettled: () => setInvoiceBusyTaskId(null),
+      }
+    );
+  }
+
   function handleToggleTask(taskId: string, completed: boolean) {
+    const task = (taskQuery.data?.tasks ?? []).find((item) => item.id === taskId);
+
+    // Chỉ hỏi khi TICK XONG một mốc thu tiền. Bỏ tick thì không hỏi gì — người ta đang sửa
+    // lại thao tác lỡ tay, chen một hộp thoại vào lúc đó chỉ tổ vướng.
+    //
+    // Hóa đơn đã thu đủ rồi thì cũng không hỏi: không còn gì để làm, hỏi nữa là phiền.
+    if (completed && task && isPaymentTask(task)) {
+      const daThuDu = task.invoice ? task.invoice.amountPaid >= task.invoice.total : false;
+      if (!daThuDu) {
+        setPaymentTaskPrompt(task);
+        return;
+      }
+    }
     toggleTaskMutation.mutate({ taskId, is_done: completed });
+  }
+
+  /** "Để sau" — vẫn tick xong task. Người ta bấm tick là để tick. */
+  function finishTogglingPaymentTask() {
+    if (!paymentTaskPrompt) return;
+    toggleTaskMutation.mutate({ taskId: paymentTaskPrompt.id, is_done: true });
+    setPaymentTaskPrompt(null);
   }
 
   function handleDeleteTask(taskId: string) {
@@ -1057,6 +1163,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       onUpdateTask={handleUpdateTask}
                       onDeleteTask={handleDeleteTask}
                       onToggleTask={handleToggleTask}
+                      invoiceActions={{
+                        onCreateAndSend: createAndSendInvoice,
+                        onSend: sendExistingInvoice,
+                        onRecordPayment: recordFullPayment,
+                        pendingTaskId: invoiceBusyTaskId,
+                      }}
                     />
                   ) : (
                     <ProjectLockedPanel deal={deal} hasAcceptedProposal={Boolean(acceptedProposal)} />
@@ -1239,6 +1351,84 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         isLoading={completePending}
         onConfirm={handleConfirmCompleteProject}
       />
+      {/* Tick một mốc thu tiền = tiền đã về. Hỏi ngay để chứng từ đi theo, thay vì bắt người
+          dùng nhớ sang tab Tài liệu làm nốt — mà thường là không ai nhớ.
+
+          BA nút chứ không phải hai: "Để sau" vẫn tick xong task (người ta bấm tick là để
+          tick, đừng bắt trả lời câu hỏi khác mới cho làm việc mình định làm), còn "Huỷ" thì
+          không đụng gì tới task cả.  #Huynh */}
+      <Dialog
+        open={Boolean(paymentTaskPrompt)}
+        onOpenChange={(open) => {
+          if (!open) setPaymentTaskPrompt(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {paymentTaskPrompt &&
+            (() => {
+              const inv = paymentTaskPrompt.invoice;
+              const conLai = inv ? inv.total - inv.amountPaid : 0;
+              const chuaCoHoaDon = !inv;
+              return (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {chuaCoHoaDon ? "Gửi hóa đơn cho khách luôn?" : "Ghi nhận đã thanh toán?"}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-muted-foreground">
+                    Mốc <b className="text-foreground">{paymentMilestoneLabel(paymentTaskPrompt)}</b>
+                    {chuaCoHoaDon ? (
+                      <>
+                        {" "}
+                        — SoloDesk sẽ tạo hóa đơn theo đúng số tiền của mốc này trong báo giá đã
+                        chốt, rồi <b className="text-foreground">gửi email cho khách</b> kèm mã QR
+                        chuyển khoản.
+                      </>
+                    ) : (
+                      <>
+                        {" "}
+                        — hóa đơn <b className="text-foreground">{inv?.invoiceNumber}</b> còn{" "}
+                        <b className="text-foreground">{formatVND(conLai)}</b>. Xác nhận là khách đã
+                        chuyển đủ số này.
+                      </>
+                    )}
+                  </p>
+                  <DialogFooter className="gap-2 sm:justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentTaskPrompt(null)}
+                      className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                    >
+                      Huỷ
+                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={finishTogglingPaymentTask}
+                        className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+                      >
+                        Để sau
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const task = paymentTaskPrompt;
+                          finishTogglingPaymentTask();
+                          if (chuaCoHoaDon) createAndSendInvoice(task);
+                          else recordFullPayment(task);
+                        }}
+                        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                      >
+                        {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
+                      </button>
+                    </div>
+                  </DialogFooter>
+                </>
+              );
+            })()}
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={Boolean(deleteProposalId)}
         onOpenChange={(open) => {

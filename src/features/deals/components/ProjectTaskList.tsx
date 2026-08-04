@@ -13,6 +13,11 @@ import {
   X,
 } from "lucide-react";
 import {
+  PaymentTaskInvoice,
+  type PaymentInvoiceActions,
+} from "@/features/deals/components/PaymentTaskInvoice";
+import { isPaymentTask } from "@/features/deals/paymentTasks";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -92,6 +97,11 @@ type ProjectTaskPanelProps = {
   onDeleteTask: (taskId: string) => void;
   onToggleTask: (taskId: string, completed: boolean) => void;
   onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  /**
+   * Bỏ trống thì mốc "Thu tiền:" hiện y như task thường — dùng cho những chỗ chỉ liệt kê
+   * việc chứ không phải nơi làm chứng từ (ví dụ cửa sổ deal thu nhỏ).
+   */
+  invoiceActions?: PaymentInvoiceActions;
 };
 
 export function ProjectTaskPanel({
@@ -101,6 +111,7 @@ export function ProjectTaskPanel({
   onDeleteTask,
   onToggleTask,
   onClick,
+  invoiceActions,
 }: ProjectTaskPanelProps) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -265,6 +276,7 @@ export function ProjectTaskPanel({
                       onSaveEdit={() => saveEditing(task.id)}
                       onToggle={(completed) => onToggleTask(task.id, completed)}
                       onDelete={() => confirmDelete(task)}
+                      invoiceActions={invoiceActions}
                     />
                   ))}
                 </div>
@@ -308,6 +320,7 @@ export function ProjectTaskPanel({
                               onSaveEdit={() => saveEditing(task.id)}
                               onToggle={(completed) => onToggleTask(task.id, completed)}
                               onDelete={() => confirmDelete(task)}
+                              invoiceActions={invoiceActions}
                             />
                           ))}
                         </div>
@@ -432,6 +445,7 @@ function TaskRow({
   onSaveEdit,
   onToggle,
   onDelete,
+  invoiceActions,
 }: {
   task: ProjectTask;
   editing: boolean;
@@ -444,6 +458,7 @@ function TaskRow({
   onSaveEdit: () => void;
   onToggle: (completed: boolean) => void;
   onDelete: () => void;
+  invoiceActions?: PaymentInvoiceActions;
 }) {
   return (
     <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
@@ -505,6 +520,12 @@ function TaskRow({
           <span>Tạo: {formatTaskDate(task.createdAt)}</span>
           {task.completed && <span>Hoàn thành: {formatTaskDate(task.completedAt)}</span>}
         </div>
+
+        {/* Chỉ mốc "Thu tiền:" mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
+            `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}
+        {invoiceActions && isPaymentTask(task) && !editing && (
+          <PaymentTaskInvoice task={task} actions={invoiceActions} />
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <button type="button" onClick={onStartEdit} aria-label={`Sửa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary">

@@ -31,6 +31,15 @@ type TaskResponse = {
   status: "todo" | "in_progress" | "review" | "done";
   deadline: string | null;
   checklist_items: unknown[];
+  // Chỉ có với task "Thu tiền:" đã xuất hóa đơn. Backend trả sẵn để hàng task vẽ được nhãn
+  // trạng thái mà không phải gọi thêm một vòng API cho từng dòng.
+  invoice: {
+    id: string;
+    invoice_number: string;
+    status: string;
+    total: string | number;
+    amount_paid: string | number;
+  } | null;
   created_at: string;
   updated_at: string;
 };
@@ -64,6 +73,18 @@ function mapTask(t: TaskResponse): ProjectTask {
     completedAt: completed ? t.updated_at : null,
     dueDate: t.deadline,
     priority: t.priority,
+    // `Number()` chứ không tin kiểu sẵn: backend trả tiền dạng CHUỖI Decimal ("10000000.00").
+    // Đây đúng cái bẫy đã làm gói 0đ hiện nút mua hồi 30/07 — khai `number` rồi so sánh trực
+    // tiếp thì luôn sai.  #Huynh
+    invoice: t.invoice
+      ? {
+          id: t.invoice.id,
+          invoiceNumber: t.invoice.invoice_number,
+          status: t.invoice.status,
+          total: Number(t.invoice.total),
+          amountPaid: Number(t.invoice.amount_paid),
+        }
+      : null,
   };
 }
 
