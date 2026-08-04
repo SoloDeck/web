@@ -7,10 +7,52 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { confirmPasswordReset, requestPasswordReset } from "@/services/authService";
-import { getApiErrorStatus } from "@/lib/api-error";
+import { getApiErrorCode, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 
 const MIN_PASSWORD = 8;
 const OTP_LENGTH = 6;
+
+/**
+ * Vì sao KHÔNG gửi được mã OTP — nói đúng việc người đọc nên làm tiếp.
+ *
+ * Bản trước ở đây là một `catch {}` TRẦN, mọi thứ hỏng đều ra đúng một câu "Hệ thống chưa
+ * gửi được email lúc này. Vui lòng thử lại sau ít phút." Câu đó che mất ba chuyện khác hẳn
+ * nhau — mất mạng, hộp thư sai cấu hình, chạm giới hạn gửi — và với hai cái đầu thì lời
+ * khuyên "thử lại sau ít phút" là SAI: thử lại bao nhiêu lần cũng vậy.
+ *
+ * Ngày 04/08 chính chỗ này làm cả buổi truy lỗi trở thành đoán mò: màn hình báo hỏng mà
+ * không ai biết hỏng ở đâu, phải đi gọi API thật để đo mới ra.
+ *
+ * Phân nhánh theo `status` + `code`, KHÔNG so khớp câu chữ.  #Huynh
+ */
+function otpSendErrorMessage(err: unknown): string {
+  const status = getApiErrorStatus(err);
+
+  // Không có status = request chưa từng nhận được câu trả lời: mất mạng, DNS hỏng, hoặc
+  // backend im lặng quá 15 giây (`configs/axios.ts`) rồi axios bỏ cuộc. Khác hẳn với
+  // "máy chủ đã trả lời rằng nó hỏng", nên phải là một câu khác.
+  if (status === undefined) {
+    return "Không kết nối được máy chủ. Kiểm tra đường mạng rồi thử lại.";
+  }
+
+  // Backend đã phân loại sẵn (sai cấu hình hộp thư / chạm giới hạn gửi / không nối được
+  // máy chủ thư) và soạn câu an toàn cho từng nhóm. Hiện NGUYÊN câu đó — tự vẽ lại ở đây
+  // là dựng nguồn sự thật thứ hai, kiểu gì cũng có ngày lệch.
+  if (getApiErrorCode(err) === "EMAIL_DELIVERY_FAILED") {
+    return getApiErrorMessage(err, "Hệ thống thư đang gặp sự cố. Vui lòng thử lại sau.");
+  }
+
+  if (status === 429) {
+    return getApiErrorMessage(
+      err,
+      "Bạn đã yêu cầu quá nhiều lần. Vui lòng đợi vài phút rồi thử lại."
+    );
+  }
+  if (status === 422) {
+    return getApiErrorMessage(err, "Email không hợp lệ. Kiểm tra lại địa chỉ email.");
+  }
+  return getApiErrorMessage(err, "Chưa gửi được mã OTP. Vui lòng thử lại sau ít phút.");
+}
 
 export function ForgotPasswordForm() {
   const navigate = useNavigate();
@@ -29,12 +71,15 @@ export function ForgotPasswordForm() {
     try {
       await requestPasswordReset(email);
       setStep("otp");
-    } catch {
+    } catch (err) {
       // BE luôn trả 200 kể cả khi email không tồn tại (cố tình, để không lộ email
       // nào đã đăng ký). Nên lỗi ở đây KHÔNG BAO GIỜ là "email sai" — nó là hệ
-      // thống hỏng (SMTP chết, mất mạng...). Đừng bảo người dùng đi kiểm tra email
-      // hay wifi, họ sẽ mò mẫm vô ích.
-      setError("Hệ thống chưa gửi được email lúc này. Vui lòng thử lại sau ít phút.");
+      // thống hỏng. Đừng bảo người dùng đi kiểm tra lại địa chỉ email.
+      //
+      // Luôn log lỗi thô: màn hình cố tình nói ngắn gọn, nhưng devtools thì phải thấy
+      // được nguyên nhân thật. Nuốt trọn lỗi là tự bịt mắt mình cho lần sửa sau.
+      console.error("[password-reset] gửi OTP thất bại", err);
+      setError(otpSendErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -77,8 +122,11 @@ export function ForgotPasswordForm() {
     try {
       await requestPasswordReset(email);
       toast.success("Đã gửi lại mã OTP.");
-    } catch {
-      setError("Không gửi lại được mã. Vui lòng thử lại.");
+    } catch (err) {
+      // Cùng một endpoint thì cùng một cách giải thích lỗi — hai nơi tự nghĩ ra hai câu
+      // là kiểu gì cũng có ngày một nơi được cập nhật còn nơi kia thì không.
+      console.error("[password-reset] gửi lại OTP thất bại", err);
+      setError(otpSendErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +166,13 @@ export function ForgotPasswordForm() {
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          // role="alert" — không có nó thì trình đọc màn hình KHÔNG đọc câu lỗi này ra:
+          // người dùng khiếm thị bấm "Gửi mã OTP" rồi ngồi đợi một thứ không bao giờ tới,
+          // mà chẳng được báo gì cả. Cùng họ với chuyện `catch {}` nuốt lý do.  #Huynh
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -199,7 +253,12 @@ export function ForgotPasswordForm() {
   return (
     <form onSubmit={handleSendOtp} className="space-y-4">
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        // role="alert" — xem chú thích ở hộp lỗi bước nhập OTP. Đây là hộp NGƯỜI DÙNG GẶP
+        // ĐẦU TIÊN khi hệ thống thư hỏng, thiếu nó là hỏng im lặng với trình đọc màn hình.
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
