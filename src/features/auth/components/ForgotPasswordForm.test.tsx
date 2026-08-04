@@ -75,6 +75,17 @@ describe("<ForgotPasswordForm />", () => {
     expect(screen.getByLabelText("Mã OTP")).toBeInTheDocument();
   }, 20_000);
 
+  it("nói rõ mã CHỈ được gửi nếu email đã đăng ký", async () => {
+    // Không được khẳng định chắc nịch "đã gửi mã tới email của bạn" — với email chưa đăng ký
+    // thì đó là nói dối, và người dùng sẽ ngồi đợi.
+    const user = userEvent.setup();
+    render(<ForgotPasswordForm />);
+    await goToOtpStep(user, "nguoi-la@example.com");
+
+    expect(screen.getByText(/nếu/i)).toBeInTheDocument();
+    expect(screen.getByText(/đã đăng ký/i)).toBeInTheDocument();
+  }, 20_000);
+
   it("mật khẩu xác nhận không khớp thì chặn ngay ở FE, không gọi API", async () => {
     const user = userEvent.setup();
     render(<ForgotPasswordForm />);
