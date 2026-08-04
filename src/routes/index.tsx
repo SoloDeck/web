@@ -1,12 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Filter,
-  Loader2,
-  Menu,
-  Plus,
-  Search,
-} from "lucide-react";
+import { Loader2, Menu, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
@@ -281,11 +275,10 @@ function Index() {
             </div>
 
             <div className="flex items-center gap-2">
-              {nav === "pipeline" && (
-                <button className="rounded-md border border-border p-2 hover:bg-secondary" title="Bộ lọc">
-                  <Filter className="h-4 w-4" />
-                </button>
-              )}
+              {/* Đã gỡ nút "Bộ lọc": nó chưa bao giờ có `onClick` — bấm vào không xảy ra gì.
+                  Một cái nút bấm không phản ứng còn tệ hơn là không có nút, vì người dùng
+                  tưởng mình bấm sai chỗ rồi bấm lại mấy lần. Ô tìm kiếm bên trái đã lọc
+                  được deal theo tên khách/tên yêu cầu, nên chỗ này không hụt chức năng.  #Huynh */}
               <NotificationBell />
               <button
                 onClick={() => setNewDealOpen(true)}
