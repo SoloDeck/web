@@ -102,6 +102,17 @@ type ProjectTaskPanelProps = {
    * việc chứ không phải nơi làm chứng từ (ví dụ cửa sổ deal thu nhỏ).
    */
   invoiceActions?: PaymentInvoiceActions;
+  /**
+   * Panel tự chốt chiều cao (`"cap"`) hay lấp đầy khung chứa (`"fill"`).
+   *
+   * Mặc định `"cap"` = 560px, đúng như trước — cửa sổ deal thu nhỏ đang dựa vào mốc đó.
+   *
+   * Dùng `"fill"` khi panel nằm trong một khung ĐÃ TỰ CUỘN (như tab Công việc): panel chốt
+   * 560px trong một khung cuộn được sẽ đẻ ra HAI thanh cuộn lồng nhau, người dùng không biết
+   * kéo cái nào. Lấp đầy đúng khung thì khung ngoài không còn gì để cuộn, chỉ còn một thanh
+   * của danh sách bên trong — mà phần đầu panel vẫn dính tại chỗ.  #Huynh
+   */
+  height?: "cap" | "fill";
 };
 
 export function ProjectTaskPanel({
@@ -112,6 +123,7 @@ export function ProjectTaskPanel({
   onToggleTask,
   onClick,
   invoiceActions,
+  height = "cap",
 }: ProjectTaskPanelProps) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -189,7 +201,10 @@ export function ProjectTaskPanel({
         role="region"
         aria-labelledby="project-task-panel-title"
         onClick={onClick}
-        className="flex max-h-[560px] min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+          height === "fill" ? "h-full" : "max-h-[560px]"
+        )}
       >
         <header className="border-b border-border p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">

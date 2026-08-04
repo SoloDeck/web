@@ -1149,7 +1149,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   />
                 </TabsContent>
 
-                <TabsContent value="tasks" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
+                {/* `flex flex-col` để panel con lấp đầy đúng chiều cao tab. Không có nó thì
+                    panel tự chốt 560px, mà tab thì cũng cuộn được → HAI thanh cuộn lồng nhau,
+                    người dùng không biết kéo cái nào.
+
+                    Vẫn GIỮ `overflow-y-auto` theo đúng ràng buộc nêu ở khối chú thích trên:
+                    nó là lưới an toàn, lỡ panel có vượt khung thì còn kéo được chứ không bị
+                    cắt cụt.  #Huynh */}
+                <TabsContent
+                  value="tasks"
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto pt-4"
+                >
                   {projectStageUnlocked && taskQuery.isLoading ? (
                     <div className="grid min-h-64 place-items-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
@@ -1163,6 +1173,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       onUpdateTask={handleUpdateTask}
                       onDeleteTask={handleDeleteTask}
                       onToggleTask={handleToggleTask}
+                      height="fill"
                       invoiceActions={{
                         onCreateAndSend: createAndSendInvoice,
                         onSend: sendExistingInvoice,
