@@ -126,6 +126,9 @@ function Index() {
         profession: p.profession || undefined,
         bio: p.bio || undefined,
         avatar_url: p.avatarUrl || undefined,
+        // Gửi thẳng giá trị boolean, không `|| undefined`: tắt công tắc phải TẮT thật,
+        // mà `false || undefined` là `undefined` nên backend sẽ bỏ qua.  #Huynh
+        is_listed: p.isListed,
         // Thông tin nhận tiền + mặc định nhắc nhở. Gửi cả chuỗi rỗng (không dùng
         // `|| undefined`) để XOÁ được: freelancer đổi ngân hàng thì phải bỏ được số cũ,
         // mà số cũ nằm trong thư gửi khách.  #Huynh

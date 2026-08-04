@@ -7,8 +7,9 @@ import { Code2, Megaphone, Palette, PenLine, TrendingUp } from "lucide-react";
  * khai cũng cần đổi id sang nhãn tiếng Việt — để nguyên trong file route thì trang kia
  * phải import từ một route, hoặc tệ hơn là chép lại bảng nhãn thành hai bản rồi lệch nhau.
  *
- * `id` ở đây là slug PHÍA FRONTEND; `freelancersService` tự đổi qua lại với slug của
- * backend (`dev` ↔ `programming`).  #Huynh
+ * `id` DÙNG ĐÚNG slug của backend (`GET /public/freelancers/categories`). Trước đây FE
+ * tự đặt `dev` rồi phải có một bảng ánh xạ để dịch ngược lại thành `programming` —
+ * một tầng thừa tự gây ra, đã bỏ.  #Huynh
  */
 export const CATEGORIES = [
   {
@@ -22,7 +23,7 @@ export const CATEGORIES = [
     selectedBorder: "border-violet-500",
   },
   {
-    id: "dev",
+    id: "programming",
     label: "Lập trình",
     desc: "Web, Mobile, Backend, AI",
     Icon: Code2,

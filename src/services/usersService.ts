@@ -30,6 +30,10 @@ export type UserResponse = {
   avatar_url: string | null;
   bio: string | null;
   profession: string | null;
+  /** Ba trường của danh bạ công khai — xem `UserResponse` phía backend. */
+  professional_title: string | null;
+  service_categories: string[];
+  is_listed: boolean;
   intake_share_token: string | null;
   professional_profile: ProfessionalProfile;
   preferences: Preferences;

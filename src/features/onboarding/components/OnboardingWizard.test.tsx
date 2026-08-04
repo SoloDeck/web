@@ -121,6 +121,29 @@ describe("<OnboardingWizard />", () => {
     );
   });
 
+  it("ghi SLUG danh bạ vào service_categories, không phải chức danh nghề", async () => {
+    // Đây chính là chỗ đã để lọt lỗi: trước đây onboarding ghi "Web Developer" trong khi
+    // /find-freelancer lọc bằng "programming", nên chọn nhóm nào cũng ra rỗng — mà không
+    // test nào khẳng định payload này. Backend giờ trả 422 nếu gửi sai.  #Huynh
+    const user = userEvent.setup();
+    renderWizard(<OnboardingWizard />);
+    await screen.findByText("Trần Thị Thiết Kế");
+
+    await user.click(screen.getByRole("button", { name: /lập trình web/i }));
+    await user.click(screen.getByRole("button", { name: /bắt đầu dùng solodesk/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateFreelancer).toHaveBeenCalledWith(
+        expect.objectContaining({ service_categories: ["programming"] })
+      )
+    );
+
+    // `specialization` thì GIỮ NGUYÊN chức danh: frontend dùng nó làm cờ đã-xong-onboarding.
+    expect(mockUpdateProfessional).toHaveBeenCalledWith(
+      expect.objectContaining({ specialization: "Web Developer" })
+    );
+  });
+
   it("lưu số điện thoại TRƯỚC hồ sơ nghề nghiệp, để 409 không ghi nửa vời", async () => {
     const user = userEvent.setup();
     // SĐT trùng → BE trả 409; specialization TUYỆT ĐỐI không được lưu, vì guard ở "/"

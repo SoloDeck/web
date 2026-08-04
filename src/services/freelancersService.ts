@@ -34,20 +34,6 @@ type PaginatedApiResponse = {
 };
 
 // ---------------------------------------------------------------------------
-// Category slug mapping (frontend "dev" ↔ backend "programming")
-// ---------------------------------------------------------------------------
-
-const TO_BACKEND: Record<string, string> = { dev: "programming" };
-const FROM_BACKEND: Record<string, string> = { programming: "dev" };
-
-function toBackendSlug(slug: string): string {
-  return TO_BACKEND[slug] ?? slug;
-}
-function fromBackendSlug(slug: string): string {
-  return FROM_BACKEND[slug] ?? slug;
-}
-
-// ---------------------------------------------------------------------------
 // Mapping helpers
 // ---------------------------------------------------------------------------
 
@@ -79,7 +65,7 @@ function mapFreelancer(r: FreelancerApiResponse): Freelancer {
     title: r.professional_title ?? "",
     initials: getInitials(r.full_name),
     avatarBg: getAvatarBg(r.full_name),
-    categoryIds: r.service_categories.map(fromBackendSlug),
+    categoryIds: r.service_categories,
     rating: r.rating_average ?? 0,
     reviews: r.rating_count,
     projects: r.completed_project_count,
@@ -104,7 +90,7 @@ export async function listFreelancers(params: {
   const { data } = await axiosClient.get<PaginatedApiResponse>("/public/freelancers", {
     params: {
       q: params.search || undefined,
-      categories: params.categoryIds?.map(toBackendSlug),
+      categories: params.categoryIds,
       page: params.page ?? 1,
       page_size: 20,
     },

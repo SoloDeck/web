@@ -393,7 +393,9 @@ function FreelancerCard({
                 : "bg-muted/50 text-muted-foreground border-border",
             )}
           >
-            {CATEGORY_LABEL[id]}
+            {/* Fallback `?? id`: không có nó thì giá trị lạ render ra chữ "undefined"
+                ngay trên thẻ. Trang hồ sơ vốn đã làm đúng, chỗ này thì quên.  #Huynh */}
+            {CATEGORY_LABEL[id] ?? id}
           </span>
         ))}
       </div>

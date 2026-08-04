@@ -17,7 +17,7 @@
 import { useState } from "react";
 import {
   BellRing, Briefcase, Check, Eye, EyeOff,
-  FileText, Lock, Loader2, MessageCircle, Save, User,
+  FileText, Globe, Lock, Loader2, MessageCircle, Save, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -29,6 +29,7 @@ import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
+import { Switch } from "@/components/ui/switch";
 
 type Props = {
   profile: Profile;
@@ -180,6 +181,30 @@ export function ProfileSettings({ profile, onSave }: Props) {
                       </p>
                     </div>
                   </div>
+                </div>
+
+                {/* Danh bạ công khai — trước đây backend đã nhận `is_listed` nhưng không
+                    có chỗ nào trên giao diện bật được, nên 91/92 tài khoản không bao giờ
+                    xuất hiện trên /find-freelancer.  #Huynh */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                    <Globe className="h-3.5 w-3.5" /> Danh bạ công khai
+                  </div>
+                  <label className="flex cursor-pointer items-start justify-between gap-4">
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Hiện hồ sơ trong danh bạ công khai
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Khách tìm được bạn theo nhóm dịch vụ và gửi yêu cầu thẳng qua biểu
+                        mẫu tiếp nhận của bạn. Tắt lúc nào cũng được.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={draft.isListed}
+                      onCheckedChange={(v) => setDraft({ ...draft, isListed: v })}
+                    />
+                  </label>
                 </div>
 
                 {/* Bio */}

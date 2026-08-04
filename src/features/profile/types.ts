@@ -12,6 +12,21 @@ export type ServiceCategory =
   | "Copywriter / SEO";
 
 /**
+ * Slug nhóm dịch vụ của DANH BẠ — khác `ServiceCategory` ở trên.
+ *
+ * Năm giá trị này do backend định nghĩa (`GET /public/freelancers/categories`) và là
+ * thứ duy nhất `service_categories` được phép chứa; gửi giá trị khác thì backend trả
+ * 422. Đừng gộp với `ServiceCategory`: cái kia là CHỨC DANH nghề của freelancer, ghi
+ * vào `specialization`, và frontend còn dùng nó làm cờ đã-xong-onboarding.  #Huynh
+ */
+export type DirectoryCategory =
+  | "design"
+  | "programming"
+  | "marketing"
+  | "content"
+  | "consulting";
+
+/**
  * Nghề chuẩn hoá của freelancer — MIRROR danh mục BE
  * (backend/src/modules/intake_form/professions.py). BE validate slug; sai slug -> 422.
  * BE thêm/sửa nghề thì cập nhật ở ĐÂY cho khớp (chưa có GET /professions nên tạm hardcode;
@@ -54,19 +69,28 @@ export type Profile = {
   reminderHour: number | null;
 };
 
+/**
+ * Trạng thái RỖNG trước khi `GET /users/me` trả về — cố ý không có dữ liệu giả nào.
+ *
+ * Bản trước điền sẵn "Minh Nguyễn" / "minh.nguyen@solodesk.space" / "0909123456" làm
+ * mẫu, và `useProfile` lấy chúng làm fallback khi server trả `null`. Hậu quả thật: mọi
+ * tài khoản chưa nhập số điện thoại đều gửi lên số giả DÙNG CHUNG đó, backend trả 409
+ * "Phone already in use", và vì `updateMe` chạy trước nên TOÀN BỘ phần lưu còn lại
+ * (bio, nghề, thông tin ngân hàng, hiện công khai) im lặng không chạy.  #Huynh
+ */
 export const DEFAULT_PROFILE: Profile = {
-  fullName: "Minh Nguyễn",
-  professionalTitle: "Brand & Content Designer",
+  fullName: "",
+  professionalTitle: "",
   profession: "",
   bio: "",
   avatarUrl: "",
-  email: "minh.nguyen@solodesk.space",
-  phone: "0909123456",
+  email: "",
+  phone: "",
   skills: [],
   serviceCategories: [],
   portfolioUrl: "",
-  isListed: true,
-  hourlyRate: 350000,
+  isListed: false,
+  hourlyRate: 0,
   bankCode: "",
   bankAccountNumber: "",
   bankAccountHolder: "",
