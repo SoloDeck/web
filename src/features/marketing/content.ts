@@ -54,14 +54,19 @@ export const PROJECT_CODE = "SU26SE083";
 // ---------------------------------------------------------------------------
 
 /**
- * Hero không còn khoá chữ cho nút nào: nút "Bắt đầu miễn phí" duy nhất nằm ở navbar
- * (`LandingChrome.tsx`), và lối vào thứ hai "Tôi cần thuê — Tìm freelancer" đã bỏ cùng
- * danh bạ. Freelancer là người dùng duy nhất của hệ thống.  #Huynh
+ * Hero có ĐÚNG MỘT nút, và nó trỏ tới `/login` như nút ở navbar.
+ *
+ * Lối vào thứ hai "Tôi cần thuê — Tìm freelancer" đã bỏ cùng danh bạ và KHÔNG quay lại:
+ * freelancer là người dùng duy nhất của hệ thống. Nút hero từng bị gỡ hẳn với lý do navbar
+ * đã có một nút rồi — nhưng nút ở navbar cao 64px và nằm sát mép phải, còn chỗ mắt người
+ * đọc dừng lại là ngay dưới phụ đề. Thêm nút ở đây không mở thêm lối vào nào, chỉ đặt lối
+ * vào sẵn có vào đúng tầm mắt.  #Huynh
  */
 export const HERO = {
   titleLead: "Quản lý khách hàng và hợp đồng",
   titleAccent: "cho chuyên gia dịch vụ độc lập",
   subtitle: "Từ yêu cầu đầu tiên tới lúc thu tiền, trên một bảng Kanban sáu giai đoạn.",
+  ctaLabel: "Bắt đầu miễn phí",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -342,3 +347,12 @@ export const NAV_ANCHORS = [
   { href: "#danh-cho-ai", label: "Cách vận hành" },
   { href: "#bang-gia", label: "Bảng giá" },
 ] as const;
+
+/**
+ * Danh sách id để `useScrollSpy` theo dõi — dựng ở CẤP MODULE, không tính trong component.
+ *
+ * Mảng này đi thẳng vào mảng phụ thuộc của một `useEffect`; tính lại mỗi lần render là mỗi
+ * lần render lại dựng một `IntersectionObserver` mới. React Compiler nhiều khả năng ghi nhớ
+ * hộ, nhưng một hợp đồng effect không nên dựa vào việc đó.
+ */
+export const NAV_ANCHOR_IDS = NAV_ANCHORS.map((a) => a.href.slice(1));

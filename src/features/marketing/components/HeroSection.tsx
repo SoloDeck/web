@@ -1,3 +1,6 @@
+import { Link } from "@tanstack/react-router";
+import { ArrowRight } from "lucide-react";
+
 import { RevealOnScroll } from "@/components/solodesk/RevealOnScroll";
 import { HERO, OFFICIAL_TITLE_VI } from "@/features/marketing/content";
 import { HeroKanbanSim } from "@/features/marketing/components/HeroKanbanSim";
@@ -30,32 +33,49 @@ export function HeroSection() {
       <div className="hero-dot-grid pointer-events-none absolute inset-0 select-none" aria-hidden="true" />
 
       <div className="relative mx-auto max-w-4xl text-center">
-        <h1 className="mb-5 text-4xl leading-[1.1] font-bold tracking-tight sm:text-5xl lg:text-[3.6rem]">
+        {/* `leading-[1.05]` là mức sát nhất còn an toàn, ĐỪNG hạ nữa: ở `lg` thì
+            `text-[3.6rem]` với `html{font-size:105%}` ra khoảng 60px, mà tiêu đề tiếng Việt
+            có dấu chồng lên đầu chữ — section lại `overflow-hidden` nên phần bị xén sẽ mất
+            im lặng, không có gì báo.
+
+            Bậc thang 0/90/180/240ms cho bốn khối chữ, rồi Kanban ở 300ms: mắt đi từ trên
+            xuống đúng thứ tự đọc thay vì cả trang bật lên một lượt.  #Huynh */}
+        <h1 className="hero-rise mb-5 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl lg:text-[3.6rem]">
           {HERO.titleLead}{" "}
           <span className="bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
             {HERO.titleAccent}
           </span>
         </h1>
 
-        <p className="mx-auto mb-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+        <p className="hero-rise mx-auto mb-6 max-w-2xl text-base leading-relaxed text-muted-foreground [--hero-delay:90ms] sm:text-lg">
           {HERO.subtitle}
         </p>
 
-        {/* Tên đề tài nguyên văn — thứ hội đồng dò khi đối chiếu web với phiếu. Để cỡ nhỏ
-            và mờ: cần có mặt, không cần chiếm chỗ.  #Huynh */}
-        {/* `mb-14` gánh luôn khoảng cách của hàng nút đã bỏ bên dưới — đừng hạ xuống, không
-            thì tên đề tài dính sát vào minh hoạ Kanban.
+        {/* Nút này từng bị gỡ với lý do "navbar đã có nút y hệt nên thêm ở đây là lặp". Đặt
+            lại vì lý do đó chỉ đúng lúc đứng yên ở đỉnh trang: navbar cao 16 đơn vị, nút
+            nằm mãi bên phải, còn mắt người đọc thì dừng ngay dưới phụ đề ở giữa trang — chỗ
+            trước đây trống trơn. Vẫn đúng MỘT lối vào `/login`, không thêm nhánh nào.
 
-            KHÔNG có hàng nút ở đây. Bản trước có hai nút: "Tôi là freelancer — Bắt đầu miễn
-            phí" và "Tôi cần thuê — Tìm freelancer". Nút thứ hai mở cửa cho khách đi duyệt
-            danh bạ, đúng thứ khiến sản phẩm đọc như một cái sàn, nên bỏ cùng với danh bạ.
-            Nút thứ nhất bỏ nốt: navbar dính trên đầu trang đã có nút "Bắt đầu miễn phí" y
-            hệt, luôn nhìn thấy dù cuộn tới đâu — thêm một cái ngay dưới chỉ là lặp.  #Huynh */}
-        <p className="mx-auto mb-14 max-w-2xl text-xs leading-relaxed text-muted-foreground/60">
+            Chép nguyên khuôn nút của `AudienceSection.tsx` kể cả icon: hai nút cùng chữ
+            "Bắt đầu miễn phí" trên cùng một trang mà khác hình thì đọc ra là hai thứ khác
+            nhau.  #Huynh */}
+        <Link
+          to="/login"
+          className="hero-rise mb-8 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all duration-200 [--hero-delay:180ms] hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:translate-y-0"
+        >
+          {HERO.ctaLabel} <ArrowRight className="h-4 w-4" />
+        </Link>
+
+        {/* Tên đề tài nguyên văn — thứ hội đồng dò khi đối chiếu web với phiếu. Để cỡ nhỏ
+            và mờ: cần có mặt, không cần chiếm chỗ.
+
+            `mb-14` cũ là để gánh chỗ của hàng nút đã gỡ; nút quay lại rồi thì trả bớt về
+            `mb-10`, không thì hero dài ra và minh hoạ Kanban bị đẩy khỏi màn đầu.  #Huynh */}
+        <p className="hero-rise mx-auto mb-10 max-w-2xl text-xs leading-relaxed text-muted-foreground/60 [--hero-delay:240ms]">
           {OFFICIAL_TITLE_VI}
         </p>
 
-        <RevealOnScroll>
+        <RevealOnScroll delay={300}>
           <div className="relative mx-auto max-w-5xl">
             <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-gradient-to-b from-primary/8 via-primary/3 to-transparent blur-2xl" />
             <HeroKanbanSim />
