@@ -38,40 +38,33 @@ export function HeroSection() {
             có dấu chồng lên đầu chữ — section lại `overflow-hidden` nên phần bị xén sẽ mất
             im lặng, không có gì báo.
 
-            Bậc thang 0/90/180/240ms cho bốn khối chữ, rồi Kanban ở 300ms: mắt đi từ trên
-            xuống đúng thứ tự đọc thay vì cả trang bật lên một lượt.  #Huynh */}
-        <h1 className="hero-rise mb-5 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl lg:text-[3.6rem]">
+            Bậc thang 0/90/180ms cho ba khối chữ, rồi Kanban ở 240ms: mắt đi từ trên xuống
+            đúng thứ tự đọc thay vì cả trang bật lên một lượt.  #Huynh */}
+        <h1 className="hero-rise mb-7 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl lg:text-[3.6rem]">
           {HERO.titleLead}{" "}
           <span className="bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
             {HERO.titleAccent}
           </span>
         </h1>
 
-        <p className="hero-rise mx-auto mb-6 max-w-2xl text-base leading-relaxed text-muted-foreground [--hero-delay:90ms] sm:text-lg">
-          {HERO.subtitle}
-        </p>
-
         {/* Nút này từng bị gỡ với lý do "navbar đã có nút y hệt nên thêm ở đây là lặp". Đặt
             lại vì lý do đó chỉ đúng lúc đứng yên ở đỉnh trang: navbar cao 16 đơn vị, nút
-            nằm mãi bên phải, còn mắt người đọc thì dừng ngay dưới phụ đề ở giữa trang — chỗ
-            trước đây trống trơn. Vẫn đúng MỘT lối vào `/login`, không thêm nhánh nào.
+            nằm mãi bên phải, còn mắt người đọc thì dừng ngay dưới tiêu đề ở giữa trang —
+            chỗ trước đây trống trơn. Vẫn đúng MỘT lối vào `/login`, không thêm nhánh nào.
 
             Chép nguyên khuôn nút của `AudienceSection.tsx` kể cả icon: hai nút cùng chữ
             "Bắt đầu miễn phí" trên cùng một trang mà khác hình thì đọc ra là hai thứ khác
             nhau.  #Huynh */}
         <Link
           to="/login"
-          className="hero-rise mb-8 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all duration-200 [--hero-delay:180ms] hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:translate-y-0"
+          className="hero-rise mb-8 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all duration-200 [--hero-delay:90ms] hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:translate-y-0"
         >
           {HERO.ctaLabel} <ArrowRight className="h-4 w-4" />
         </Link>
 
         {/* Tên đề tài nguyên văn — thứ hội đồng dò khi đối chiếu web với phiếu. Để cỡ nhỏ
-            và mờ: cần có mặt, không cần chiếm chỗ.
-
-            `mb-14` cũ là để gánh chỗ của hàng nút đã gỡ; nút quay lại rồi thì trả bớt về
-            `mb-10`, không thì hero dài ra và minh hoạ Kanban bị đẩy khỏi màn đầu.  #Huynh */}
-        <p className="hero-rise mx-auto mb-10 max-w-2xl text-xs leading-relaxed text-muted-foreground/60 [--hero-delay:240ms]">
+            và mờ: cần có mặt, không cần chiếm chỗ.  #Huynh */}
+        <p className="hero-rise mx-auto mb-10 max-w-2xl text-xs leading-relaxed text-muted-foreground/60 [--hero-delay:180ms]">
           {OFFICIAL_TITLE_VI}
         </p>
 

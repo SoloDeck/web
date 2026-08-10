@@ -59,13 +59,16 @@ export const PROJECT_CODE = "SU26SE083";
  * Lối vào thứ hai "Tôi cần thuê — Tìm freelancer" đã bỏ cùng danh bạ và KHÔNG quay lại:
  * freelancer là người dùng duy nhất của hệ thống. Nút hero từng bị gỡ hẳn với lý do navbar
  * đã có một nút rồi — nhưng nút ở navbar cao 64px và nằm sát mép phải, còn chỗ mắt người
- * đọc dừng lại là ngay dưới phụ đề. Thêm nút ở đây không mở thêm lối vào nào, chỉ đặt lối
- * vào sẵn có vào đúng tầm mắt.  #Huynh
+ * đọc dừng lại là ngay dưới tiêu đề. Thêm nút ở đây không mở thêm lối vào nào, chỉ đặt lối
+ * vào sẵn có vào đúng tầm mắt.
+ *
+ * KHÔNG có phụ đề. Câu cũ ("Từ yêu cầu đầu tiên tới lúc thu tiền, trên một bảng Kanban sáu
+ * giai đoạn") mô tả lại đúng thứ minh hoạ Kanban ngay bên dưới đang tự cho xem — nói bằng
+ * chữ cái mà người ta nhìn thấy được thì chỉ làm chậm đường tới nút bấm.  #Huynh
  */
 export const HERO = {
   titleLead: "Quản lý khách hàng và hợp đồng",
   titleAccent: "cho chuyên gia dịch vụ độc lập",
-  subtitle: "Từ yêu cầu đầu tiên tới lúc thu tiền, trên một bảng Kanban sáu giai đoạn.",
   ctaLabel: "Bắt đầu miễn phí",
 } as const;
 
