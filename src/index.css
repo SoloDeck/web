@@ -145,11 +145,15 @@
   }
 }
 
-/* ── Hero dot grid ─────────────────────────────────────────────────────────── */
+/* ── Hero dot grid ───────────────────────────────────────────────────────────
+   Lấy màu từ biến --primary thay vì ghi cứng, để trang công khai của freelancer (nơi
+   --primary bị ghi đè bằng màu họ chọn) có lưới chấm đúng tông. Giá trị cũ ghi cứng
+   `oklch(0.50 0.18 270 / 0.07)` CHÍNH LÀ --primary mặc định ở 7% alpha, nên trang giới
+   thiệu không đổi một pixel nào.  #Huynh */
 .hero-dot-grid {
   background-image: radial-gradient(
     circle,
-    oklch(0.50 0.18 270 / 0.07) 1px,
+    color-mix(in oklab, var(--primary) 7%, transparent) 1px,
     transparent 1px
   );
   background-size: 28px 28px;

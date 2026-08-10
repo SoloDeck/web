@@ -54,6 +54,11 @@ describe("LandingPage", () => {
       /SendGrid/i,
       /giá trị deal trung bình/i,
       /quy mô deal trung bình/i,
+      // SoloDesk là CRM riêng của từng freelancer, KHÔNG phải sàn cho khách chọn thợ.
+      // Chữ nghĩa là chỗ tính chất "chợ" bò lại dễ nhất, nên chặn luôn ở đây.  #Huynh
+      /tìm freelancer/i,
+      /danh bạ/i,
+      /thuê freelancer/i,
     ];
 
     const { container } = render(<LandingPage />);
@@ -64,11 +69,15 @@ describe("LandingPage", () => {
     }
   });
 
-  it("có đủ hai lối vào theo luồng màn hình của SRS", () => {
+  it("chỉ còn một lối vào: freelancer đăng nhập", () => {
+    // Trang này từng có lối vào thứ hai "Tôi cần thuê — Tìm freelancer" dẫn vào danh bạ.
+    // Đó là hình dạng của một cái sàn; đề tài là CRM độc lập cho từng freelancer, khách
+    // chỉ vào qua link riêng do chính freelancer gửi.  #Huynh
     render(<LandingPage />);
 
     const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
-    expect(hrefs).toEqual(expect.arrayContaining(["/login", "/find-freelancer"]));
+    expect(hrefs).toEqual(expect.arrayContaining(["/login"]));
+    expect(hrefs).not.toContain("/find-freelancer");
   });
 
   it("giữ nguyên câu miễn trừ về hợp đồng do AI soạn", () => {

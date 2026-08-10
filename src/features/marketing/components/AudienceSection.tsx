@@ -4,14 +4,18 @@ import { ArrowRight, Briefcase, CheckCircle, MessageSquare } from "lucide-react"
 import { RevealOnScroll } from "@/components/solodesk/RevealOnScroll";
 import {
   AUDIENCE_HEADER,
-  CLIENT_FEATURES,
   FREELANCER_FEATURES,
+  INTAKE_FLOW,
 } from "@/features/marketing/content";
 import { SectionHeader } from "@/features/marketing/components/SectionHeader";
 
 /**
- * Hai nhóm người dùng — chính là luồng màn hình số 1 trong SRS: "From Landing Page,
- * the visitor browses Freelancer Directory or goes to Login."
+ * Thẻ trái: người dùng của hệ thống (freelancer). Thẻ phải: khách của họ — KHÔNG phải
+ * người dùng thứ hai, chỉ là người điền một biểu mẫu.
+ *
+ * Bản trước dựng đây thành "hai nhóm người dùng, một điểm vào" với một nút dẫn vào danh
+ * bạ freelancer. Đó là hình dạng của một cái sàn. SoloDesk là CRM độc lập cho từng
+ * freelancer, nên thẻ phải giờ kể LUỒNG khách đi vào, không mời khách đi chọn người.
  *
  * `h-full` phải nằm trên RevealOnScroll chứ không chỉ ở thẻ con: nó render ra một div
  * bọc, `h-full` của thẻ con tính theo cái bọc chứ không theo hàng lưới. Bản cũ đặt
@@ -66,22 +70,22 @@ export function AudienceSection() {
                 <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-secondary transition-transform duration-300 group-hover:scale-110">
                   <MessageSquare className="h-6 w-6 text-foreground/70" />
                 </div>
-                <h3 className="mb-1 text-xl font-bold">Khách hàng cần thuê</h3>
+                <h3 className="mb-1 text-xl font-bold">Khách hàng của bạn</h3>
                 <p className="mb-5 text-xs text-muted-foreground">không cần tạo tài khoản</p>
-                <ul className="mb-8 space-y-2.5">
-                  {CLIENT_FEATURES.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-sm">
-                      <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      <span>{f}</span>
+                <ol className="mb-8 space-y-2.5">
+                  {INTAKE_FLOW.map((step, i) => (
+                    <li key={step} className="flex items-start gap-2.5 text-sm">
+                      <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-bold text-muted-foreground">
+                        {i + 1}
+                      </span>
+                      <span>{step}</span>
                     </li>
                   ))}
-                </ul>
-                <Link
-                  to="/find-freelancer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-5 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary hover:shadow-sm active:translate-y-0"
-                >
-                  Xem danh bạ freelancer <ArrowRight className="h-4 w-4" />
-                </Link>
+                </ol>
+                <p className="text-sm text-muted-foreground">
+                  Link biểu mẫu nằm ở mục <strong className="font-semibold">Biểu mẫu tiếp nhận</strong>{" "}
+                  sau khi bạn đăng nhập.
+                </p>
               </div>
             </div>
           </RevealOnScroll>

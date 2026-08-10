@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { IntakeForm } from "@/features/intake/components/IntakeForm";
+import { PublicSharePage } from "@/features/intake/components/PublicSharePage";
 
 // Public, unauthenticated route — no beforeLoad auth guard. The owner is
 // resolved server-side from the share token in the path.
+//
+// Giữ lại vì link cũ dạng /intake/{token} đã được phát ra ngoài; render cùng trang với
+// /ho-so và /bieu-mau.
 export const Route = createFileRoute("/intake/$token")({
   component: IntakePage,
 });
@@ -10,5 +13,5 @@ export const Route = createFileRoute("/intake/$token")({
 // eslint-disable-next-line react-refresh/only-export-components
 function IntakePage() {
   const { token } = Route.useParams();
-  return <IntakeForm shareToken={token} />;
+  return <PublicSharePage shareToken={token} />;
 }

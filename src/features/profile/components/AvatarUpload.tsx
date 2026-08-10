@@ -1,11 +1,11 @@
 import { useRef } from "react";
 import { Camera, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { AVATAR_COMPRESS, compressImageToDataUrl } from "@/lib/image";
 
 /**
- * Ảnh được đọc thành data URL (base64) rồi lưu thẳng vào `users.avatar_url` —
- * BE chưa có endpoint upload file, cột này là Text nên chứa được. Giới hạn 2MB
- * để chuỗi base64 không phình quá mức.
+ * Ảnh được thu nhỏ ở trình duyệt rồi lưu dạng data URL (base64) vào `users.avatar_url` —
+ * cột Text nên chứa được. Chặn 2MB ở đầu vào, và nén xuống ≤150KB trước khi gửi đi.
  *
  * Dùng chung giữa màn Cài đặt hồ sơ và Onboarding.
  */
@@ -34,17 +34,18 @@ export function AvatarUpload({
     .slice(0, 2)
     .join("");
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     if (file.size > 2 * 1024 * 1024) {
       toast.error("Ảnh quá lớn. Vui lòng chọn file dưới 2MB.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result;
-      if (typeof result === "string") onChange(result);
-    };
-    reader.readAsDataURL(file);
+    // Nén trước khi mã hoá: ảnh này nằm trong payload của TRANG CÔNG KHAI, ảnh gốc 2MB
+    // thành chuỗi base64 2.7MB mà mọi khách hàng mở trang đều phải tải.  #Huynh
+    try {
+      onChange(await compressImageToDataUrl(file, AVATAR_COMPRESS));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Không đọc được ảnh. Bạn thử ảnh khác nhé.");
+    }
   };
 
   return (

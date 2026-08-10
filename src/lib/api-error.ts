@@ -11,6 +11,7 @@ type ApiErrorEnvelope = {
       error?: {
         message?: string;
         code?: string;
+        details?: { field?: string; message?: string }[];
       };
     };
   };
@@ -37,4 +38,21 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
 export function getApiErrorCode(err: unknown): string | undefined {
   const code = (err as ApiErrorEnvelope)?.response?.data?.error?.code;
   return typeof code === "string" && code ? code : undefined;
+}
+
+/**
+ * Lời giải thích cho MỘT trường cụ thể trong lỗi 422.
+ *
+ * Cần riêng hàm này vì `error.message` của 422 luôn là câu chung `"Request validation
+ * failed"` — vô dụng với người dùng. Chữ nói rõ sai chỗ nào chỉ nằm trong `error.details`,
+ * mỗi phần tử một `{field, message}` (xem `shared/exceptions/http.py`).  #Huynh
+ */
+export function getApiErrorDetail(err: unknown, field: string): string | undefined {
+  const details = (err as ApiErrorEnvelope)?.response?.data?.error?.details;
+  if (!Array.isArray(details)) return undefined;
+  const hit = details.find((d) => d?.field === field || d?.field?.endsWith(`.${field}`));
+  if (typeof hit?.message !== "string" || !hit.message.trim()) return undefined;
+  // Pydantic dán sẵn "Value error, " trước câu do validator ném ra. Câu phía sau đã là
+  // tiếng Việt viết cho người dùng đọc, nên cắt tiền tố đi rồi mới đưa lên màn hình.
+  return hit.message.replace(/^Value error,\s*/, "");
 }
