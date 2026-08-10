@@ -1,6 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 
-import { OnboardingWizard } from "@/features/onboarding/components/OnboardingWizard";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { getMe } from "@/services/usersService";
 
@@ -25,5 +24,8 @@ export const Route = createFileRoute("/onboarding")({
       throw redirect({ to: "/", replace: true });
     }
   },
-  component: OnboardingWizard,
+  component: lazyRouteComponent(
+    () => import("@/features/onboarding/components/OnboardingWizard"),
+    "OnboardingWizard",
+  ),
 });

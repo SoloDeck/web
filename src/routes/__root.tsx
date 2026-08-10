@@ -1,8 +1,23 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
-import { AIJobViewer } from "@/features/ai/components/AIJobViewer";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
+
+/**
+ * `React.lazy` chứ không phải `lazyRouteComponent`: đây không phải component của route nào,
+ * nên router không có chỗ để móc vào.
+ *
+ * Cần tách vì nó mount ở TẦNG GỐC, tức mọi trang đều gánh — kể cả `/home` và trang công
+ * khai của freelancer, hai chỗ không đời nào mở panel AI. Nó kéo theo `AIPanel` và
+ * `ProposalModal`.
+ *
+ * `fallback={null}`: khi chưa có job nào thì bản thân component cũng không vẽ gì, nên
+ * "không vẽ gì" trong lúc chờ đúng là hình dạng bình thường của nó.  #Huynh
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+const AIJobViewer = lazy(() =>
+  import("@/features/ai/components/AIJobViewer").then((m) => ({ default: m.AIJobViewer })),
+);
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -44,7 +59,9 @@ function RootComponent() {
       {/* Panel AI sống ở tầng gốc nên bấm "Xem" trên thẻ job ở MÀN HÌNH NÀO cũng mở được,
           kể cả bảng Kanban. Trước đây nó nằm trong trang chi tiết deal nên ra ngoài là
           bấm không ăn gì.  #Huynh */}
-      <AIJobViewer />
+      <Suspense fallback={null}>
+        <AIJobViewer />
+      </Suspense>
     </>
   );
 }

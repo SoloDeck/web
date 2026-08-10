@@ -1,5 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { DealDetailPage } from "@/features/deals/components/DealDetailPage";
+import { createFileRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 
 export const Route = createFileRoute("/deals/$dealId")({
@@ -8,10 +7,8 @@ export const Route = createFileRoute("/deals/$dealId")({
       throw redirect({ to: "/home", replace: true });
     }
   },
-  component: DealDetailRoute,
+  component: lazyRouteComponent(
+    () => import("@/features/deals/components/DealDetailRoute"),
+    "DealDetailRoute",
+  ),
 });
-
-function DealDetailRoute() {
-  const { dealId } = Route.useParams();
-  return <DealDetailPage dealId={dealId} />;
-}

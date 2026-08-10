@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { PublicSharePage } from "@/features/intake/components/PublicSharePage";
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router";
 
 /**
  * Địa chỉ riêng của freelancer: `/thuthuy` thay cho link token 43 ký tự.
@@ -14,11 +13,8 @@ import { PublicSharePage } from "@/features/intake/components/PublicSharePage";
  * chung — chấp nhận được, và cũng không lộ thông tin gì.  #Huynh
  */
 export const Route = createFileRoute("/$slug")({
-  component: SlugPage,
+  component: lazyRouteComponent(
+    () => import("@/features/intake/components/publicShareRoutes"),
+    "SlugPage",
+  ),
 });
-
-// eslint-disable-next-line react-refresh/only-export-components
-function SlugPage() {
-  const { slug } = Route.useParams();
-  return <PublicSharePage shareToken={slug} />;
-}
