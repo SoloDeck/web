@@ -80,6 +80,26 @@ describe("LandingPage", () => {
     expect(hrefs).not.toContain("/find-freelancer");
   });
 
+  it("đúng MỘT mục menu được đánh dấu đang xem, và là mục đầu", () => {
+    // `test/setup.ts` giả IntersectionObserver báo mọi khối đều đang trong tầm nhìn, nên
+    // bài này khẳng định luật "khối trên cùng thắng" của `useScrollSpy` ở đúng chỗ nó phục
+    // vụ: nhiều mục cùng sáng là thanh menu nói dối.  #Huynh
+    render(<LandingPage />);
+
+    const current = screen.getAllByRole("link").filter((a) => a.getAttribute("aria-current"));
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAttribute("href", "#trang-chu");
+  });
+
+  it("có nút vào ứng dụng ngay trong màn đầu, không phải chỉ ở navbar", () => {
+    // Nút ở navbar trôi khỏi tầm mắt khi cuộn; nút trong thân hero là chỗ mắt dừng lại
+    // sau phụ đề. Khẳng định theo VÙNG chứa để lần cắt chữ sau không lỡ tay bê nó đi.
+    const { container } = render(<LandingPage />);
+
+    const hero = container.querySelector("#trang-chu");
+    expect(hero?.querySelector('a[href="/login"]')).toBeInTheDocument();
+  });
+
   it("giữ nguyên câu miễn trừ về hợp đồng do AI soạn", () => {
     render(<LandingPage />);
 
