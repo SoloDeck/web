@@ -30,10 +30,12 @@ export type UserResponse = {
   avatar_url: string | null;
   bio: string | null;
   profession: string | null;
-  /** Ba trường của danh bạ công khai — xem `UserResponse` phía backend. */
+  /** Headline hiện trên trang công khai — xem `UserResponse` phía backend. */
   professional_title: string | null;
-  service_categories: string[];
-  is_listed: boolean;
+  /** Diện mạo trang công khai. Thiếu 3 trường này thì F5 xong màn cấu hình mất hết. */
+  cover_url: string | null;
+  brand_color: string | null;
+  profile_slug: string | null;
   intake_share_token: string | null;
   /**
    * Tài khoản này đã có mật khẩu chưa. Tài khoản tạo bằng đăng nhập Google thì CHƯA có.
@@ -97,10 +99,14 @@ export type FreelancerProfilePayload = {
   profession?: string;
   bio?: string;
   skills?: string[];
-  service_categories?: string[];
   avatar_url?: string;
   portfolio_url?: string;
-  is_listed?: boolean;
+  // --- Diện mạo trang công khai ---
+  cover_url?: string;
+  /** Mã hex. Gửi chuỗi rỗng để bỏ màu — BE hiểu "" là None chứ không trả 422. */
+  brand_color?: string;
+  /** Tên đường dẫn riêng. Trùng thì BE trả 409, sai định dạng thì 422. */
+  profile_slug?: string;
   // --- Nhận tiền + mặc định nhắc nhở (cùng endpoint, BE nhận thẳng vào cột) ---
   bank_code?: string;
   bank_account_number?: string;
@@ -119,6 +125,18 @@ export type ChangePasswordPayload = {
    */
   current_password?: string;
   new_password: string;
+};
+
+/**
+ * Khoá cache React Query cho `GET /users/me`.
+ *
+ * Đặt cạnh `getMe` để chỉ có MỘT khoá cho một tài nguyên. Trước đây mỗi nơi tự đặt một
+ * khoá — `["me"]` ở thẻ link công khai, `["users","me"]` ở onboarding — nên lưu hồ sơ xong
+ * invalidate một khoá thì nơi đọc khoá kia vẫn ôm dữ liệu cũ suốt 5 phút (`staleTime` mặc
+ * định), và người dùng đặt tên đường dẫn xong không thấy link mới đâu.  #Huynh
+ */
+export const usersKeys = {
+  me: ["users", "me"] as const,
 };
 
 export async function getMe(): Promise<UserResponse> {

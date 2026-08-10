@@ -16,23 +16,18 @@ import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
 import { Route as AdminAiCostsRouteImport } from './routes/admin.ai-costs'
 import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 import { Route as HomeRouteImport } from './routes/home'
-import { Route as FindFreelancerRouteImport } from './routes/find-freelancer'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
-import { Route as FreelancerIdRouteImport } from './routes/freelancer.$id'
+import { Route as SlugRouteImport } from './routes/$slug'
+import { Route as HoSoTokenRouteImport } from './routes/ho-so.$token'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 
-const FindFreelancerRoute = FindFreelancerRouteImport.update({
-  id: '/find-freelancer',
-  path: '/find-freelancer',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -98,9 +93,14 @@ const BieuMauTokenRoute = BieuMauTokenRouteImport.update({
   path: '/bieu-mau/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FreelancerIdRoute = FreelancerIdRouteImport.update({
-  id: '/freelancer/$id',
-  path: '/freelancer/$id',
+const SlugRoute = SlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HoSoTokenRoute = HoSoTokenRouteImport.update({
+  id: '/ho-so/$token',
+  path: '/ho-so/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
@@ -127,14 +127,14 @@ export interface FileRoutesByFullPath {
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
-  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -147,14 +147,14 @@ export interface FileRoutesByTo {
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
-  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -168,14 +168,14 @@ export interface FileRoutesById {
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
-  '/find-freelancer': typeof FindFreelancerRoute
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
   '/intake/$token': typeof IntakeTokenRoute
@@ -190,14 +190,14 @@ export interface FileRouteTypes {
     | '/admin/ai-costs'
     | '/admin/audit'
     | '/home'
-    | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
-    | '/freelancer/$id'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -210,14 +210,14 @@ export interface FileRouteTypes {
     | '/admin/ai-costs'
     | '/admin/audit'
     | '/home'
-    | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
-    | '/freelancer/$id'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -230,14 +230,14 @@ export interface FileRouteTypes {
     | '/admin/ai-costs'
     | '/admin/audit'
     | '/home'
-    | '/find-freelancer'
     | '/'
     | '/login'
     | '/register'
     | '/forgot-password'
     | '/onboarding'
     | '/bieu-mau/$token'
-    | '/freelancer/$id'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
     | '/intake/$token'
@@ -251,14 +251,14 @@ export interface RootRouteChildren {
   AdminAiCostsRoute: typeof AdminAiCostsRoute
   AdminAuditRoute: typeof AdminAuditRoute
   HomeRoute: typeof HomeRoute
-  FindFreelancerRoute: typeof FindFreelancerRoute
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   OnboardingRoute: typeof OnboardingRoute
   BieuMauTokenRoute: typeof BieuMauTokenRoute
-  FreelancerIdRoute: typeof FreelancerIdRoute
+  SlugRoute: typeof SlugRoute
+  HoSoTokenRoute: typeof HoSoTokenRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
@@ -315,13 +315,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/find-freelancer': {
-      id: '/find-freelancer'
-      path: '/find-freelancer'
-      fullPath: '/find-freelancer'
-      preLoaderRoute: typeof FindFreelancerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -364,11 +357,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BieuMauTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/freelancer/$id': {
-      id: '/freelancer/$id'
-      path: '/freelancer/$id'
-      fullPath: '/freelancer/$id'
-      preLoaderRoute: typeof FreelancerIdRouteImport
+    '/$slug': {
+      id: '/$slug'
+      path: '/$slug'
+      fullPath: '/$slug'
+      preLoaderRoute: typeof SlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ho-so/$token': {
+      id: '/ho-so/$token'
+      path: '/ho-so/$token'
+      fullPath: '/ho-so/$token'
+      preLoaderRoute: typeof HoSoTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/clients/$clientId': {
@@ -403,14 +403,14 @@ const rootRouteChildren: RootRouteChildren = {
   AdminAiCostsRoute: AdminAiCostsRoute,
   AdminAuditRoute: AdminAuditRoute,
   HomeRoute: HomeRoute,
-  FindFreelancerRoute: FindFreelancerRoute,
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   OnboardingRoute: OnboardingRoute,
   BieuMauTokenRoute: BieuMauTokenRoute,
-  FreelancerIdRoute: FreelancerIdRoute,
+  SlugRoute: SlugRoute,
+  HoSoTokenRoute: HoSoTokenRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,
   IntakeTokenRoute: IntakeTokenRoute,

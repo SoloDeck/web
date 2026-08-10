@@ -51,7 +51,6 @@ export function OnboardingWizard() {
             avatarUrl,
             professionalTitle: spec.label,
             skills: spec.skills,
-            serviceCategories: [spec.id],
           });
 
           toast.success("Đã thiết lập hồ sơ!", {

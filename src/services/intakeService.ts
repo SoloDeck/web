@@ -53,6 +53,27 @@ export type PublicIntakeFormConfigResponse = {
   fields: PublicIntakeFormFieldResponse[];
 };
 
+/**
+ * Hồ sơ freelancer hiện trên trang chia sẻ, ĐỨNG TRƯỚC biểu mẫu tiếp nhận.
+ *
+ * Cố ý không có `id`: trang này chỉ mở được bằng share token. Hồ sơ công khai cũ tra theo
+ * user id nên ai cũng dò được, và có dò được thì mới dựng nổi danh bạ — thứ khiến sản phẩm
+ * trông như một cái sàn thay vì CRM riêng của từng freelancer. Cũng không có rating/số dự
+ * án: SoloDesk không xếp hạng freelancer.  #Huynh
+ */
+export type PublicProfileResponse = {
+  full_name: string;
+  professional_title: string | null;
+  bio: string | null;
+  avatar_url: string | null;
+  /** Ảnh bìa: data URL base64 hoặc link https. Null = dùng gradient sinh từ brand_color. */
+  cover_url: string | null;
+  /** Mã hex. Trang ghi đè biến CSS --primary bằng giá trị này nên cả trang đổi màu theo. */
+  brand_color: string | null;
+  skills: string[];
+  portfolio_url: string | null;
+};
+
 // Payload gửi lên endpoint public POST /api/v1/intake/{share_token}.
 // `name` đang bắt buộc ở schema backend; các field còn lại validate theo config public.
 export type IntakePayload = {
@@ -117,6 +138,19 @@ export async function getPublicIntakeFormConfig(
 ): Promise<PublicIntakeFormConfigResponse> {
   const { data } = await axiosClient.get<ApiResponse<PublicIntakeFormConfigResponse>>(
     `/intake/${encodeURIComponent(shareToken)}/config`,
+  );
+  return data.data;
+}
+
+/**
+ * GET /intake/{shareToken}/profile — hồ sơ freelancer cho trang công khai, không cần đăng nhập.
+ *
+ * `shareToken` nhận CẢ token 43 ký tự lẫn tên đường dẫn riêng (`/thuthuy`): backend tra một
+ * truy vấn cho cả hai vì slug bị chặn 32 ký tự nên không bao giờ đụng token.
+ */
+export async function getPublicProfile(shareToken: string): Promise<PublicProfileResponse> {
+  const { data } = await axiosClient.get<ApiResponse<PublicProfileResponse>>(
+    `/intake/${encodeURIComponent(shareToken)}/profile`,
   );
   return data.data;
 }

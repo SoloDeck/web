@@ -17,7 +17,7 @@
 import { useState } from "react";
 import {
   BellRing, Briefcase, Check, Eye, EyeOff,
-  FileText, Globe, Lock, Loader2, MessageCircle, Save, User,
+  FileText, Lock, Loader2, MessageCircle, Palette, Save, User,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -28,9 +28,10 @@ import { changePassword } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
+import { AppearanceSettings } from "@/features/profile/components/AppearanceSettings";
+import { validateSlug } from "@/features/profile/slugRules";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
-import { Switch } from "@/components/ui/switch";
 
 type Props = {
   profile: Profile;
@@ -38,7 +39,9 @@ type Props = {
 };
 
 export function ProfileSettings({ profile, onSave }: Props) {
-  const [tab, setTab] = useState<"profile" | "reminders" | "zalo" | "security">("profile");
+  const [tab, setTab] = useState<
+    "profile" | "appearance" | "reminders" | "zalo" | "security"
+  >("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [confirming, setConfirming] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -61,7 +64,20 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
 
+  /**
+   * Tên đường dẫn tính Ở ĐÂY chứ không ở `AppearanceSettings`.
+   *
+   * Màn này đã giữ `draft` nên tự tính được — đẩy trạng thái hợp lệ từ con ngược lên cha
+   * qua callback + `useEffect` chỉ để khoá một cái nút là thêm một vòng đồng bộ không cần
+   * thiết, và thêm một chỗ có thể lệch pha.  #Huynh
+   */
+  const slugError = validateSlug(draft.profileSlug);
+  const canSave = dirty && !slugError;
+
   const handleSave = () => {
+    // Chặn cả ở đây, không chỉ ở thuộc tính disabled: luồng xác nhận có nút "Đồng ý" thứ
+    // hai, sửa slug hỏng trong lúc đang chờ xác nhận là lách qua được cửa đầu.
+    if (!canSave) return;
     onSave(draft);
     setConfirming(false);
     setSavedFlash(true);
@@ -109,10 +125,15 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
+    { id: "appearance" as const, label: "Trang công khai", icon: Palette },
     { id: "reminders" as const, label: "Nhắc nhở tự động", icon: BellRing },
     { id: "zalo" as const, label: "Zalo OA", icon: MessageCircle },
     { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
+
+  // Hai tab này cùng sửa `draft` và cùng một nút Lưu — thanh trạng thái phía dưới phải hiện
+  // ở cả hai, không thì sang tab Trang công khai là mất chỗ bấm lưu.
+  const isEditingProfile = tab === "profile" || tab === "appearance";
 
   return (
     <div className="p-4 lg:p-6 h-full flex flex-col">
@@ -213,30 +234,6 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   </div>
                 </div>
 
-                {/* Danh bạ công khai — trước đây backend đã nhận `is_listed` nhưng không
-                    có chỗ nào trên giao diện bật được, nên 91/92 tài khoản không bao giờ
-                    xuất hiện trên /find-freelancer.  #Huynh */}
-                <div className="rounded-xl border border-border bg-muted/20 p-4">
-                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                    <Globe className="h-3.5 w-3.5" /> Danh bạ công khai
-                  </div>
-                  <label className="flex cursor-pointer items-start justify-between gap-4">
-                    <span>
-                      <span className="block text-sm font-medium">
-                        Hiện hồ sơ trong danh bạ công khai
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Khách tìm được bạn theo nhóm dịch vụ và gửi yêu cầu thẳng qua biểu
-                        mẫu tiếp nhận của bạn. Tắt lúc nào cũng được.
-                      </span>
-                    </span>
-                    <Switch
-                      checked={draft.isListed}
-                      onCheckedChange={(v) => setDraft({ ...draft, isListed: v })}
-                    />
-                  </label>
-                </div>
-
                 {/* Bio */}
                 <div className="rounded-xl border border-border bg-muted/20 p-4">
                   <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -254,6 +251,10 @@ export function ProfileSettings({ profile, onSave }: Props) {
                 </div>
 
               </div>
+            )}
+
+            {tab === "appearance" && (
+              <AppearanceSettings draft={draft} onChange={setDraft} slugError={slugError} />
             )}
 
             {tab === "reminders" && <ReminderRulesSettings />}
@@ -362,7 +363,16 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
-            {tab === "profile" && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
+            {/* Nói ra vì sao nút Lưu chết. Lỗi tên đường dẫn chỉ hiện ở tab "Trang công
+                khai"; ai đang đứng ở tab Hồ sơ mà chỉ thấy nút mờ đi thì không đoán nổi
+                mình phải sửa gì, ở đâu.  #Huynh */}
+            {isEditingProfile && slugError ? (
+              <span className="text-destructive">
+                Tên đường dẫn chưa hợp lệ — sửa ở tab Trang công khai
+              </span>
+            ) : (
+              isEditingProfile && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")
+            )}
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                 <Check className="h-3.5 w-3.5" /> Đã lưu
@@ -370,7 +380,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {tab === "profile" && confirming ? (
+            {isEditingProfile && confirming ? (
               <>
                 <span className="text-xs text-muted-foreground">Xác nhận lưu thay đổi?</span>
                 <button
@@ -386,9 +396,10 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   <Check className="h-3.5 w-3.5" /> Đồng ý
                 </button>
               </>
-            ) : tab === "profile" ? (
+            ) : isEditingProfile ? (
               <button
-                disabled={!dirty}
+                disabled={!canSave}
+                title={slugError ?? undefined}
                 onClick={() => setConfirming(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-95 disabled:opacity-40"
               >

@@ -10,7 +10,10 @@ server {
     gzip_vary on;
     gzip_min_length 10240;
     gzip_proxied expired no-cache no-store private auth;
-    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml application/javascript;
+    # `application/json` là chủ ý, không phải thừa: ảnh đại diện và ảnh bìa của trang công
+    # khai lưu dạng data URL base64 NGAY TRONG JSON, mà base64 phình 33% so với nhị phân.
+    # Thiếu dòng này thì toàn bộ phần phình đó đi thẳng qua dây ở mọi lượt khách mở trang.
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml application/javascript application/json;
     gzip_disable "MSIE [1-6]\.";
 
     location /api/ {

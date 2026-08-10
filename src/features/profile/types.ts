@@ -12,21 +12,6 @@ export type ServiceCategory =
   | "Copywriter / SEO";
 
 /**
- * Slug nhóm dịch vụ của DANH BẠ — khác `ServiceCategory` ở trên.
- *
- * Năm giá trị này do backend định nghĩa (`GET /public/freelancers/categories`) và là
- * thứ duy nhất `service_categories` được phép chứa; gửi giá trị khác thì backend trả
- * 422. Đừng gộp với `ServiceCategory`: cái kia là CHỨC DANH nghề của freelancer, ghi
- * vào `specialization`, và frontend còn dùng nó làm cờ đã-xong-onboarding.  #Huynh
- */
-export type DirectoryCategory =
-  | "design"
-  | "programming"
-  | "marketing"
-  | "content"
-  | "consulting";
-
-/**
  * Nghề chuẩn hoá của freelancer — MIRROR danh mục BE
  * (backend/src/modules/intake_form/professions.py). BE validate slug; sai slug -> 422.
  * BE thêm/sửa nghề thì cập nhật ở ĐÂY cho khớp (chưa có GET /professions nên tạm hardcode;
@@ -51,9 +36,14 @@ export type Profile = {
   email: string;
   phone: string;
   skills: string[];
-  serviceCategories: string[];
   portfolioUrl: string;
-  isListed: boolean;
+  // --- Diện mạo trang công khai (tab "Trang công khai" trong Cài đặt hồ sơ) ---
+  /** Ảnh bìa dạng data URL đã nén ở client. "" = chưa có, trang dùng gradient theo màu. */
+  coverUrl: string;
+  /** Mã hex màu chủ đạo. "" = dùng tím mặc định của SoloDesk. */
+  brandColor: string;
+  /** Tên đường dẫn riêng, ví dụ "thuthuy" → /thuthuy. "" = chỉ dùng link token. */
+  profileSlug: string;
   hourlyRate: number;
   // --- Nhận tiền: in vào thư nhắc thanh toán để khách biết chuyển vào đâu ---
   /** Mã BIN VietQR. "" = chưa chọn ngân hàng. Hiện chưa có giao diện khai (đã bỏ tab "Nhận tiền"). */
@@ -96,9 +86,10 @@ export const DEFAULT_PROFILE: Profile = {
   email: "",
   phone: "",
   skills: [],
-  serviceCategories: [],
   portfolioUrl: "",
-  isListed: false,
+  coverUrl: "",
+  brandColor: "",
+  profileSlug: "",
   hourlyRate: 0,
   // Mặc định an toàn: coi như ĐÃ có mật khẩu, để form hiện đủ ô "Mật khẩu hiện tại" trong lúc
   // chưa tải xong hồ sơ. Đoán ngược lại là mời người dùng đặt mật khẩu mà không cần mật khẩu cũ.

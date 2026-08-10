@@ -1,7 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Menu, Plus, Search } from "lucide-react";
-import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
@@ -15,12 +14,11 @@ import { SubscriptionPage } from "@/features/subscriptions/components/Subscripti
 import { useDeals } from "@/features/deals/hooks/useDeals";
 import { useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { getMe, updateMe, updateFreelancerProfile } from "@/services/usersService";
-import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { getMe } from "@/services/usersService";
+import { useSaveProfile } from "@/features/profile/hooks/useSaveProfile";
 import { wasOnboardingSkipped } from "@/features/onboarding/skip";
 import type { Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
-import type { Profile } from "@/features/profile/types";
 import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 import type { ClientRecord } from "@/services/clientsService";
 
@@ -105,50 +103,8 @@ function Index() {
   const { deals, isLoading } = useDeals();
   const { profile, setProfile } = useProfile();
   const currentUser = useAuthStore((s) => s.user);
-  const updateUser = useAuthStore((s) => s.updateUser);
 
-  const handleSaveProfile = useCallback(async (p: Profile) => {
-    setProfile(p);
-    try {
-      // Ghi tên + SĐT trước rồi mới tới phần còn lại: SĐT là UNIQUE ở BE, gộp hết
-      // vào Promise.all thì SĐT trùng (409) nhưng bio/kỹ năng/mức giá vẫn được lưu
-      // — hồ sơ rơi vào trạng thái nửa vời mà người dùng không hề biết.
-      await updateMe({ full_name: p.fullName, phone: p.phone || undefined });
-
-      await updateFreelancerProfile({
-        professional_title: p.professionalTitle || undefined,
-        profession: p.profession || undefined,
-        bio: p.bio || undefined,
-        avatar_url: p.avatarUrl || undefined,
-        // Gửi thẳng giá trị boolean, không `|| undefined`: tắt công tắc phải TẮT thật,
-        // mà `false || undefined` là `undefined` nên backend sẽ bỏ qua.  #Huynh
-        is_listed: p.isListed,
-        // Thông tin nhận tiền + mặc định nhắc nhở. Gửi cả chuỗi rỗng (không dùng
-        // `|| undefined`) để XOÁ được: freelancer đổi ngân hàng thì phải bỏ được số cũ,
-        // mà số cũ nằm trong thư gửi khách.  #Huynh
-        bank_code: p.bankCode,
-        bank_account_number: p.bankAccountNumber,
-        bank_account_holder: p.bankAccountHolder,
-        momo_phone_number: p.momoPhone,
-        bank_account_info: p.bankNote,
-        reminder_signature: p.reminderSignature,
-        reminder_default_channel: p.reminderChannel || undefined,
-        reminder_default_hour: p.reminderHour ?? undefined,
-      });
-      updateUser({ fullName: p.fullName });
-      toast.success("Đã lưu hồ sơ.");
-    } catch (err) {
-      // BE nay ràng buộc UNIQUE trên email/phone → 409 kèm thông điệp cụ thể.
-      // Hiện đúng thông điệp đó, thay vì nuốt vào một câu chung chung.
-      if (getApiErrorStatus(err) === 409) {
-        toast.error(
-          getApiErrorMessage(err, "Số điện thoại đã được tài khoản khác sử dụng.")
-        );
-        return;
-      }
-      toast.error("Không thể lưu hồ sơ lên server. Thay đổi vẫn được lưu cục bộ.");
-    }
-  }, [setProfile, updateUser]);
+  const handleSaveProfile = useSaveProfile(setProfile);
 
   const [newDealOpen, setNewDealOpen] = useState(false);
   const openAiPanel = useAIActivityStore((state) => state.openPanel);

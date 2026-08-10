@@ -27,11 +27,11 @@ export function useProfile() {
           avatarUrl: me.avatar_url ?? prev.avatarUrl,
           bio: me.bio ?? prev.bio,
           profession: me.profession ?? prev.profession,
-          // CHỈ tin server cho trạng thái công khai: đây là thứ quyết định hồ sơ có
-          // lên danh bạ hay không, để bản nháp localStorage đè lên là hiển thị sai
-          // với chính chủ.  #Huynh
-          isListed: me.is_listed ?? false,
-          serviceCategories: me.service_categories ?? prev.serviceCategories,
+          // Diện mạo CHỈ tin server: ảnh bìa không được lưu vào localStorage (quá to), nên
+          // bản nháp cục bộ không bao giờ có giá trị đúng cho ba trường này.
+          coverUrl: me.cover_url ?? "",
+          brandColor: me.brand_color ?? "",
+          profileSlug: me.profile_slug ?? "",
           hourlyRate: Number.isFinite(rate) && rate > 0 ? rate : prev.hourlyRate,
           portfolioUrl: me.professional_profile?.portfolio_url ?? prev.portfolioUrl,
           skills: me.professional_profile?.skills?.length

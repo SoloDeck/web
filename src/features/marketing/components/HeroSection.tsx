@@ -1,6 +1,3 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, Search } from "lucide-react";
-
 import { RevealOnScroll } from "@/components/solodesk/RevealOnScroll";
 import { HERO, OFFICIAL_TITLE_VI } from "@/features/marketing/content";
 import { HeroKanbanSim } from "@/features/marketing/components/HeroKanbanSim";
@@ -46,26 +43,17 @@ export function HeroSection() {
 
         {/* Tên đề tài nguyên văn — thứ hội đồng dò khi đối chiếu web với phiếu. Để cỡ nhỏ
             và mờ: cần có mặt, không cần chiếm chỗ.  #Huynh */}
-        <p className="mx-auto mb-10 max-w-2xl text-xs leading-relaxed text-muted-foreground/60">
+        {/* `mb-14` gánh luôn khoảng cách của hàng nút đã bỏ bên dưới — đừng hạ xuống, không
+            thì tên đề tài dính sát vào minh hoạ Kanban.
+
+            KHÔNG có hàng nút ở đây. Bản trước có hai nút: "Tôi là freelancer — Bắt đầu miễn
+            phí" và "Tôi cần thuê — Tìm freelancer". Nút thứ hai mở cửa cho khách đi duyệt
+            danh bạ, đúng thứ khiến sản phẩm đọc như một cái sàn, nên bỏ cùng với danh bạ.
+            Nút thứ nhất bỏ nốt: navbar dính trên đầu trang đã có nút "Bắt đầu miễn phí" y
+            hệt, luôn nhìn thấy dù cuộn tới đâu — thêm một cái ngay dưới chỉ là lặp.  #Huynh */}
+        <p className="mx-auto mb-14 max-w-2xl text-xs leading-relaxed text-muted-foreground/60">
           {OFFICIAL_TITLE_VI}
         </p>
-
-        {/* Hai lối vào theo luồng màn hình số 1 của SRS: khách xem danh bạ, freelancer đăng nhập. */}
-        <div className="mb-16 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Link
-            to="/login"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 sm:w-auto"
-          >
-            {HERO.ctaFreelancer} <ArrowRight className="h-4 w-4" />
-          </Link>
-          <Link
-            to="/find-freelancer"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary hover:shadow-sm active:translate-y-0 sm:w-auto"
-          >
-            <Search className="h-4 w-4" />
-            {HERO.ctaClient}
-          </Link>
-        </div>
 
         <RevealOnScroll>
           <div className="relative mx-auto max-w-5xl">

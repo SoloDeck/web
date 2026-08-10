@@ -126,3 +126,69 @@ describe("<ProfileSettings /> — tab Bảo mật", () => {
     );
   }, 20_000);
 });
+
+describe("<ProfileSettings /> — chặn lưu khi tên đường dẫn sai", () => {
+  /**
+   * Vì sao có: `AppearanceSettings` vốn đã hiện lời cảnh báo, nhưng nút Lưu chỉ khoá theo
+   * "có thay đổi chưa" — gõ sai vẫn bấm được, bắn lên rồi ăn 422 với một câu chung chung.
+   */
+  async function moTabTrangCongKhai(profileSlug: string) {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <ProfileSettings profile={{ ...DEFAULT_PROFILE, profileSlug }} onSave={onSave} />,
+    );
+    await user.click(screen.getByRole("button", { name: /trang công khai/i }));
+    return { user, onSave };
+  }
+
+  const nutLuu = () => screen.getByRole("button", { name: /lưu thay đổi/i });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("tên sai định dạng thì nút Lưu chết và không gọi onSave", async () => {
+    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
+
+    const o = screen.getByLabelText(/tên đường dẫn/i);
+    await user.clear(o);
+    await user.type(o, "-sai-");
+
+    expect(nutLuu()).toBeDisabled();
+    await user.click(nutLuu());
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("tên dành riêng cho hệ thống cũng bị chặn ngay tại chỗ", async () => {
+    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
+
+    const o = screen.getByLabelText(/tên đường dẫn/i);
+    await user.clear(o);
+    await user.type(o, "login");
+
+    expect(screen.getByText(/dành riêng/i)).toBeInTheDocument();
+    expect(nutLuu()).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("sửa lại cho đúng thì lưu được", async () => {
+    const { user, onSave } = await moTabTrangCongKhai("");
+
+    await user.type(screen.getByLabelText(/tên đường dẫn/i), "thu-thuy");
+
+    expect(nutLuu()).toBeEnabled();
+    await user.click(nutLuu());
+    await user.click(screen.getByRole("button", { name: /đồng ý/i }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ profileSlug: "thu-thuy" }));
+  });
+
+  it("xoá trắng tên vẫn lưu được — đó là cách bỏ tên đã đặt", async () => {
+    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
+
+    await user.clear(screen.getByLabelText(/tên đường dẫn/i));
+
+    expect(nutLuu()).toBeEnabled();
+    await user.click(nutLuu());
+    await user.click(screen.getByRole("button", { name: /đồng ý/i }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ profileSlug: "" }));
+  });
+});

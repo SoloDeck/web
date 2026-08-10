@@ -5,7 +5,10 @@ import { IntakeLinkCard } from "./IntakeLinkCard";
 import { getMe } from "@/services/usersService";
 import type { UserResponse } from "@/services/usersService";
 
-vi.mock("@/services/usersService", () => ({ getMe: vi.fn() }));
+vi.mock("@/services/usersService", () => ({
+  getMe: vi.fn(),
+  usersKeys: { me: ["users", "me"] as const },
+}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 function makeMe(overrides: Partial<UserResponse> = {}): UserResponse {
@@ -31,8 +34,9 @@ function makeMe(overrides: Partial<UserResponse> = {}): UserResponse {
     avatar_url: null,
     bio: null,
     professional_title: null,
-    service_categories: [],
-    is_listed: false,
+    cover_url: null,
+    brand_color: null,
+    profile_slug: null,
     profession: null,
     has_password: true,
     intake_share_token: "tok-abc123",
@@ -76,16 +80,38 @@ afterEach(() => {
 });
 
 describe("<IntakeLinkCard />", () => {
-  it("copies the public intake URL (containing the token) to the clipboard", async () => {
-    vi.mocked(getMe).mockResolvedValue(makeMe({ intake_share_token: "tok-abc123" }));
+  it("chưa đặt tên riêng thì đưa link token của trang công khai", async () => {
+    // Đây là chỗ DUY NHẤT trong app lộ link trang công khai — bỏ danh bạ rồi thì không còn
+    // đường nào khác để freelancer lấy link của chính mình.
+    vi.mocked(getMe).mockResolvedValue(
+      makeMe({ intake_share_token: "tok-abc123", profile_slug: null }),
+    );
     renderCard();
 
-    const copyBtn = await screen.findByRole("button", { name: /Sao chép link/ });
-    fireEvent.click(copyBtn);
+    const buttons = await screen.findAllByRole("button", { name: /Sao chép link/ });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    const copied = writeText.mock.calls[0][0] as string;
-    expect(copied).toContain("/bieu-mau/tok-abc123");
+    expect(writeText.mock.calls[0][0] as string).toContain("/ho-so/tok-abc123");
+  });
+
+  it("đã đặt tên riêng thì link ngắn lên đầu, link token vẫn còn làm dự phòng", async () => {
+    vi.mocked(getMe).mockResolvedValue(
+      makeMe({ intake_share_token: "tok-abc123", profile_slug: "thu-thuy" }),
+    );
+    renderCard();
+
+    const buttons = await screen.findAllByRole("button", { name: /Sao chép link/ });
+    expect(buttons).toHaveLength(2);
+
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0][0] as string).toMatch(/\/thu-thuy$/);
+
+    fireEvent.click(buttons[1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+    expect(writeText.mock.calls[1][0] as string).toContain("/ho-so/tok-abc123");
   });
 
   it("shows a fallback (no copy button) when the token is null", async () => {
