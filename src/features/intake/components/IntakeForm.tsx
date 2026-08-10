@@ -23,6 +23,7 @@ import {
   uploadIntakeAttachment,
   type IntakePayload,
   type IntakeResult,
+  type PublicIntakeFormConfigResponse,
   type PublicIntakeFormFieldResponse,
 } from "@/services/intakeService";
 
@@ -47,7 +48,24 @@ const STANDARD_PAYLOAD_KEYS = new Set([
   "desired_timeline",
 ]);
 
-export function IntakeForm({ shareToken }: { shareToken: string }) {
+/**
+ * Biểu mẫu tiếp nhận công khai.
+ *
+ * `previewConfig` là đường dành cho KHUNG XEM TRƯỚC ở màn cấu hình. Truyền vào thì component
+ * lấy cấu hình từ đó và KHÔNG gọi API — freelancer đang gõ tiêu đề thì xem trước đổi theo
+ * từng phím, thay vì hiện bản đã lưu trên server.
+ *
+ * Cố ý dùng chung MỘT component cho cả trang thật lẫn xem trước, thay vì tách một component
+ * trình bày riêng: tách ra là mở đường cho hai bản giao diện trôi dần khỏi nhau, mà lệch
+ * nhau đúng là cái đang phải đi sửa. Dùng chung thì không có gì để lệch.  #Huynh
+ */
+export function IntakeForm({
+  shareToken,
+  previewConfig,
+}: {
+  shareToken: string;
+  previewConfig?: PublicIntakeFormConfigResponse;
+}) {
   const [values, setValues] = useState<FieldValues>({});
   const [result, setResult] = useState<IntakeResult | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -65,15 +83,22 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const isPreview = previewConfig !== undefined;
   const configQuery = useQuery({
     queryKey: ["public-intake-form-config", shareToken],
     queryFn: () => getPublicIntakeFormConfig(shareToken),
     retry: false,
+    enabled: !isPreview,
   });
 
+  const config = previewConfig ?? configQuery.data;
+  const isConfigLoading = !isPreview && configQuery.isLoading;
+  const isConfigError = !isPreview && configQuery.isError;
+  const isConfigReady = isPreview || configQuery.isSuccess;
+
   const fields = useMemo(
-    () => normalizePublicFields(configQuery.data?.fields ?? []),
-    [configQuery.data?.fields],
+    () => normalizePublicFields(config?.fields ?? []),
+    [config?.fields],
   );
 
   useEffect(() => {
@@ -130,18 +155,18 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
 
   const requiredFields = fields.filter((field) => field.is_required);
   const canSubmit =
-    configQuery.isSuccess &&
+    isConfigReady &&
     requiredFields.every((field) => values[field.field_key]?.trim()) &&
     !submitMutation.isPending;
 
   const contactFields = fields.filter((field) => CONTACT_FIELD_KEYS.has(field.field_key));
   const projectFields = fields.filter((field) => !CONTACT_FIELD_KEYS.has(field.field_key));
-  const title = configQuery.data?.title ?? "Biểu mẫu tiếp nhận yêu cầu";
-  const configuredDescription = configQuery.data?.description?.trim();
+  const title = config?.title || "Biểu mẫu tiếp nhận yêu cầu";
+  const configuredDescription = config?.description?.trim();
   const description =
     configuredDescription ||
     "Điền một vài thông tin để Freelancer hiểu rõ nhu cầu và chuẩn bị phương án tư vấn phù hợp.";
-  const freelancerName = configQuery.data?.freelancer_name ?? "Freelancer";
+  const freelancerName = config?.freelancer_name || "Freelancer";
 
   const updateValue = (fieldKey: string, value: string) => {
     setValues((current) => ({ ...current, [fieldKey]: value }));
@@ -165,6 +190,24 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
           setValues(createEmptyValues(fields));
         }}
       />
+    );
+  }
+
+  // Freelancer tắt công tắc "Biểu mẫu đang hoạt động". Trang vẫn giữ nguyên phần hồ sơ ở
+  // trên — link đã phát cho khách không được biến thành trang lỗi — nhưng nói thẳng ở đây
+  // thay vì để khách điền hết rồi mới ăn lỗi lúc bấm Gửi.  #Huynh
+  if (config && !config.is_active) {
+    return (
+      <section className="rounded-2xl border border-border bg-card p-8 text-center shadow-xl shadow-primary/5">
+        <div className="mx-auto grid size-12 place-items-center rounded-full bg-muted text-muted-foreground">
+          <LockKeyhole className="size-5" />
+        </div>
+        <h2 className="mt-4 text-lg font-bold">Hiện chưa nhận yêu cầu mới</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+          {freelancerName} đang tạm ngưng nhận yêu cầu qua biểu mẫu này. Bạn hãy liên hệ trực
+          tiếp, hoặc quay lại sau nhé.
+        </p>
+      </section>
     );
   }
 
@@ -195,9 +238,9 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
         </div>
       </div>
 
-          {configQuery.isLoading ? (
+          {isConfigLoading ? (
             <LoadingState />
-          ) : configQuery.isError ? (
+          ) : isConfigError ? (
             <ErrorState onRetry={() => configQuery.refetch()} />
           ) : (
             <form onSubmit={onSubmit}>

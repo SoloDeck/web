@@ -96,22 +96,21 @@ describe("<IntakeLinkCard />", () => {
     expect(writeText.mock.calls[0][0] as string).toContain("/ho-so/tok-abc123");
   });
 
-  it("đã đặt tên riêng thì link ngắn lên đầu, link token vẫn còn làm dự phòng", async () => {
+  it("đã đặt tên riêng thì CHỈ đưa link ngắn, không bày kèm link dài", async () => {
+    // Hai link cạnh nhau cho cùng một trang chỉ bắt người dùng chọn giữa hai thứ y hệt nhau.
+    // Link dài vẫn chạy song song ở backend, chỉ là không cần hiện ra.
     vi.mocked(getMe).mockResolvedValue(
       makeMe({ intake_share_token: "tok-abc123", profile_slug: "thu-thuy" }),
     );
     renderCard();
 
     const buttons = await screen.findAllByRole("button", { name: /Sao chép link/ });
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(1);
 
     fireEvent.click(buttons[0]);
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0][0] as string).toMatch(/\/thu-thuy$/);
-
-    fireEvent.click(buttons[1]);
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
-    expect(writeText.mock.calls[1][0] as string).toContain("/ho-so/tok-abc123");
+    expect(screen.queryByDisplayValue(/\/ho-so\//)).not.toBeInTheDocument();
   });
 
   it("shows a fallback (no copy button) when the token is null", async () => {

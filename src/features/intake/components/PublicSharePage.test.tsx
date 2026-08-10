@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PublicSharePage } from "./PublicSharePage";
 import {
@@ -35,6 +35,7 @@ const CONFIG: PublicIntakeFormConfigResponse = {
   title: "Gửi yêu cầu dự án",
   description: "Điền giúp mình vài thông tin nhé.",
   freelancer_name: "Trần Thị Thiết Kế",
+  is_active: true,
   fields: [
     {
       field_key: "name",
@@ -120,14 +121,19 @@ describe("<PublicSharePage />", () => {
     }
   });
 
-  it("nút chính dẫn tới khối biểu mẫu ngay trong trang, và chỉ có MỘT nút như vậy", async () => {
+  it("khối hồ sơ hết nút 'Gửi yêu cầu cho X' — chỉ còn nút ở thanh trên", async () => {
+    // Hai nút cạnh nhau dẫn tới cùng một chỗ chỉ bắt khách phải cân nhắc. Nút còn lại trong
+    // trang là nút GỬI của chính biểu mẫu, việc khác hẳn.
     vi.mocked(getPublicProfile).mockResolvedValue(PROFILE);
     renderPage();
 
     await screen.findByRole("heading", { name: "Trần Thị Thiết Kế" });
-    const links = screen.getAllByRole("link", { name: /gửi yêu cầu/i });
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("href", "#bieu-mau");
+    expect(screen.queryByRole("button", { name: /gửi yêu cầu cho/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /gửi yêu cầu/i })).not.toBeInTheDocument();
+    // Nút của thanh trên; nút "Gửi yêu cầu" còn lại là nút submit của biểu mẫu, trùng tên
+    // nhưng khác việc — nên khoanh vùng theo thanh trên cho khỏi lẫn.
+    const thanhTren = screen.getByRole("banner");
+    expect(within(thanhTren).getByRole("button", { name: "Gửi yêu cầu" })).toBeInTheDocument();
   });
 
   it("đường dẫn sai thì báo không tìm thấy, và KHÔNG có link nào để đi tìm người khác", async () => {

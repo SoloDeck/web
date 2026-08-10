@@ -8,7 +8,11 @@ import { updateFreelancerProfile, updateMe, usersKeys } from "@/services/usersSe
 import { getApiErrorDetail, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 
 /**
- * Lưu hồ sơ lên server, gồm cả diện mạo trang công khai.
+ * Lưu hồ sơ freelancer lên server: thông tin cơ bản, hồ sơ năng lực, nhận tiền, nhắc nhở.
+ *
+ * KHÔNG đụng tới diện mạo trang công khai (ảnh bìa, màu, tên đường dẫn) — ba trường đó do
+ * màn "Trang công khai" giữ. Gửi kèm ở đây là ghi đè bằng bản nháp cũ của màn này mỗi lần
+ * người dùng lưu một thứ chẳng liên quan.
  *
  * Tách khỏi `routes/index.tsx` vì hai lẽ: AGENTS.md nói `routes/` không chứa logic nghiệp
  * vụ, và bản cũ nằm trong component nên muốn test phải dựng cả workspace (sidebar, danh
@@ -16,12 +20,8 @@ import { getApiErrorDetail, getApiErrorMessage, getApiErrorStatus } from "@/lib/
  *
  * Hai lượt ghi CỐ Ý nối tiếp chứ không `Promise.all`: số điện thoại là UNIQUE ở backend, gộp
  * lại thì số trùng (409) nhưng bio/kỹ năng/mức giá vẫn được lưu — hồ sơ nửa vời mà người
- * dùng không hề biết.
- *
- * Mỗi lượt bắt lỗi RIÊNG. Bản cũ dùng chung một `catch` và mọi 409 đều báo "số điện thoại đã
- * được dùng" — nhưng lượt số điện thoại đã `await` xong từ trước, nên 409 rơi vào đây chắc
- * chắn là TÊN ĐƯỜNG DẪN trùng. Người dùng đổi tên đường dẫn lại đi tìm số điện thoại của
- * mình sai chỗ nào.  #Huynh
+ * dùng không hề biết. Mỗi lượt bắt lỗi RIÊNG để 409 của số điện thoại không bị gán nhầm cho
+ * lượt sau.  #Huynh
  */
 export function useSaveProfile(onLocalSave: (p: Profile) => void) {
   const qc = useQueryClient();
@@ -50,11 +50,13 @@ export function useSaveProfile(onLocalSave: (p: Profile) => void) {
           profession: p.profession || undefined,
           bio: p.bio || undefined,
           avatar_url: p.avatarUrl || undefined,
-          // Diện mạo trang công khai. Gửi cả chuỗi rỗng để XOÁ được (bỏ ảnh bìa, bỏ màu, bỏ
-          // tên đường dẫn) — BE hiểu "" là "trả về mặc định" chứ không trả 422.
-          cover_url: p.coverUrl,
-          brand_color: p.brandColor,
-          profile_slug: p.profileSlug,
+          // Hồ sơ năng lực. Trước đây ba trường này KHÔNG được gửi: kỹ năng chỉ vào được
+          // một lần lúc onboarding, còn mức giá và portfolio thì không đường nào đặt —
+          // trong khi trang công khai vẫn render sẵn nút Portfolio. Gửi cả chuỗi rỗng và
+          // mảng rỗng để XOÁ được, đừng `|| undefined`.  #Huynh
+          skills: p.skills,
+          portfolio_url: p.portfolioUrl,
+          default_hourly_rate: p.hourlyRate > 0 ? p.hourlyRate : undefined,
           // Thông tin nhận tiền + mặc định nhắc nhở. Gửi cả chuỗi rỗng (không dùng
           // `|| undefined`) để XOÁ được: freelancer đổi ngân hàng thì phải bỏ được số cũ,
           // mà số cũ nằm trong thư gửi khách.  #Huynh

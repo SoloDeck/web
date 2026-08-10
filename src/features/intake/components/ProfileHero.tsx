@@ -1,4 +1,4 @@
-import { ExternalLink, Clock3, Send, ShieldCheck } from "lucide-react";
+import { ExternalLink, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ProfileHeroData = {
@@ -7,7 +7,6 @@ export type ProfileHeroData = {
   bio?: string | null;
   avatarUrl?: string | null;
   coverUrl?: string | null;
-  skills?: string[];
   portfolioUrl?: string | null;
 };
 
@@ -20,8 +19,10 @@ function getInitials(name: string): string {
 }
 
 /**
- * Khối hồ sơ đứng đầu trang công khai: ảnh bìa, avatar đè lên bìa, tên, chức danh, giới
- * thiệu và kỹ năng.
+ * Khối hồ sơ đứng đầu trang công khai: ảnh bìa, avatar đè lên bìa, tên, chức danh, giới thiệu.
+ *
+ * KHÔNG có nút "Gửi yêu cầu" riêng: thanh trên đầu trang đã ghim sẵn một nút như vậy, để hai
+ * cái cạnh nhau là bắt người ta cân nhắc giữa hai đường dẫn tới cùng một chỗ.
  *
  * THUẦN TRÌNH BÀY, không tự gọi API — nhờ vậy màn Cài đặt dùng lại được chính component này
  * làm khung xem trước, và những gì freelancer thấy lúc chỉnh đúng từng pixel với những gì
@@ -30,18 +31,8 @@ function getInitials(name: string): string {
  * Không có sao đánh giá, số lượt review, số dự án hay huy hiệu: SoloDesk là CRM riêng của
  * từng freelancer, không phải sàn để khách đem nhiều người ra so.  #Huynh
  */
-export function ProfileHero({
-  data,
-  ctaHref = "#bieu-mau",
-  onCtaClick,
-}: {
-  data: ProfileHeroData;
-  /** Neo tới khối biểu mẫu. Ở khung xem trước thì truyền "" để nút thành trang trí. */
-  ctaHref?: string;
-  onCtaClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const { fullName, professionalTitle, bio, avatarUrl, coverUrl, skills, portfolioUrl } = data;
-  const shortName = fullName.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || fullName;
+export function ProfileHero({ data }: { data: ProfileHeroData }) {
+  const { fullName, professionalTitle, bio, avatarUrl, coverUrl, portfolioUrl } = data;
 
   return (
     <div>
@@ -93,26 +84,10 @@ export function ProfileHero({
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               <Chip icon={ShieldCheck}>Thông tin của bạn được bảo mật</Chip>
-              <Chip icon={Clock3}>Phản hồi qua biểu mẫu</Chip>
             </div>
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-2">
-            {ctaHref ? (
-              <a
-                href={ctaHref}
-                onClick={onCtaClick}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition hover:opacity-90"
-              >
-                <Send className="size-4" />
-                Gửi yêu cầu cho {shortName}
-              </a>
-            ) : (
-              <span className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25">
-                <Send className="size-4" />
-                Gửi yêu cầu cho {shortName}
-              </span>
-            )}
             {portfolioUrl && (
               <a
                 href={portfolioUrl}
@@ -127,33 +102,16 @@ export function ProfileHero({
           </div>
         </div>
 
-        {(bio || (skills && skills.length > 0)) && (
-          <div className="mt-8 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-            {bio && (
-              <section className="rounded-2xl border border-border bg-card p-5 shadow-xs sm:p-6">
-                <h2 className="text-sm font-semibold">Giới thiệu</h2>
-                <p className="mt-3 whitespace-pre-line text-sm leading-7 text-muted-foreground">
-                  {bio}
-                </p>
-              </section>
-            )}
-            {skills && skills.length > 0 && (
-              <section className="rounded-2xl border border-border bg-card p-5 shadow-xs sm:p-6">
-                {/* Đúng chữ "Kỹ năng" — KHÔNG thêm "nổi bật": trang này không xếp hạng ai. */}
-                <h2 className="text-sm font-semibold">Kỹ năng</h2>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {skills.map((s) => (
-                    <span
-                      key={s}
-                      className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
-                    >
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
+        {/* Một cột, không phải lưới: khối "Kỹ năng" bên phải đã bỏ, để nguyên
+            `lg:grid-cols-[1.6fr_1fr]` thì phần giới thiệu co còn 1.6/2.6 bề ngang và chừa
+            một mảng trống bên cạnh. */}
+        {bio && (
+          <section className="mt-8 rounded-2xl border border-border bg-card p-5 shadow-xs sm:p-6">
+            <h2 className="text-sm font-semibold">Giới thiệu</h2>
+            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-muted-foreground">
+              {bio}
+            </p>
+          </section>
         )}
       </div>
     </div>

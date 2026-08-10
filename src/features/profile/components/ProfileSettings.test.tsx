@@ -127,68 +127,61 @@ describe("<ProfileSettings /> — tab Bảo mật", () => {
   }, 20_000);
 });
 
-describe("<ProfileSettings /> — chặn lưu khi tên đường dẫn sai", () => {
+
+describe("<ProfileSettings /> — Hồ sơ năng lực", () => {
   /**
-   * Vì sao có: `AppearanceSettings` vốn đã hiện lời cảnh báo, nhưng nút Lưu chỉ khoá theo
-   * "có thay đổi chưa" — gõ sai vẫn bấm được, bắn lên rồi ăn 422 với một câu chung chung.
+   * SRS định nghĩa Professional Profile gồm nghề, kỹ năng, mức giá và portfolio. Ba ô dưới
+   * đây từng bị gỡ ở 5f57449 nên kỹ năng mắc kẹt ở bộ chuỗi cứng của preset onboarding,
+   * còn mức giá và portfolio thì không đường nào đặt được.
    */
-  async function moTabTrangCongKhai(profileSlug: string) {
+  beforeEach(() => vi.clearAllMocks());
+
+  function moTabHoSo(profile: Partial<Profile> = {}) {
     const user = userEvent.setup();
     const onSave = vi.fn();
-    render(
-      <ProfileSettings profile={{ ...DEFAULT_PROFILE, profileSlug }} onSave={onSave} />,
-    );
-    await user.click(screen.getByRole("button", { name: /trang công khai/i }));
+    render(<ProfileSettings profile={{ ...DEFAULT_PROFILE, ...profile }} onSave={onSave} />);
     return { user, onSave };
   }
 
   const nutLuu = () => screen.getByRole("button", { name: /lưu thay đổi/i });
 
-  beforeEach(() => vi.clearAllMocks());
-
-  it("tên sai định dạng thì nút Lưu chết và không gọi onSave", async () => {
-    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
-
-    const o = screen.getByLabelText(/tên đường dẫn/i);
-    await user.clear(o);
-    await user.type(o, "-sai-");
-
-    expect(nutLuu()).toBeDisabled();
-    await user.click(nutLuu());
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it("tên dành riêng cho hệ thống cũng bị chặn ngay tại chỗ", async () => {
-    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
-
-    const o = screen.getByLabelText(/tên đường dẫn/i);
-    await user.clear(o);
-    await user.type(o, "login");
-
-    expect(screen.getByText(/dành riêng/i)).toBeInTheDocument();
-    expect(nutLuu()).toBeDisabled();
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it("sửa lại cho đúng thì lưu được", async () => {
-    const { user, onSave } = await moTabTrangCongKhai("");
-
-    await user.type(screen.getByLabelText(/tên đường dẫn/i), "thu-thuy");
-
-    expect(nutLuu()).toBeEnabled();
+  async function luu(user: ReturnType<typeof userEvent.setup>) {
     await user.click(nutLuu());
     await user.click(screen.getByRole("button", { name: /đồng ý/i }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ profileSlug: "thu-thuy" }));
+  }
+
+  it("thêm kỹ năng bằng Enter rồi lưu thì gửi lên đủ", async () => {
+    const { user, onSave } = moTabHoSo({ skills: ["ReactJS"] });
+
+    await user.type(screen.getByLabelText("Nhập kỹ năng"), "NodeJS{Enter}");
+    await luu(user);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: ["ReactJS", "NodeJS"] }),
+    );
   });
 
-  it("xoá trắng tên vẫn lưu được — đó là cách bỏ tên đã đặt", async () => {
-    const { user, onSave } = await moTabTrangCongKhai("thu-thuy");
+  it("xoá hết kỹ năng cũng lưu được — mảng rỗng phải đi lên, không phải bị bỏ qua", async () => {
+    const { user, onSave } = moTabHoSo({ skills: ["ReactJS"] });
 
-    await user.clear(screen.getByLabelText(/tên đường dẫn/i));
+    await user.click(screen.getByRole("button", { name: /xoá kỹ năng reactjs/i }));
+    await luu(user);
 
-    expect(nutLuu()).toBeEnabled();
-    await user.click(nutLuu());
-    await user.click(screen.getByRole("button", { name: /đồng ý/i }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ profileSlug: "" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ skills: [] }));
+  });
+
+  it("mức giá và portfolio lưu được — trước đây không có ô nào để nhập", async () => {
+    const { user, onSave } = moTabHoSo();
+
+    await user.type(screen.getByLabelText(/mức giá theo giờ/i), "300000");
+    await user.type(screen.getByLabelText(/link portfolio/i), "https://behance.net/toi");
+    await luu(user);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hourlyRate: 300000,
+        portfolioUrl: "https://behance.net/toi",
+      }),
+    );
   });
 });

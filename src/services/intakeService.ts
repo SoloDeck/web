@@ -51,6 +51,8 @@ export type PublicIntakeFormConfigResponse = {
   description: string | null;
   freelancer_name: string;
   fields: PublicIntakeFormFieldResponse[];
+  /** Freelancer còn nhận yêu cầu mới không. Tắt thì trang vẫn hiện hồ sơ, chỉ thay chỗ form. */
+  is_active: boolean;
 };
 
 /**

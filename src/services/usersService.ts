@@ -101,6 +101,12 @@ export type FreelancerProfilePayload = {
   skills?: string[];
   avatar_url?: string;
   portfolio_url?: string;
+  /**
+   * Mức giá theo giờ. Nằm ở endpoint NÀY chứ không phải `professional-profile` là có chủ
+   * đích: màn Cài đặt lưu bằng hai lệnh nối tiếp, thêm một endpoint nữa là thêm một đường
+   * hỏng nửa chừng cho một con số.
+   */
+  default_hourly_rate?: number;
   // --- Diện mạo trang công khai ---
   cover_url?: string;
   /** Mã hex. Gửi chuỗi rỗng để bỏ màu — BE hiểu "" là None chứ không trả 422. */

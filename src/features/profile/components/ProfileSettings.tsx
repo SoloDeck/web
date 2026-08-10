@@ -14,10 +14,10 @@
 // Ghi chú cho backend: DB *có* sẵn cột `users.bank_account_info`, `momo_phone_number`,
 // `zalo_oa_*` — chỉ thiếu endpoint. Khi nào backend làm, dựng lại tab là chuyện nhỏ.
 //   #Huynh
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   BellRing, Briefcase, Check, Eye, EyeOff,
-  FileText, Lock, Loader2, MessageCircle, Palette, Save, User,
+  FileText, Lock, Loader2, MessageCircle, Plus, Save, Tag, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,10 +26,7 @@ import {
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
-import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
-import { AppearanceSettings } from "@/features/profile/components/AppearanceSettings";
-import { validateSlug } from "@/features/profile/slugRules";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
 
@@ -40,7 +37,7 @@ type Props = {
 
 export function ProfileSettings({ profile, onSave }: Props) {
   const [tab, setTab] = useState<
-    "profile" | "appearance" | "reminders" | "zalo" | "security"
+    "profile" | "reminders" | "zalo" | "security"
   >("profile");
   const [draft, setDraft] = useState<Profile>(profile);
   const [confirming, setConfirming] = useState(false);
@@ -64,15 +61,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
 
-  /**
-   * Tên đường dẫn tính Ở ĐÂY chứ không ở `AppearanceSettings`.
-   *
-   * Màn này đã giữ `draft` nên tự tính được — đẩy trạng thái hợp lệ từ con ngược lên cha
-   * qua callback + `useEffect` chỉ để khoá một cái nút là thêm một vòng đồng bộ không cần
-   * thiết, và thêm một chỗ có thể lệch pha.  #Huynh
-   */
-  const slugError = validateSlug(draft.profileSlug);
-  const canSave = dirty && !slugError;
+  const canSave = dirty;
 
   const handleSave = () => {
     // Chặn cả ở đây, không chỉ ở thuộc tính disabled: luồng xác nhận có nút "Đồng ý" thứ
@@ -125,15 +114,13 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
   const tabs = [
     { id: "profile" as const, label: "Hồ sơ", icon: Briefcase },
-    { id: "appearance" as const, label: "Trang công khai", icon: Palette },
     { id: "reminders" as const, label: "Nhắc nhở tự động", icon: BellRing },
     { id: "zalo" as const, label: "Zalo OA", icon: MessageCircle },
     { id: "security" as const, label: "Bảo mật", icon: Lock },
   ];
 
-  // Hai tab này cùng sửa `draft` và cùng một nút Lưu — thanh trạng thái phía dưới phải hiện
-  // ở cả hai, không thì sang tab Trang công khai là mất chỗ bấm lưu.
-  const isEditingProfile = tab === "profile" || tab === "appearance";
+  // Chỉ tab Hồ sơ sửa `draft`; thanh trạng thái và nút Lưu ở chân màn chỉ hiện ở đó.
+  const isEditingProfile = tab === "profile";
 
   return (
     <div className="p-4 lg:p-6 h-full flex flex-col">
@@ -160,8 +147,6 @@ export function ProfileSettings({ profile, onSave }: Props) {
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             {tab === "profile" && (
               <div className="space-y-6">
-                <IntakeLinkCard />
-
                 {/* Avatar + identity card */}
                 <div className="rounded-xl border border-border bg-muted/20 p-4">
                   <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -250,12 +235,56 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   </Field>
                 </div>
 
+                {/* Hồ sơ năng lực — SRS định nghĩa gồm nghề, kỹ năng, mức giá, portfolio.
+                    Ba ô dưới đây từng bị gỡ ở 5f57449 nên trước đó chỉ onboarding điền được
+                    một lần rồi thôi: kỹ năng là chuỗi cứng theo preset (ai cùng preset thì
+                    giống hệt nhau), còn mức giá và portfolio thì không đường nào đặt được —
+                    trong khi trang công khai vẫn render sẵn nút Portfolio.  #Huynh */}
+                <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Tag className="h-3.5 w-3.5" /> Hồ sơ năng lực
+                  </div>
+
+                  <Field label="Kỹ năng">
+                    <SkillsInput
+                      value={draft.skills}
+                      onChange={(skills) => setDraft({ ...draft, skills })}
+                    />
+                  </Field>
+                  <p className="text-xs text-muted-foreground">
+                    Hiện thành các thẻ trên trang công khai của bạn. Lúc đăng ký đã điền sẵn
+                    theo mảng bạn chọn — sửa lại cho đúng mình nhé.
+                  </p>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="Mức giá theo giờ (VND)">
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        value={draft.hourlyRate || ""}
+                        onChange={(e) =>
+                          setDraft({ ...draft, hourlyRate: Number(e.target.value) || 0 })
+                        }
+                        placeholder="VD: 300000"
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Link portfolio">
+                      <input
+                        type="url"
+                        value={draft.portfolioUrl}
+                        onChange={(e) => setDraft({ ...draft, portfolioUrl: e.target.value })}
+                        placeholder="https://behance.net/ten-cua-ban"
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
               </div>
             )}
 
-            {tab === "appearance" && (
-              <AppearanceSettings draft={draft} onChange={setDraft} slugError={slugError} />
-            )}
 
             {tab === "reminders" && <ReminderRulesSettings />}
 
@@ -363,16 +392,7 @@ export function ProfileSettings({ profile, onSave }: Props) {
 
         <div className="border-t border-border px-6 py-3 flex items-center justify-between bg-muted/20">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
-            {/* Nói ra vì sao nút Lưu chết. Lỗi tên đường dẫn chỉ hiện ở tab "Trang công
-                khai"; ai đang đứng ở tab Hồ sơ mà chỉ thấy nút mờ đi thì không đoán nổi
-                mình phải sửa gì, ở đâu.  #Huynh */}
-            {isEditingProfile && slugError ? (
-              <span className="text-destructive">
-                Tên đường dẫn chưa hợp lệ — sửa ở tab Trang công khai
-              </span>
-            ) : (
-              isEditingProfile && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")
-            )}
+            {isEditingProfile && (dirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ")}
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                 <Check className="h-3.5 w-3.5" /> Đã lưu
@@ -399,7 +419,6 @@ export function ProfileSettings({ profile, onSave }: Props) {
             ) : isEditingProfile ? (
               <button
                 disabled={!canSave}
-                title={slugError ?? undefined}
                 onClick={() => setConfirming(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-95 disabled:opacity-40"
               >
@@ -422,5 +441,85 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs font-medium text-muted-foreground mb-1.5">{label}</div>
       {children}
     </label>
+  );
+}
+
+/**
+ * Ô nhập kỹ năng dạng thẻ: Enter hoặc dấu phẩy để thêm, Backspace khi ô trống để xoá lùi.
+ *
+ * Bản này lấy lại từ commit `5f57449^` — nó từng bị gỡ cùng lúc với ô Portfolio, khiến kỹ
+ * năng chỉ vào được đúng một lần lúc onboarding và mắc kẹt ở bộ chuỗi cứng của preset.
+ */
+function SkillsInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const add = () => {
+    const trimmed = input.trim();
+    if (trimmed && !value.includes(trimmed)) {
+      onChange([...value, trimmed]);
+    }
+    setInput("");
+  };
+
+  const remove = (skill: string) => onChange(value.filter((s) => s !== skill));
+
+  return (
+    // Bấm vào khoảng trống trong khung cũng phải focus được ô nhập, không thì người dùng
+    // phải nhắm đúng con trỏ text bé xíu ở cuối hàng thẻ.
+    <div
+      className="flex min-h-[42px] cursor-text flex-wrap gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-primary/30"
+      onClick={() => inputRef.current?.focus()}
+    >
+      {value.map((skill) => (
+        <span
+          key={skill}
+          className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+        >
+          {skill}
+          <button
+            type="button"
+            aria-label={`Xoá kỹ năng ${skill}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              remove(skill);
+            }}
+            className="hover:text-destructive"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        // Ô trần nằm giữa hàng thẻ, và placeholder biến mất ngay khi có thẻ đầu tiên — không
+        // có nhãn này thì trình đọc màn hình chỉ đọc ra "edit text" trống trơn.
+        aria-label="Nhập kỹ năng"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            // Ô này nằm trong màn có nút Lưu — không chặn thì Enter submit cả form.
+            e.preventDefault();
+            add();
+          }
+          if (e.key === "Backspace" && !input && value.length > 0) {
+            remove(value[value.length - 1]);
+          }
+        }}
+        placeholder={value.length === 0 ? "Nhập kỹ năng, Enter để thêm..." : ""}
+        className="min-w-[140px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      />
+      {input && (
+        <button
+          type="button"
+          aria-label="Thêm kỹ năng"
+          onClick={add}
+          className="grid place-items-center rounded-full bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/20"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   );
 }

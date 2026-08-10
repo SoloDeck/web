@@ -84,8 +84,8 @@ const PAGE_META: Record<NavKey, { title: string; description: string }> = {
     description: "Theo dõi báo giá, hợp đồng và dòng tiền.",
   },
   "intake-form": {
-    title: "Biểu mẫu tiếp nhận",
-    description: "Cấu hình form public để khách gửi yêu cầu dự án.",
+    title: "Trang công khai",
+    description: "Dựng trang khách sẽ mở: diện mạo, biểu mẫu tiếp nhận và link chia sẻ.",
   },
   settings: {
     title: "Cài đặt hồ sơ",
