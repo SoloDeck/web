@@ -25,6 +25,7 @@ import {
   Users,
   X,
   XCircle,
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
@@ -40,6 +41,8 @@ import {
   useUpdateAdminPlan,
   useUpdateAdminTemplate,
   useUpdateAdminUser,
+  useAdminLLMProvider,
+  useUpdateAdminLLMProvider,
 } from "@/features/admin/hooks/useAdmin";
 import { PROFESSIONS } from "@/features/profile/types";
 import { cn } from "@/lib/utils";
@@ -53,7 +56,8 @@ import type {
   AdminUserStatus,
 } from "@/services/adminService";
 
-export type AdminPage = "dashboard" | "users" | "plans" | "templates" | "ai-costs" | "audit";
+export type AdminPage = "dashboard" | "users" | "plans" | "templates" | 
+"ai-config" |"ai-costs" | "audit";
 
 const ADMIN_NAV_ITEMS: {
   page: AdminPage;
@@ -89,6 +93,13 @@ const ADMIN_NAV_ITEMS: {
       path: "/admin/templates",
       icon: FileText,
       description: "Mẫu điều khoản báo giá / hợp đồng theo nghề",
+    },
+    {
+      page: "ai-config",
+      label: "Cấu hình AI",
+      path: "/admin/ai-config",
+      icon: Settings,
+      description: "Chọn AI provider và model đang được hệ thống sử dụng",
     },
     {
       page: "ai-costs",
@@ -203,6 +214,8 @@ export function AdminDashboard({ page = "dashboard" }: { page?: AdminPage }) {
             <PlansPage plans={plans} stats={stats} />
           ) : page === "templates" ? (
             <TemplatesPage />
+          ) : page === "ai-config" ? (
+            <AiConfigPage />
           ) : page === "ai-costs" ? (
             <AiCostsPage />
           ) : page === "audit" ? (
@@ -1640,6 +1653,199 @@ function TemplateForm({
     </form>
   );
 }
+
+/**
+ * Trang cho phép Admin đổi provider (grog,gemini,ollama) và model. Trung
+ */
+function AiConfigPage() {
+  const AI_PROVIDER_OPTIONS: {
+    value: "groq" | "gemini" | "ollama";
+    label: string;
+  }[] = [
+    { value: "groq", label: "Groq" },
+    { value: "gemini", label: "Gemini" },
+    { value: "ollama", label: "Ollama" },
+  ];
+
+  const AI_MODELS_BY_PROVIDER: Record<
+    "groq" | "gemini" | "ollama",
+    string[]
+  > = {
+    groq: [
+      "llama-3.3-70b-versatile",
+      "llama-3.1-8b-instant",
+    ],
+    gemini: [
+      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+    ],
+    ollama: [
+      "qwen3:4b",
+    ],
+  };
+
+  const { data, isLoading, isError, refetch } = useAdminLLMProvider();
+  const updateMutation = useUpdateAdminLLMProvider();
+
+  const [selectedProvider, setSelectedProvider] = useState<
+    "groq" | "gemini" | "ollama"
+  >("groq");
+
+  const [selectedModel, setSelectedModel] = useState(
+    "llama-3.3-70b-versatile",
+  );
+
+  useEffect(() => {
+    if (!data) return;
+
+    setSelectedProvider(data.llm_provider);
+    setSelectedModel(data.llm_model);
+  }, [data]);
+
+  const availableModels = AI_MODELS_BY_PROVIDER[selectedProvider];
+
+  function handleProviderChange(
+    provider: "groq" | "gemini" | "ollama",
+  ) {
+    setSelectedProvider(provider);
+    setSelectedModel(AI_MODELS_BY_PROVIDER[provider][0]);
+  }
+
+  function handleSave() {
+    updateMutation.mutate({
+      llm_provider: selectedProvider,
+      llm_model: selectedModel,
+    });
+  }
+
+  if (isLoading) {
+    return (
+      <PanelShell title="Cấu hình AI" icon={Settings}>
+        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Đang tải cấu hình AI...
+        </div>
+      </PanelShell>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <PanelShell title="Cấu hình AI" icon={Settings}>
+        <div className="space-y-3 py-4">
+          <p className="text-sm text-muted-foreground">
+            Không thể tải cấu hình AI.
+          </p>
+          <Button type="button" variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="size-4" />
+            Thử lại
+          </Button>
+        </div>
+      </PanelShell>
+    );
+  }
+
+  return (
+    <PanelShell
+      title="Cấu hình AI"
+      icon={Settings}
+    >
+      <div className="max-w-2xl space-y-6">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="space-y-2">
+            <label
+              htmlFor="ai-provider"
+              className="text-sm font-semibold"
+            >
+              AI Provider
+            </label>
+
+            <select
+              id="ai-provider"
+              value={selectedProvider}
+              onChange={(event) =>
+                handleProviderChange(
+                  event.target.value as "groq" | "gemini" | "ollama",
+                )
+              }
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            >
+              {AI_PROVIDER_OPTIONS.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="ai-model"
+              className="text-sm font-semibold"
+            >
+              Model
+            </label>
+
+            <select
+              id="ai-model"
+              value={selectedModel}
+              onChange={(event) =>
+                setSelectedModel(event.target.value)
+              }
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            >
+              {availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-muted/30 p-4">
+          <div className="flex items-start gap-3">
+            <Settings className="mt-0.5 size-5 text-muted-foreground" />
+
+            <div>
+              <p className="text-sm font-semibold">
+                Cấu hình hiện tại
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Provider:{" "}
+                <span className="font-medium text-foreground">
+                  {selectedProvider}
+                </span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Model:{" "}
+                <span className="font-medium text-foreground">
+                  {selectedModel}
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
+            {updateMutation.isPending ? "Đang lưu..." : "Lưu cấu hình"}
+          </Button>
+        </div>
+      </div>
+    </PanelShell>
+  );
+}
+
 
 /**
  * Chi phí AI toàn hệ thống.
