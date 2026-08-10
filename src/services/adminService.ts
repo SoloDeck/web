@@ -8,6 +8,18 @@ import type { ApiResponse } from "@/features/auth/types";
 export type AdminUserRole = "freelancer" | "admin";
 export type AdminUserStatus = "active" | "suspended" | "deleted";
 
+export type LLMProvider = "groq" | "gemini" | "ollama";
+
+export type AdminLLMProviderResponse = {
+  llm_provider: LLMProvider;
+  llm_model: string;
+};
+
+export type AdminUpdateLLMProviderPayload = {
+  llm_provider: LLMProvider;
+  llm_model: string;
+};
+
 /** Gói của một user — backend TRẢ KÈM trong GET /admin/users, trước đây FE không khai nên vứt đi. */
 export type AdminUserSubscription = {
   id: string;
@@ -310,4 +322,28 @@ export async function listAuditLogs(): Promise<AdminAuditLog[]> {
   >("/admin/audit-logs", { params: { page_size: 50 } });
   const payload = data.data;
   return Array.isArray(payload) ? payload : (payload?.data ?? []);
+}
+
+/**
+ * GET /admin/ai-provider — current AI provider and model configuration.
+ */
+export async function getAdminLLMProvider(): Promise<AdminLLMProviderResponse> {
+  const { data } = await axiosClient.get<
+    ApiResponse<AdminLLMProviderResponse>
+  >("/admin/ai-provider");
+
+  return data.data;
+}
+
+/**
+ * PATCH /admin/ai-provider — change the AI provider and model.
+ */
+export async function updateAdminLLMProvider(
+  payload: AdminUpdateLLMProviderPayload,
+): Promise<AdminLLMProviderResponse> {
+  const { data } = await axiosClient.patch<
+    ApiResponse<AdminLLMProviderResponse>
+  >("/admin/ai-provider", payload);
+
+  return data.data;
 }

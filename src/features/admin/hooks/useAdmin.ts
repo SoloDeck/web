@@ -14,6 +14,9 @@ import {
   updateAdminPlan,
   updateAdminTemplate,
   updateAdminUser,
+  getAdminLLMProvider,
+  updateAdminLLMProvider,
+  type AdminUpdateLLMProviderPayload,
   type AdminPlanPayload,
   type AdminTemplateCreatePayload,
   type AdminTemplateFilter,
@@ -27,6 +30,7 @@ export const adminKeys = {
   aiCosts: ["admin", "ai-costs"] as const,
   auditLogs: ["admin", "audit-logs"] as const,
   templates: ["admin", "templates"] as const,
+  aiProvider: ["admin", "ai-provider"] as const,
 };
 
 export function useAdminTemplates(filter: AdminTemplateFilter = {}) {
@@ -167,5 +171,38 @@ export function useReinstateAdminUser() {
       toast.success("Đã mở khoá tài khoản.");
     },
     onError: () => toast.error("Không mở khoá được tài khoản. Vui lòng thử lại."),
+  });
+}
+
+/**
+ * Admin đổi ai provider và model. Trung
+ */
+export function useAdminLLMProvider() {
+  return useQuery({
+    queryKey: adminKeys.aiProvider,
+    queryFn: getAdminLLMProvider,
+  });
+}
+
+export function useUpdateAdminLLMProvider() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: AdminUpdateLLMProviderPayload) =>
+      updateAdminLLMProvider(payload),
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: adminKeys.aiProvider,
+      });
+
+      toast.success("Đã cập nhật AI provider và model.");
+    },
+
+    onError: () => {
+      toast.error(
+        "Không thể cập nhật AI provider và model. Vui lòng thử lại.",
+      );
+    },
   });
 }
