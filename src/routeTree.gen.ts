@@ -10,8 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as AdminRouteImport } from './routes/admin'
-import { Route as FindFreelancerRouteImport } from './routes/find-freelancer'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as LoginRouteImport } from './routes/login'
@@ -26,7 +26,7 @@ import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
-import { Route as FreelancerIdRouteImport } from './routes/freelancer.$id'
+import { Route as HoSoTokenRouteImport } from './routes/ho-so.$token'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 
 const IndexRoute = IndexRouteImport.update({
@@ -34,14 +34,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SlugRoute = SlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FindFreelancerRoute = FindFreelancerRouteImport.update({
-  id: '/find-freelancer',
-  path: '/find-freelancer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -114,9 +114,9 @@ const DealsDealIdRoute = DealsDealIdRouteImport.update({
   path: '/deals/$dealId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FreelancerIdRoute = FreelancerIdRouteImport.update({
-  id: '/freelancer/$id',
-  path: '/freelancer/$id',
+const HoSoTokenRoute = HoSoTokenRouteImport.update({
+  id: '/ho-so/$token',
+  path: '/ho-so/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IntakeTokenRoute = IntakeTokenRouteImport.update({
@@ -127,8 +127,8 @@ const IntakeTokenRoute = IntakeTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$slug': typeof SlugRoute
   '/admin': typeof AdminRouteWithChildren
-  '/find-freelancer': typeof FindFreelancerRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
@@ -143,13 +143,13 @@ export interface FileRoutesByFullPath {
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$slug': typeof SlugRoute
   '/admin': typeof AdminRouteWithChildren
-  '/find-freelancer': typeof FindFreelancerRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
@@ -164,14 +164,14 @@ export interface FileRoutesByTo {
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$slug': typeof SlugRoute
   '/admin': typeof AdminRouteWithChildren
-  '/find-freelancer': typeof FindFreelancerRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
@@ -186,15 +186,15 @@ export interface FileRoutesById {
   '/bieu-mau/$token': typeof BieuMauTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/freelancer/$id': typeof FreelancerIdRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$slug'
     | '/admin'
-    | '/find-freelancer'
     | '/forgot-password'
     | '/home'
     | '/login'
@@ -209,13 +209,13 @@ export interface FileRouteTypes {
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/freelancer/$id'
+    | '/ho-so/$token'
     | '/intake/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$slug'
     | '/admin'
-    | '/find-freelancer'
     | '/forgot-password'
     | '/home'
     | '/login'
@@ -230,13 +230,13 @@ export interface FileRouteTypes {
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/freelancer/$id'
+    | '/ho-so/$token'
     | '/intake/$token'
   id:
     | '__root__'
     | '/'
+    | '/$slug'
     | '/admin'
-    | '/find-freelancer'
     | '/forgot-password'
     | '/home'
     | '/login'
@@ -251,14 +251,14 @@ export interface FileRouteTypes {
     | '/bieu-mau/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/freelancer/$id'
+    | '/ho-so/$token'
     | '/intake/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SlugRoute: typeof SlugRoute
   AdminRoute: typeof AdminRouteWithChildren
-  FindFreelancerRoute: typeof FindFreelancerRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
@@ -267,7 +267,7 @@ export interface RootRouteChildren {
   BieuMauTokenRoute: typeof BieuMauTokenRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
-  FreelancerIdRoute: typeof FreelancerIdRoute
+  HoSoTokenRoute: typeof HoSoTokenRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
 }
 
@@ -280,18 +280,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$slug': {
+      id: '/$slug'
+      path: '/$slug'
+      fullPath: '/$slug'
+      preLoaderRoute: typeof SlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin': {
       id: '/admin'
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/find-freelancer': {
-      id: '/find-freelancer'
-      path: '/find-freelancer'
-      fullPath: '/find-freelancer'
-      preLoaderRoute: typeof FindFreelancerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -392,11 +392,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DealsDealIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/freelancer/$id': {
-      id: '/freelancer/$id'
-      path: '/freelancer/$id'
-      fullPath: '/freelancer/$id'
-      preLoaderRoute: typeof FreelancerIdRouteImport
+    '/ho-so/$token': {
+      id: '/ho-so/$token'
+      path: '/ho-so/$token'
+      fullPath: '/ho-so/$token'
+      preLoaderRoute: typeof HoSoTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/intake/$token': {
@@ -431,8 +431,8 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SlugRoute: SlugRoute,
   AdminRoute: AdminRouteWithChildren,
-  FindFreelancerRoute: FindFreelancerRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
@@ -441,7 +441,7 @@ const rootRouteChildren: RootRouteChildren = {
   BieuMauTokenRoute: BieuMauTokenRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,
-  FreelancerIdRoute: FreelancerIdRoute,
+  HoSoTokenRoute: HoSoTokenRoute,
   IntakeTokenRoute: IntakeTokenRoute,
 }
 export const routeTree = rootRouteImport

@@ -45,6 +45,7 @@ vi.mock("@/services/usersService", () => ({
   updateMe: (...args: unknown[]) => mockUpdateMe(...args),
   updateFreelancerProfile: (...args: unknown[]) => mockUpdateFreelancer(...args),
   updateProfessionalProfile: (...args: unknown[]) => mockUpdateProfessional(...args),
+  usersKeys: { me: ["users", "me"] as const },
 }));
 
 vi.mock("@/services/profileService", () => ({
@@ -121,10 +122,9 @@ describe("<OnboardingWizard />", () => {
     );
   });
 
-  it("ghi SLUG danh bạ vào service_categories, không phải chức danh nghề", async () => {
-    // Đây chính là chỗ đã để lọt lỗi: trước đây onboarding ghi "Web Developer" trong khi
-    // /find-freelancer lọc bằng "programming", nên chọn nhóm nào cũng ra rỗng — mà không
-    // test nào khẳng định payload này. Backend giờ trả 422 nếu gửi sai.  #Huynh
+  it("không còn gửi nhóm dịch vụ của danh bạ, chỉ gửi chức danh nghề", async () => {
+    // Danh bạ đã bỏ nên `service_categories` cũng không còn — backend đã gỡ trường này
+    // khỏi schema. `specialization` thì GIỮ: frontend dùng nó làm cờ đã-xong-onboarding.
     const user = userEvent.setup();
     renderWizard(<OnboardingWizard />);
     await screen.findByText("Trần Thị Thiết Kế");
@@ -132,13 +132,9 @@ describe("<OnboardingWizard />", () => {
     await user.click(screen.getByRole("button", { name: /lập trình web/i }));
     await user.click(screen.getByRole("button", { name: /bắt đầu dùng solodesk/i }));
 
-    await waitFor(() =>
-      expect(mockUpdateFreelancer).toHaveBeenCalledWith(
-        expect.objectContaining({ service_categories: ["programming"] })
-      )
-    );
+    await waitFor(() => expect(mockUpdateFreelancer).toHaveBeenCalled());
+    expect(mockUpdateFreelancer.mock.calls[0][0]).not.toHaveProperty("service_categories");
 
-    // `specialization` thì GIỮ NGUYÊN chức danh: frontend dùng nó làm cờ đã-xong-onboarding.
     expect(mockUpdateProfessional).toHaveBeenCalledWith(
       expect.objectContaining({ specialization: "Web Developer" })
     );

@@ -4,14 +4,11 @@ import {
   BriefcaseBusiness,
   Check,
   CheckCircle2,
-  Clock3,
-  FileCheck2,
   FileText,
   Loader2,
   LockKeyhole,
   Paperclip,
   Send,
-  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -26,6 +23,7 @@ import {
   uploadIntakeAttachment,
   type IntakePayload,
   type IntakeResult,
+  type PublicIntakeFormConfigResponse,
   type PublicIntakeFormFieldResponse,
 } from "@/services/intakeService";
 
@@ -50,7 +48,24 @@ const STANDARD_PAYLOAD_KEYS = new Set([
   "desired_timeline",
 ]);
 
-export function IntakeForm({ shareToken }: { shareToken: string }) {
+/**
+ * Biểu mẫu tiếp nhận công khai.
+ *
+ * `previewConfig` là đường dành cho KHUNG XEM TRƯỚC ở màn cấu hình. Truyền vào thì component
+ * lấy cấu hình từ đó và KHÔNG gọi API — freelancer đang gõ tiêu đề thì xem trước đổi theo
+ * từng phím, thay vì hiện bản đã lưu trên server.
+ *
+ * Cố ý dùng chung MỘT component cho cả trang thật lẫn xem trước, thay vì tách một component
+ * trình bày riêng: tách ra là mở đường cho hai bản giao diện trôi dần khỏi nhau, mà lệch
+ * nhau đúng là cái đang phải đi sửa. Dùng chung thì không có gì để lệch.  #Huynh
+ */
+export function IntakeForm({
+  shareToken,
+  previewConfig,
+}: {
+  shareToken: string;
+  previewConfig?: PublicIntakeFormConfigResponse;
+}) {
   const [values, setValues] = useState<FieldValues>({});
   const [result, setResult] = useState<IntakeResult | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -68,15 +83,22 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const isPreview = previewConfig !== undefined;
   const configQuery = useQuery({
     queryKey: ["public-intake-form-config", shareToken],
     queryFn: () => getPublicIntakeFormConfig(shareToken),
     retry: false,
+    enabled: !isPreview,
   });
 
+  const config = previewConfig ?? configQuery.data;
+  const isConfigLoading = !isPreview && configQuery.isLoading;
+  const isConfigError = !isPreview && configQuery.isError;
+  const isConfigReady = isPreview || configQuery.isSuccess;
+
   const fields = useMemo(
-    () => normalizePublicFields(configQuery.data?.fields ?? []),
-    [configQuery.data?.fields],
+    () => normalizePublicFields(config?.fields ?? []),
+    [config?.fields],
   );
 
   useEffect(() => {
@@ -133,18 +155,18 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
 
   const requiredFields = fields.filter((field) => field.is_required);
   const canSubmit =
-    configQuery.isSuccess &&
+    isConfigReady &&
     requiredFields.every((field) => values[field.field_key]?.trim()) &&
     !submitMutation.isPending;
 
   const contactFields = fields.filter((field) => CONTACT_FIELD_KEYS.has(field.field_key));
   const projectFields = fields.filter((field) => !CONTACT_FIELD_KEYS.has(field.field_key));
-  const title = configQuery.data?.title ?? "Biểu mẫu tiếp nhận yêu cầu";
-  const configuredDescription = configQuery.data?.description?.trim();
+  const title = config?.title || "Biểu mẫu tiếp nhận yêu cầu";
+  const configuredDescription = config?.description?.trim();
   const description =
     configuredDescription ||
     "Điền một vài thông tin để Freelancer hiểu rõ nhu cầu và chuẩn bị phương án tư vấn phù hợp.";
-  const freelancerName = configQuery.data?.freelancer_name ?? "Freelancer";
+  const freelancerName = config?.freelancer_name || "Freelancer";
 
   const updateValue = (fieldKey: string, value: string) => {
     setValues((current) => ({ ...current, [fieldKey]: value }));
@@ -171,99 +193,54 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
     );
   }
 
-  return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-60" />
+  // Freelancer tắt công tắc "Biểu mẫu đang hoạt động". Trang vẫn giữ nguyên phần hồ sơ ở
+  // trên — link đã phát cho khách không được biến thành trang lỗi — nhưng nói thẳng ở đây
+  // thay vì để khách điền hết rồi mới ăn lỗi lúc bấm Gửi.  #Huynh
+  if (config && !config.is_active) {
+    return (
+      <section className="rounded-2xl border border-border bg-card p-8 text-center shadow-xl shadow-primary/5">
+        <div className="mx-auto grid size-12 place-items-center rounded-full bg-muted text-muted-foreground">
+          <LockKeyhole className="size-5" />
+        </div>
+        <h2 className="mt-4 text-lg font-bold">Hiện chưa nhận yêu cầu mới</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+          {freelancerName} đang tạm ngưng nhận yêu cầu qua biểu mẫu này. Bạn hãy liên hệ trực
+          tiếp, hoặc quay lại sau nhé.
+        </p>
+      </section>
+    );
+  }
 
-      <header className="relative z-10 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Brand />
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <LockKeyhole className="size-3.5 text-success" />
-            <span className="hidden sm:inline">Kết nối được bảo mật</span>
-            <span className="sm:hidden">Bảo mật</span>
+  return (
+    // KHÔNG có vỏ trang ở đây (không min-h-screen, không header, không footer): component
+    // này giờ là một khối nằm bên dưới hồ sơ trong `PublicSharePage`, không còn là cả trang.
+    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-primary/5">
+      <div className="h-1.5 bg-gradient-to-r from-primary to-primary-glow" />
+      <div className="border-b border-border px-5 py-5 sm:px-7 sm:py-6">
+        <div className="flex items-start gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+            <BriefcaseBusiness className="size-5" />
+          </div>
+          <div>
+            {/* Tên freelancer xuất hiện ĐÚNG MỘT LẦN trong khối này — hồ sơ phía trên đã in
+                tên ở thẻ h1 rồi, lặp lại nữa là thừa và làm hỏng phép đếm trong test. */}
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Gửi tới <span className="text-foreground">{freelancerName}</span>
+            </div>
+            <h2 className="mt-0.5 text-xl font-bold tracking-tight">{title}</h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {description}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Các trường có dấu <span className="font-semibold text-destructive">*</span> là thông tin bắt buộc.
+            </p>
           </div>
         </div>
-      </header>
+      </div>
 
-      <main className="relative z-10 mx-auto grid max-w-6xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[0.72fr_1.28fr] lg:gap-12 lg:py-16">
-        <aside className="self-start lg:sticky lg:top-24">
-          {/* Freelancer profile card */}
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="grid size-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-primary-glow text-xl font-bold text-primary-foreground shadow-lg shadow-primary/20">
-                {freelancerName
-                  .split(" ")
-                  .filter(Boolean)
-                  .map((w) => w[0].toUpperCase())
-                  .slice(0, 2)
-                  .join("")}
-              </div>
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Biểu mẫu tiếp nhận của
-                </div>
-                <div className="mt-0.5 truncate text-lg font-bold leading-tight">
-                  {freelancerName}
-                </div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-success">
-                  <span className="inline-block size-1.5 rounded-full bg-success" />
-                  Freelancer chuyên nghiệp
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 border-t border-border pt-4">
-              <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            <Benefit
-              icon={FileCheck2}
-              title="Thông tin rõ ràng"
-              description="Giúp hai bên tiết kiệm thời gian trao đổi ban đầu."
-            />
-            <Benefit
-              icon={Clock3}
-              title="Chỉ mất vài phút"
-              description="Bạn có thể bổ sung chi tiết sau khi Freelancer liên hệ."
-            />
-            <Benefit
-              icon={ShieldCheck}
-              title="Riêng tư và bảo mật"
-              description="Thông tin chỉ được sử dụng để tư vấn cho yêu cầu này."
-            />
-          </div>
-
-          <div className="mt-6 hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
-            <Check className="size-3.5 text-success" />
-            Không cần đăng nhập hoặc tạo tài khoản
-          </div>
-        </aside>
-
-        <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-primary/5">
-          <div className="h-1.5 bg-gradient-to-r from-primary to-primary-glow" />
-          <div className="border-b border-border px-5 py-5 sm:px-7 sm:py-6">
-            <div className="flex items-start gap-3">
-              <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-                <BriefcaseBusiness className="size-5" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  {description}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Các trường có dấu <span className="font-semibold text-destructive">*</span> là thông tin bắt buộc.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {configQuery.isLoading ? (
+          {isConfigLoading ? (
             <LoadingState />
-          ) : configQuery.isError ? (
+          ) : isConfigError ? (
             <ErrorState onRetry={() => configQuery.refetch()} />
           ) : (
             <form onSubmit={onSubmit}>
@@ -392,15 +369,9 @@ export function IntakeForm({ shareToken }: { shareToken: string }) {
                   Khi gửi biểu mẫu, bạn đồng ý để Freelancer liên hệ lại về yêu cầu này.
                 </p>
               </div>
-            </form>
-          )}
-        </section>
-      </main>
-
-      <footer className="relative z-10 border-t border-border/60 py-5 text-center text-xs text-muted-foreground">
-        Biểu mẫu được tạo và bảo mật bởi <span className="font-semibold text-foreground">SoloDesk</span>
-      </footer>
-    </div>
+        </form>
+      )}
+    </section>
   );
 }
 
@@ -464,27 +435,7 @@ function Brand() {
       </div>
       <div>
         <div className="text-sm font-bold tracking-tight">SoloDesk</div>
-        <div className="text-[10px] text-muted-foreground">Kết nối Freelancer chuyên nghiệp</div>
-      </div>
-    </div>
-  );
-}
-
-type BenefitProps = {
-  icon: typeof FileCheck2;
-  title: string;
-  description: string;
-};
-
-function Benefit({ icon: Icon, title, description }: BenefitProps) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-card text-primary shadow-xs">
-        <Icon className="size-4" />
-      </div>
-      <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+        <div className="text-[10px] text-muted-foreground">Quản lý khách hàng cho freelancer</div>
       </div>
     </div>
   );
@@ -600,10 +551,10 @@ function SuccessState({
   onSendAnother: () => void;
 }) {
   return (
-    <div className="relative grid min-h-screen place-items-center overflow-hidden bg-background p-4">
-      <div className="pointer-events-none absolute inset-0 hero-dot-grid opacity-60" />
-
-      <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card text-center shadow-xl">
+    // Không chiếm cả màn hình nữa: hồ sơ freelancer vẫn nằm phía trên, nên lời cảm ơn hiện
+    // ngay tại chỗ biểu mẫu vừa biến mất — khách vẫn thấy mình đang ở trang của ai.
+    <div className="mx-auto w-full max-w-lg">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card text-center shadow-xl">
         <div className="h-1.5 bg-gradient-to-r from-success to-primary" />
         <div className="p-7 sm:p-10">
           <div className="mx-auto grid size-16 place-items-center rounded-full bg-success/10 text-success ring-8 ring-success/5">

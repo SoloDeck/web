@@ -1,13 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { IntakeForm } from "@/features/intake/components/IntakeForm";
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router";
 
-// Route public đúng với share_url backend trả về: /bieu-mau/{share_token}.
+// Đường dẫn đã phát cho khách hàng từ trước — phải giữ chạy. Render cùng trang với /ho-so.
 export const Route = createFileRoute("/bieu-mau/$token")({
-  component: PublicIntakePage,
+  component: lazyRouteComponent(
+    () => import("@/features/intake/components/publicShareRoutes"),
+    "BieuMauPage",
+  ),
 });
-
-// eslint-disable-next-line react-refresh/only-export-components
-function PublicIntakePage() {
-  const { token } = Route.useParams();
-  return <IntakeForm shareToken={token} />;
-}

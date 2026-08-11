@@ -6,10 +6,12 @@ import {
   updateFreelancerProfile,
   updateMe,
   updateProfessionalProfile,
+  usersKeys,
 } from "@/services/usersService";
 
+/** Giữ tên cũ cho chỗ đang gọi, nhưng trỏ về khoá dùng chung ở `usersService`. */
 export const onboardingKeys = {
-  me: ["users", "me"] as const,
+  me: usersKeys.me,
 };
 
 /** Hồ sơ hiện tại — dùng để hiện sẵn tên/email đã đăng ký lên thẻ. */
@@ -54,9 +56,6 @@ export function useCompleteOnboarding() {
           professional_title: spec.label,
           bio: bio.trim() || undefined,
           skills: spec.skills,
-          // Slug danh bạ, KHÔNG phải `spec.id`. Ghi `spec.id` ("Web Developer") thì
-          // /find-freelancer lọc mãi không ra, và giờ backend cũng trả 422.  #Huynh
-          service_categories: [spec.categorySlug],
           avatar_url: avatarUrl || undefined,
         }),
         updateProfessionalProfile({

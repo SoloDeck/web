@@ -1,4 +1,4 @@
-import type { DirectoryCategory, ServiceCategory } from "@/features/profile/types";
+import type { ServiceCategory } from "@/features/profile/types";
 
 /**
  * Mỗi chuyên môn kèm sẵn chức danh + kỹ năng gợi ý, để onboarding điền hộ người
@@ -12,15 +12,6 @@ import type { DirectoryCategory, ServiceCategory } from "@/features/profile/type
 export type SpecializationOption = {
   /** Chức danh nghề — ghi vào `specialization`. Frontend dùng làm cờ đã-xong-onboarding. */
   id: ServiceCategory;
-  /**
-   * Slug nhóm dịch vụ của danh bạ — ghi vào `service_categories`.
-   *
-   * PHẢI tách khỏi `id`: trước đây onboarding ghi thẳng `id` ("Web Developer") vào
-   * `service_categories`, trong khi /find-freelancer lọc bằng slug ("programming").
-   * Hai bộ từ vựng không giao nhau nên chọn nhóm nào cũng ra rỗng. Backend giờ đã
-   * validate và trả 422 nếu gửi sai, nên đừng đổi lại thành `id`.  #Huynh
-   */
-  categorySlug: DirectoryCategory;
   label: string;
   description: string;
   skills: string[];
@@ -29,35 +20,30 @@ export type SpecializationOption = {
 export const SPECIALIZATIONS: SpecializationOption[] = [
   {
     id: "Brand & Content Designer",
-    categorySlug: "design",
     label: "Thiết kế thương hiệu & nội dung",
     description: "Logo, bộ nhận diện, ấn phẩm truyền thông",
     skills: ["Thiết kế logo", "Nhận diện thương hiệu", "Thiết kế ấn phẩm", "Figma", "Adobe Illustrator"],
   },
   {
     id: "Web Developer",
-    categorySlug: "programming",
     label: "Lập trình Web",
     description: "Website, landing page, ứng dụng web",
     skills: ["ReactJS", "NodeJS", "Responsive design", "Tích hợp API", "WordPress"],
   },
   {
     id: "Marketing Consultant",
-    categorySlug: "marketing",
     label: "Tư vấn Marketing",
     description: "Chiến lược, quảng cáo, tăng trưởng",
     skills: ["Chiến lược marketing", "Facebook Ads", "Google Ads", "Content marketing", "Phân tích dữ liệu"],
   },
   {
     id: "Photographer / Videographer",
-    categorySlug: "design",
     label: "Nhiếp ảnh & Quay dựng",
     description: "Chụp sản phẩm, quay phim, hậu kỳ",
     skills: ["Chụp ảnh sản phẩm", "Quay dựng video", "Hậu kỳ", "Adobe Premiere", "Lightroom"],
   },
   {
     id: "Copywriter / SEO",
-    categorySlug: "content",
     label: "Viết nội dung & SEO",
     description: "Bài viết, chuẩn SEO, nội dung website",
     skills: ["Viết content", "SEO on-page", "Nghiên cứu từ khoá", "Content strategy", "Google Analytics"],

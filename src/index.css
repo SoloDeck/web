@@ -119,6 +119,27 @@
   }
 }
 
+/* ── Hero entrance ─────────────────────────────────────────────────────────────
+   Dành cho phần NẰM SẴN TRÊN MÀN ĐẦU, khác `.reveal-on-scroll` ở một điểm quyết định:
+   `.reveal-on-scroll` đặt `opacity: 0` ở rule GỐC, nên phần tử vô hình cho tới khi JS
+   dựng xong IntersectionObserver. Với tiêu đề hero — phần tử LCP, và là chữ máy tìm kiếm
+   đọc — thì đó là cái giá không đáng trả.
+
+   `animation-fill-mode: both` cho đúng trạng thái ẩn ấy TỪ TRONG keyframe, nên CSS tự lo
+   từ đầu tới cuối, không cần JS. Và khi người dùng bật giảm chuyển động, `animation: none`
+   để phần tử ở trạng thái hiện tự nhiên của nó — không phải gỡ thêm gì.  #Huynh */
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+.hero-rise {
+  animation: hero-rise 700ms ease-out both;
+  animation-delay: var(--hero-delay, 0ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-rise { animation: none; }
+}
+
 /* ── Aurora Background ─────────────────────────────────────────────────────── */
 @keyframes aurora-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
@@ -145,11 +166,15 @@
   }
 }
 
-/* ── Hero dot grid ─────────────────────────────────────────────────────────── */
+/* ── Hero dot grid ───────────────────────────────────────────────────────────
+   Lấy màu từ biến --primary thay vì ghi cứng, để trang công khai của freelancer (nơi
+   --primary bị ghi đè bằng màu họ chọn) có lưới chấm đúng tông. Giá trị cũ ghi cứng
+   `oklch(0.50 0.18 270 / 0.07)` CHÍNH LÀ --primary mặc định ở 7% alpha, nên trang giới
+   thiệu không đổi một pixel nào.  #Huynh */
 .hero-dot-grid {
   background-image: radial-gradient(
     circle,
-    oklch(0.50 0.18 270 / 0.07) 1px,
+    color-mix(in oklab, var(--primary) 7%, transparent) 1px,
     transparent 1px
   );
   background-size: 28px 28px;

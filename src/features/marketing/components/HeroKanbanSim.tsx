@@ -99,7 +99,14 @@ function SimCard({ deal, scored }: { deal: SimDeal; scored: boolean }) {
   const Icon = ui.icon;
 
   return (
-    <article className="h-[5rem] overflow-hidden rounded-xl border border-border bg-card p-2.5 shadow-sm">
+    // Nhấc `0.5` chứ không phải `1.5` như các thẻ khác trên trang, và bóng dừng ở `md`:
+    // lớp cha là `overflow-hidden` với mép cắt sát ngay hàng thẻ trên cùng, nhấc cao hơn
+    // là hàng đầu bị xén ngang, nhìn ra như lỗi dựng chứ không ra hiệu ứng. Phần "nổi lên"
+    // chủ yếu do viền đổi màu gánh — mà viền thì không bị mép cắt ăn mất.
+    //
+    // Đặt ở ĐÂY, không đặt lên khối bọc bên ngoài: khối đó mang `transform` inline để chạy
+    // hiệu ứng đổi cột, thêm class transform vào là hai bên ghi đè nhau.  #Huynh
+    <article className="h-[5rem] overflow-hidden rounded-xl border border-border bg-card p-2.5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md hover:shadow-black/[0.08] motion-reduce:transition-none">
       {/* Tiêu đề chiếm trọn dòng: cột chỉ rộng 8.75rem, để badge chen ngang là tên dự án
           tiếng Việt bị cắt gần hết. Badge xuống nằm cạnh giá thì cả hai đều đọc được.
           line-clamp-1 vẫn cần vì tên dài rất dễ xuống dòng và tràn thẻ.  #Huynh */}

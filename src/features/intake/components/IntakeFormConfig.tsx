@@ -1,14 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Check,
-  ChevronDown,
   ClipboardCheck,
-  Copy,
   Eye,
-  EyeOff,
   FileText,
-  Info,
-  Link2,
   Loader2,
   Pencil,
   Plus,
@@ -34,14 +28,30 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { cn } from "@/lib/utils";
+import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { validateSlug } from "@/features/profile/slugRules";
+import {
+  AppearanceSettings,
+  type AppearanceDraft,
+} from "@/features/intake/components/AppearanceSettings";
+import { IntakeLinkCard } from "@/features/intake/components/IntakeLinkCard";
+import { PreviewFrame } from "@/features/intake/components/PreviewFrame";
+import { PublicSharePageView } from "@/features/intake/components/PublicSharePageView";
+import {
+  getMe,
+  updateFreelancerProfile,
+  usersKeys,
+  type UserResponse,
+} from "@/services/usersService";
 import {
   getIntakeFormConfig,
   updateIntakeFormConfig,
   type IntakeFormConfigResponse,
   type IntakeFormFieldPayload,
   type IntakeFormFieldResponse,
+  type PublicIntakeFormConfigResponse,
+  type PublicProfileResponse,
 } from "@/services/intakeService";
 
 type FieldType = "text" | "email" | "tel" | "textarea" | "select";
@@ -125,6 +135,24 @@ const DEFAULT_FIELDS: FieldConfig[] = [
 
 const INTAKE_FORM_QUERY_KEY = ["intake-form-config"] as const;
 
+/**
+ * Họ tên KHÔNG ẩn được: `PublicIntakeRequest.name` là bắt buộc ở schema backend ("needed to
+ * create a client record"), và `IntakeForm` tự chèn lại trường này nếu cấu hình thiếu. Bày
+ * ra một công tắc rồi vẫn hiện là giao diện nói dối — bỏ hẳn công tắc và nói rõ vì sao.
+ */
+const ALWAYS_VISIBLE_KEYS = new Set(["name"]);
+
+/** Phải còn ít nhất MỘT trong hai: ẩn cả hai thì lead về mà không có đường liên hệ lại. */
+const CONTACT_KEYS = ["email", "phone"] as const;
+
+type PageKey = "appearance" | "form";
+
+/** Hai trang của cột chỉnh sửa. Mục "Cấu hình trường thông tin" đi cùng trang biểu mẫu. */
+const PAGES: { key: PageKey; label: string }[] = [
+  { key: "appearance", label: "Diện mạo trang" },
+  { key: "form", label: "Biểu mẫu tiếp nhận" },
+];
+
 function apiFieldTypeToUi(type: string): FieldType {
   if (type === "phone") return "tel";
   if (["text", "email", "tel", "textarea", "select"].includes(type)) return type as FieldType;
@@ -154,7 +182,11 @@ function fieldsFromConfig(config: IntakeFormConfigResponse | undefined): FieldCo
 
   return [...config.fields]
     .sort((current, next) => current.sort_order - next.sort_order)
-    .map(fieldFromApi);
+    .map(fieldFromApi)
+    // Ép các trường luôn-hỏi về trạng thái hiện. Dữ liệu cũ có thể đã lưu họ tên ở trạng
+    // thái ẩn — mà trang thật vẫn hỏi nó, nên để nguyên là bảng cấu hình nói một đằng còn
+    // khách thấy một nẻo. Lưu lần tới là dữ liệu tự khớp lại.
+    .map((f) => (ALWAYS_VISIBLE_KEYS.has(f.key) ? { ...f, visible: true } : f));
 }
 
 function fieldToPayload(field: FieldConfig, index: number): IntakeFormFieldPayload {
@@ -200,21 +232,35 @@ function snapshotFromConfig(config: IntakeFormConfigResponse | undefined): Intak
   );
 }
 
+/** Diện mạo lấy từ `GET /users/me`; chưa tải xong thì để trống, đừng đoán. */
+function appearanceFromMe(me: UserResponse | undefined): AppearanceDraft {
+  return {
+    coverUrl: me?.cover_url ?? "",
+    brandColor: me?.brand_color ?? "",
+    profileSlug: me?.profile_slug ?? "",
+  };
+}
+
 export function IntakeFormConfig() {
-  const accountName = useAuthStore((state) => state.user?.fullName);
   const queryClient = useQueryClient();
   const intakeFormQuery = useQuery({
     queryKey: INTAKE_FORM_QUERY_KEY,
     queryFn: getIntakeFormConfig,
   });
+  // Diện mạo trang công khai nay chỉnh NGAY TẠI ĐÂY. Đọc thẳng từ react-query chứ không
+  // nhận qua props: `useProfile` của màn Cài đặt là một nguồn khác (useState + localStorage),
+  // luồn nó xuống đây là có hai bản sao cùng một dữ liệu trên hai màn hình.  #Huynh
+  const meQuery = useQuery({ queryKey: usersKeys.me, queryFn: getMe });
   const [formTitle, setFormTitle] = useState("Gửi yêu cầu dự án");
   const [formDescription, setFormDescription] = useState(
     "Hãy chia sẻ một vài thông tin để tôi hiểu rõ nhu cầu và chuẩn bị tư vấn phù hợp cho bạn.",
   );
   const [isActive, setIsActive] = useState(true);
   const [fields, setFields] = useState<FieldConfig[]>(DEFAULT_FIELDS);
+  const [page, setPage] = useState<PageKey>("appearance");
   const [showAddField, setShowAddField] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState<FieldConfig | null>(null);
+  const [appearance, setAppearance] = useState<AppearanceDraft>(() => appearanceFromMe(undefined));
   const savedSnapshot = useMemo(
     () => snapshotFromConfig(intakeFormQuery.data),
     [intakeFormQuery.data],
@@ -227,26 +273,135 @@ export function IntakeFormConfig() {
   const hasConfigChanges = Boolean(
     savedSnapshot && JSON.stringify(currentSnapshot) !== JSON.stringify(savedSnapshot),
   );
+  const savedAppearance = useMemo(() => appearanceFromMe(meQuery.data), [meQuery.data]);
+  const hasAppearanceChanges =
+    Boolean(meQuery.data) && JSON.stringify(appearance) !== JSON.stringify(savedAppearance);
 
-  useEffect(() => {
-    if (!intakeFormQuery.data) return;
+  // MỘT trạng thái "chưa lưu" cho cả trang. Trước đây diện mạo và nội dung biểu mẫu nằm ở hai
+  // màn khác nhau, mỗi màn một nút Lưu và một kiểu đo "đã đổi gì chưa".
+  const slugError = validateSlug(appearance.profileSlug);
+  const hasChanges = hasConfigChanges || hasAppearanceChanges;
+  const canSave = hasChanges && !slugError;
 
+  // Nạp bản đã lưu vào các ô nhập NGAY TRONG LÚC RENDER, không qua `useEffect`.
+  //
+  // Đây là "đồng bộ state theo dữ liệu bên ngoài" — React khuyến nghị làm thẳng trong thân
+  // render rồi nó tự dựng lại ngay, không commit bản trung gian. Làm qua effect thì mỗi lần
+  // dữ liệu về là người dùng thấy một nhịp giá trị mặc định nhấp nháy trước khi bản thật đè
+  // lên, và eslint chặn đúng vì lý do đó.
+  //
+  // So sánh bằng THAM CHIẾU là đủ và đúng: react-query chỉ đổi object khi có dữ liệu mới,
+  // còn sau khi lưu thì `setQueryData` cũng trả về object mới nên ô nhập nạp lại bản vừa ghi.
+  const [seededConfig, setSeededConfig] = useState<IntakeFormConfigResponse | undefined>();
+  if (intakeFormQuery.data && intakeFormQuery.data !== seededConfig) {
+    setSeededConfig(intakeFormQuery.data);
     setFormTitle(intakeFormQuery.data.title);
     setFormDescription(intakeFormQuery.data.description ?? "");
     setIsActive(intakeFormQuery.data.is_active);
     setFields(fieldsFromConfig(intakeFormQuery.data));
-  }, [intakeFormQuery.data]);
+  }
 
-  const saveConfigMutation = useMutation({
-    mutationFn: updateIntakeFormConfig,
-    onSuccess: (savedConfig) => {
-      queryClient.setQueryData(INTAKE_FORM_QUERY_KEY, savedConfig);
-      toast.success("Đã lưu cấu hình biểu mẫu tiếp nhận.");
+  const [seededMe, setSeededMe] = useState<UserResponse | undefined>();
+  if (meQuery.data && meQuery.data !== seededMe) {
+    setSeededMe(meQuery.data);
+    setAppearance(appearanceFromMe(meQuery.data));
+  }
+
+  /**
+   * Một nút Lưu, hai đích: nội dung biểu mẫu đi `PUT /intake-form`, còn diện mạo đi
+   * `PATCH /users/me/freelancer-profile` với ĐÚNG ba trường.
+   *
+   * Không mượn `useSaveProfile` của màn Cài đặt: hook đó đẩy cả gói ngân hàng/MoMo/nhắc nhở
+   * và có bước ghi số điện thoại có thể 409 — đổi một màu nền mà kéo theo chừng ấy rủi ro
+   * thì không đáng.
+   *
+   * Chỉ gửi phần nào thật sự đổi, và nếu một nửa hỏng thì NÓI RA nửa nào đã lưu. Báo "Đã lưu"
+   * khi mới lưu được một nửa là thứ khiến người dùng đóng tab rồi mất việc.  #Huynh
+   */
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const failed: string[] = [];
+      let savedConfig: Awaited<ReturnType<typeof updateIntakeFormConfig>> | null = null;
+
+      if (hasConfigChanges) {
+        try {
+          savedConfig = await updateIntakeFormConfig({
+            title: currentSnapshot.title,
+            description: currentSnapshot.description || null,
+            is_active: isActive,
+            fields: currentSnapshot.fields,
+          });
+        } catch {
+          failed.push("nội dung biểu mẫu");
+        }
+      }
+
+      let appearanceError: unknown = null;
+      if (hasAppearanceChanges) {
+        try {
+          await updateFreelancerProfile({
+            cover_url: appearance.coverUrl,
+            brand_color: appearance.brandColor,
+            profile_slug: appearance.profileSlug,
+          });
+        } catch (err) {
+          appearanceError = err;
+          failed.push("diện mạo trang");
+        }
+      }
+
+      return { savedConfig, failed, appearanceError };
+    },
+    onSuccess: ({ savedConfig, failed, appearanceError }) => {
+      if (savedConfig) queryClient.setQueryData(INTAKE_FORM_QUERY_KEY, savedConfig);
+      queryClient.invalidateQueries({ queryKey: usersKeys.me });
+
+      if (failed.length === 0) {
+        toast.success("Đã lưu trang công khai.");
+        return;
+      }
+      // Tên đường dẫn trùng là 409 — thông điệp của backend đã viết cho người dùng đọc.
+      if (appearanceError && getApiErrorStatus(appearanceError) === 409) {
+        toast.error(
+          getApiErrorMessage(
+            appearanceError,
+            "Tên đường dẫn này đã có người dùng, bạn chọn tên khác nhé.",
+          ),
+        );
+        return;
+      }
+      const saved = failed.length === 2 ? "" : " Phần còn lại đã lưu.";
+      toast.error(`Chưa lưu được ${failed.join(" và ")}.${saved} Bạn thử lại nhé.`);
     },
     onError: () => {
-      toast.error("Không thể lưu cấu hình biểu mẫu. Vui lòng thử lại.");
+      toast.error("Không thể lưu. Vui lòng thử lại.");
     },
   });
+
+  /**
+   * Vì sao trường này không ẩn được. `null` = ẩn thoải mái.
+   *
+   * Hai luật, hai lý do khác nhau: họ tên là ràng buộc KỸ THUẬT (backend bắt buộc mới tạo
+   * được hồ sơ khách), còn email/SĐT là ràng buộc NGHIỆP VỤ (ẩn nốt cái cuối thì lead về mà
+   * không có đường liên hệ lại — đúng thứ CRM sinh ra để tránh).  #Huynh
+   */
+  const lockFor = (field: FieldConfig): { locked: boolean; lockedReason?: string } => {
+    // Họ tên: nhãn "Luôn hiển thị" đã nói đủ, không cần thêm câu giải thích.
+    if (ALWAYS_VISIBLE_KEYS.has(field.key)) return { locked: true };
+
+    const isLastContact =
+      (CONTACT_KEYS as readonly string[]).includes(field.key) &&
+      field.visible &&
+      fields.filter((f) => (CONTACT_KEYS as readonly string[]).includes(f.key) && f.visible)
+        .length === 1;
+    return isLastContact
+      ? {
+          locked: true,
+          lockedReason:
+            "Giữ lại ít nhất một cách liên hệ, không thì khách gửi xong bạn không hồi âm được.",
+        }
+      : { locked: false };
+  };
 
   const updateField = (key: string, changes: Partial<FieldConfig>) => {
     setFields((current) =>
@@ -256,7 +411,34 @@ export function IntakeFormConfig() {
 
   const visibleFields = fields.filter((field) => field.visible);
 
-  const saveFormConfig = () => {
+  // Dựng đúng hai kiểu dữ liệu mà trang thật nhận, từ bản ĐANG GÕ. Ép qua đúng hình dạng của
+  // API là cách rẻ nhất để khung xem trước không thể nhận một thứ trang thật không có.
+  const previewProfile: PublicProfileResponse = {
+    full_name: meQuery.data?.full_name || "Tên của bạn",
+    professional_title: meQuery.data?.professional_title ?? null,
+    bio: meQuery.data?.bio ?? null,
+    avatar_url: meQuery.data?.avatar_url ?? null,
+    cover_url: appearance.coverUrl || null,
+    brand_color: appearance.brandColor || null,
+    skills: meQuery.data?.professional_profile?.skills ?? [],
+    portfolio_url: meQuery.data?.professional_profile?.portfolio_url ?? null,
+  };
+
+  const previewConfig: PublicIntakeFormConfigResponse = {
+    title: formTitle,
+    description: formDescription || null,
+    freelancer_name: meQuery.data?.full_name || "Freelancer",
+    is_active: isActive,
+    fields: visibleFields.map((field) => ({
+      field_key: field.key,
+      label: field.label,
+      placeholder: field.placeholder ?? "",
+      field_type: field.type,
+      is_required: field.required,
+    })),
+  };
+
+  const savePage = () => {
     if (!formTitle.trim()) {
       toast.error("Tiêu đề biểu mẫu không được để trống.");
       return;
@@ -267,12 +449,12 @@ export function IntakeFormConfig() {
       return;
     }
 
-    saveConfigMutation.mutate({
-      title: currentSnapshot.title,
-      description: currentSnapshot.description || null,
-      is_active: isActive,
-      fields: currentSnapshot.fields,
-    });
+    if (slugError) {
+      toast.error(slugError);
+      return;
+    }
+
+    saveMutation.mutate();
   };
 
   const addField = (field: Omit<FieldConfig, "key">) => {
@@ -292,34 +474,102 @@ export function IntakeFormConfig() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-muted/20 xl:overflow-hidden">
-      <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8 xl:h-full">
-        <div className="grid grid-cols-1 items-start gap-6 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.65fr)]">
-          <div className="space-y-5 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:space-y-0 xl:gap-5">
-            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs xl:shrink-0">
-              <SectionHeader
-                icon={FileText}
-                title="Thông tin biểu mẫu"
-                description="Nội dung giới thiệu khách hàng sẽ nhìn thấy đầu tiên."
-                step="01"
-                action={
-                  <Button
+    <div className="h-full min-h-0 overflow-y-auto bg-muted/20">
+      <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.65fr)]">
+          <div className="space-y-5">
+            {/* Chia hai trang thay vì xếp dọc: cả ba mục cộng lại dài hơn màn hình, mà thứ
+                đáng nhìn nhất — khung xem trước — thì nằm bên phải. Bắt người dùng cuộn là
+                bắt họ rời mắt khỏi nó. Diện mạo đứng trước, đúng thứ tự khách thấy trên
+                trang: ảnh bìa và hồ sơ ở trên, biểu mẫu ở dưới.  #Huynh */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-2 shadow-xs">
+              <div className="flex gap-1">
+                {PAGES.map((p, index) => (
+                  <button
+                    key={p.key}
                     type="button"
-                    size="sm"
-                    variant={hasConfigChanges ? "default" : "secondary"}
-                    onClick={saveFormConfig}
-                    disabled={!hasConfigChanges || intakeFormQuery.isLoading || saveConfigMutation.isPending}
-                    title={hasConfigChanges ? "Lưu thay đổi biểu mẫu" : "Chưa có thay đổi để lưu"}
-                  >
-                    {saveConfigMutation.isPending ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Save className="size-3.5" />
+                    onClick={() => setPage(p.key)}
+                    aria-current={page === p.key ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
+                      page === p.key
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted",
                     )}
-                    {saveConfigMutation.isPending ? "Đang lưu" : "Lưu cấu hình"}
-                  </Button>
-                }
-              />
+                  >
+                    <span
+                      className={cn(
+                        "grid size-5 place-items-center rounded-full text-[11px] font-bold",
+                        page === p.key
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {index + 1}
+                    </span>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Lỗi tên đường dẫn nằm ở trang 1; đứng ở trang 2 mà chỉ thấy nút Lưu mờ đi
+                    thì không đoán được phải sửa gì, ở đâu. */}
+                {slugError && page !== "appearance" && (
+                  <button
+                    type="button"
+                    onClick={() => setPage("appearance")}
+                    className="text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                  >
+                    Tên đường dẫn chưa hợp lệ — sửa ở trang 1
+                  </button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={canSave ? "default" : "secondary"}
+                  onClick={savePage}
+                  disabled={!canSave || intakeFormQuery.isLoading || saveMutation.isPending}
+                  title={
+                    slugError
+                      ? slugError
+                      : hasChanges
+                        ? "Lưu thay đổi trang công khai"
+                        : "Chưa có thay đổi để lưu"
+                  }
+                >
+                  {saveMutation.isPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Save className="size-3.5" />
+                  )}
+                  {saveMutation.isPending ? "Đang lưu" : "Lưu thay đổi"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Thẻ link đứng NGOÀI phân trang, ngay dưới nút Lưu: ô sửa tên đường dẫn nằm
+                trong nó, mà thứ lưu nó lại là nút bên này — tách hai phía là bắt người dùng
+                sửa một bên rồi đi tìm nút bấm ở bên kia.  #Huynh */}
+            <IntakeLinkCard
+              slug={appearance.profileSlug}
+              onSlugChange={(profileSlug) => setAppearance({ ...appearance, profileSlug })}
+              slugError={slugError}
+              isActive={isActive}
+              onIsActiveChange={setIsActive}
+            />
+
+            {page === "appearance" && (
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+              <div className="p-4 sm:p-5">
+                <AppearanceSettings value={appearance} onChange={setAppearance} />
+              </div>
+            </section>
+            )}
+
+            {page === "form" && (
+            <>
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
               <div className="grid gap-4 p-4 sm:p-5">
                 {intakeFormQuery.isError && (
                   <div className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
@@ -348,26 +598,15 @@ export function IntakeFormConfig() {
                   />
                 </FormField>
 
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <ControlSwitch
-                    label="Biểu mẫu đang hoạt động"
-                    checked={isActive}
-                    onCheckedChange={setIsActive}
-                  />
-                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                    Khi tắt, khách hàng không nên gửi yêu cầu mới qua đường dẫn chia sẻ.
-                  </p>
-                </div>
 
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
               <SectionHeader
                 icon={ClipboardCheck}
                 title="Cấu hình trường thông tin"
                 description="Chọn nội dung cần hỏi và điều chỉnh nhãn cho phù hợp."
-                step="02"
                 action={
                   <div className="flex items-center justify-between gap-2 sm:justify-end">
                     <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
@@ -386,7 +625,7 @@ export function IntakeFormConfig() {
                 }
               />
 
-              <div className="space-y-2.5 p-3 sm:p-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+              <div className="space-y-2.5 p-3 sm:p-5">
                 {showAddField && (
                   <AddFieldPanel
                     onAdd={addField}
@@ -424,38 +663,37 @@ export function IntakeFormConfig() {
                     index={index}
                     onChange={(changes) => updateField(field.key, changes)}
                     onDelete={() => setFieldToDelete(field)}
+                    {...lockFor(field)}
                   />
                 ))}
               </div>
             </section>
+            </>
+            )}
           </div>
 
-          <aside className="space-y-5 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:space-y-0 xl:gap-5">
-            <ShareLinkCard
-              shareUrl={intakeFormQuery.data?.share_url ?? null}
-              loading={intakeFormQuery.isLoading}
-            />
-
-            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+          <aside className="space-y-5 xl:sticky xl:top-4 xl:self-start">
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3.5">
                 <div className="flex items-center gap-2">
                   <Eye className="size-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Xem trước biểu mẫu</h3>
+                  <h3 className="text-sm font-semibold">Xem trước trang công khai</h3>
                 </div>
-                <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                  Góc nhìn khách hàng
-                </span>
               </div>
-              <div className="bg-gradient-to-b from-primary/5 to-transparent p-3 sm:p-4 xl:min-h-0 xl:flex-1">
-                <FormPreview
-                  title={formTitle}
-                  description={formDescription}
-                  displayName={accountName ?? ""}
-                  fields={visibleFields}
-                />
+              {/* Khung này render CHÍNH `PublicSharePageView` của trang thật, không phải bản
+                  vẽ lại — nên không có chuyện xem trước một đằng khách thấy một nẻo. Dữ liệu
+                  lấy từ bản đang gõ, nên đổi theo từng phím chứ không đợi bấm Lưu. */}
+              <div className="bg-gradient-to-b from-primary/5 to-transparent p-3 sm:p-4">
+                <PreviewFrame brandColor={previewProfile.brand_color ?? ""} maxHeight={860}>
+                  <PublicSharePageView
+                    variant="preview"
+                    profile={previewProfile}
+                    shareToken={meQuery.data?.intake_share_token ?? ""}
+                    previewConfig={previewConfig}
+                  />
+                </PreviewFrame>
               </div>
             </section>
-
           </aside>
         </div>
       </div>
@@ -490,7 +728,8 @@ type SectionHeaderProps = {
   icon: typeof FileText;
   title: string;
   description: string;
-  step: string;
+  /** Số thứ tự mục. Bỏ trống khi thanh phân trang đã đánh số — đừng đánh số hai lần. */
+  step?: string;
   action?: React.ReactNode;
 };
 
@@ -504,9 +743,11 @@ function SectionHeader({ icon: Icon, title, description, step, action }: Section
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold">{title}</h3>
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground/60">
-              {step}
-            </span>
+            {step && (
+              <span className="text-[10px] font-bold tracking-wider text-muted-foreground/60">
+                {step}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
         </div>
@@ -543,7 +784,6 @@ type AddFieldPanelProps = {
 function AddFieldPanel({ onAdd, onCancel }: AddFieldPanelProps) {
   const [label, setLabel] = useState("");
   const [type, setType] = useState<FieldType>("text");
-  const [placeholder, setPlaceholder] = useState("");
   const [required, setRequired] = useState(false);
   const [optionsText, setOptionsText] = useState("");
 
@@ -562,7 +802,9 @@ function AddFieldPanel({ onAdd, onCancel }: AddFieldPanelProps) {
       type,
       required,
       visible: true,
-      placeholder: placeholder.trim() || defaultPlaceholder(type),
+      // Không hỏi câu gợi ý nữa — mỗi loại câu trả lời đã có sẵn một câu mặc định, bắt
+      // người dùng nghĩ thêm một câu chỉ để ô nhập bớt trống là việc không đáng.
+      placeholder: defaultPlaceholder(type),
       ...(type === "select" ? { options } : {}),
     });
   };
@@ -616,7 +858,7 @@ function AddFieldPanel({ onAdd, onCancel }: AddFieldPanelProps) {
         </FormField>
       </div>
 
-      {type === "select" ? (
+      {type === "select" && (
         <FormField
           label="Các lựa chọn"
           htmlFor="new-field-options"
@@ -629,20 +871,6 @@ function AddFieldPanel({ onAdd, onCancel }: AddFieldPanelProps) {
             rows={4}
             className="resize-none bg-background"
             placeholder={"Lựa chọn 1\nLựa chọn 2\nLựa chọn 3"}
-          />
-        </FormField>
-      ) : (
-        <FormField
-          label="Nội dung gợi ý"
-          htmlFor="new-field-placeholder"
-          hint="Có thể để trống."
-        >
-          <Input
-            id="new-field-placeholder"
-            value={placeholder}
-            onChange={(event) => setPlaceholder(event.target.value)}
-            placeholder={defaultPlaceholder(type)}
-            className="bg-background"
           />
         </FormField>
       )}
@@ -687,9 +915,13 @@ type FieldRowProps = {
   index: number;
   onChange: (changes: Partial<FieldConfig>) => void;
   onDelete: () => void;
+  /** Không cho ẩn: bỏ công tắc Hiển thị, thay bằng nhãn "Luôn hiển thị". */
+  locked?: boolean;
+  /** Câu giải thích kèm theo, chỉ khi lý do không tự hiển nhiên. */
+  lockedReason?: string;
 };
 
-function FieldRow({ field, index, onChange, onDelete }: FieldRowProps) {
+function FieldRow({ field, index, onChange, onDelete, locked, lockedReason }: FieldRowProps) {
   const [editing, setEditing] = useState(false);
   const [draftLabel, setDraftLabel] = useState(field.label);
 
@@ -777,9 +1009,9 @@ function FieldRow({ field, index, onChange, onDelete }: FieldRowProps) {
                 </button>
               </div>
             )}
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {field.visible ? "Đang xuất hiện trong bản xem trước" : "Trường này đang được ẩn"}
-            </p>
+            {lockedReason && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{lockedReason}</p>
+            )}
           </div>
         </div>
 
@@ -790,11 +1022,17 @@ function FieldRow({ field, index, onChange, onDelete }: FieldRowProps) {
             disabled={!field.visible}
             onCheckedChange={(checked) => onChange({ required: checked })}
           />
-          <ControlSwitch
-            label="Hiển thị"
-            checked={field.visible}
-            onCheckedChange={(checked) => onChange({ visible: checked })}
-          />
+          {locked ? (
+            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              Luôn hiển thị
+            </span>
+          ) : (
+            <ControlSwitch
+              label="Hiển thị"
+              checked={field.visible}
+              onCheckedChange={(checked) => onChange({ visible: checked })}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -823,172 +1061,4 @@ function ControlSwitch({ label, checked, disabled, onCheckedChange }: ControlSwi
   );
 }
 
-type FormPreviewProps = {
-  title: string;
-  description: string;
-  displayName: string;
-  fields: FieldConfig[];
-};
 
-function FormPreview({ title, description, displayName, fields }: FormPreviewProps) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs xl:h-full">
-      <div className="h-1.5 bg-gradient-to-r from-primary to-primary-glow" />
-      <div className="max-h-[640px] overflow-y-auto p-4 sm:p-5 xl:h-[calc(100%-0.375rem)] xl:max-h-none">
-        <div className="mb-5 space-y-2 border-b border-border pb-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-            {displayName.trim() ? `Biểu mẫu của ${displayName}` : "Biểu mẫu của Freelancer"}
-          </p>
-          <h4 className="text-lg font-bold leading-snug">{title.trim() || "Biểu mẫu chưa có tiêu đề"}</h4>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {description.trim() || "Thêm mô tả để khách hàng hiểu rõ mục đích của biểu mẫu."}
-          </p>
-          <p className="flex items-center gap-1.5 pt-1 text-[10px] text-muted-foreground">
-            <Info className="size-3" />
-            Dấu * là câu hỏi bắt buộc
-          </p>
-        </div>
-
-        {fields.length === 0 ? (
-          <div className="grid min-h-56 place-items-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
-            <div>
-              <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-                <EyeOff className="size-4" />
-              </div>
-              <p className="text-sm font-semibold">Chưa có trường nào hiển thị</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Bật “Hiển thị” cho ít nhất một trường để xem trước.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {fields.map((field) => (
-              <PreviewField key={field.key} field={field} />
-            ))}
-            <Button type="button" disabled className="mt-1 w-full">
-              Gửi yêu cầu
-            </Button>
-            <p className="text-center text-[10px] text-muted-foreground">
-              Nút gửi đang tắt trong chế độ xem trước
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PreviewField({ field }: { field: FieldConfig }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1 text-xs font-medium">
-        <span>{field.label}</span>
-        {field.required && <span className="font-bold text-destructive">*</span>}
-      </div>
-      {field.type === "textarea" ? (
-        <div className="min-h-16 rounded-lg border border-input bg-muted/20 px-3 py-2 text-xs text-muted-foreground/70">
-          {field.placeholder}
-        </div>
-      ) : field.type === "select" ? (
-        <div className="flex h-9 items-center justify-between rounded-lg border border-input bg-muted/20 px-3 text-xs text-muted-foreground/70">
-          <span>{field.placeholder}</span>
-          <ChevronDown className="size-3.5" />
-        </div>
-      ) : (
-        <div className="flex h-9 items-center rounded-lg border border-input bg-muted/20 px-3 text-xs text-muted-foreground/70">
-          {field.placeholder}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type ShareLinkCardProps = {
-  shareUrl: string | null;
-  loading: boolean;
-};
-
-function normalizeShareUrlForCurrentSite(shareUrl: string | null): string | null {
-  if (!shareUrl) return null;
-
-  try {
-    const parsedUrl = new URL(shareUrl, window.location.origin);
-    const pathname = parsedUrl.pathname;
-    // Giữ nguyên path công khai (backend trả /bieu-mau/{token}); chấp nhận cả /intake/ để tương thích link cũ.
-    const isPublicIntakePath =
-      pathname.startsWith("/bieu-mau/") || pathname.startsWith("/intake/");
-
-    // Backend có thể trả domain production; khi test local, dùng origin hiện tại để mở đúng FE đang chạy.
-    if (isPublicIntakePath) {
-      return `${window.location.origin}${pathname}${parsedUrl.search}${parsedUrl.hash}`;
-    }
-  } catch {
-    return shareUrl;
-  }
-
-  return shareUrl;
-}
-
-function ShareLinkCard({ shareUrl, loading }: ShareLinkCardProps) {
-  const [copied, setCopied] = useState(false);
-  const publicShareUrl = normalizeShareUrlForCurrentSite(shareUrl);
-  const displayUrl = loading
-    ? "Đang lấy đường dẫn từ backend..."
-    : publicShareUrl ?? "Chưa có đường dẫn chia sẻ";
-
-  const copyLink = async () => {
-    if (!publicShareUrl) {
-      toast.error("Backend chưa trả đường dẫn chia sẻ cho biểu mẫu này.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(publicShareUrl);
-      setCopied(true);
-      toast.success("Đã sao chép đường dẫn biểu mẫu.");
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Không thể sao chép đường dẫn. Vui lòng thử lại.");
-    }
-  };
-
-  return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-4">
-        <div className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
-          <Link2 className="size-4" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold">Chia sẻ biểu mẫu</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Gửi đường dẫn công khai cho khách hàng.</p>
-        </div>
-      </div>
-      <div className="space-y-3 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
-          <Input
-            readOnly
-            value={displayUrl}
-            aria-label="Đường dẫn chia sẻ biểu mẫu"
-            className="min-w-0 flex-1 bg-muted/30 text-xs"
-          />
-          <Button
-            type="button"
-            onClick={copyLink}
-            className="shrink-0"
-            disabled={!publicShareUrl || loading}
-          >
-            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied ? "Đã sao chép" : "Sao chép link"}
-          </Button>
-        </div>
-        <p className="flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground">
-          <Info className="mt-0.5 size-3 shrink-0" />
-          {publicShareUrl
-            ? "Đường dẫn này dùng domain hiện tại để mở đúng biểu mẫu public."
-            : "Backend chưa cấp share_url. Hãy tải lại hoặc lưu cấu hình để backend tạo đường dẫn."}
-        </p>
-      </div>
-    </section>
-  );
-}

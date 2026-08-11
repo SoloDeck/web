@@ -33,7 +33,7 @@ export function AppSidebar({
     { key: "pipeline" as const, icon: LayoutDashboard, label: "Quy trình deal" },
     { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
     { key: "revenue" as const, icon: Wallet, label: "Thanh toán & Hợp đồng" },
-    { key: "intake-form" as const, icon: ClipboardList, label: "Biểu mẫu tiếp nhận" },
+    { key: "intake-form" as const, icon: ClipboardList, label: "Trang công khai" },
     { key: "settings" as const, icon: Settings, label: "Cài đặt hồ sơ" },
     { key: "subscription" as const, icon: CreditCard, label: "Gói dịch vụ" },
     ...(isAdmin ? [{ key: "admin" as const, icon: ShieldCheck, label: "Admin" }] : []),

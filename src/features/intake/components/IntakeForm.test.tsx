@@ -26,6 +26,7 @@ function makePublicConfig(
     title: "Form brief dự án",
     description: "Mô tả ngắn để khách hàng điền thông tin.",
     freelancer_name: "Nguyễn Văn Freelancer",
+    is_active: true,
     fields: [
       {
         field_key: "name",

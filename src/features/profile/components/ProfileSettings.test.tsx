@@ -126,3 +126,62 @@ describe("<ProfileSettings /> — tab Bảo mật", () => {
     );
   }, 20_000);
 });
+
+
+describe("<ProfileSettings /> — Hồ sơ năng lực", () => {
+  /**
+   * SRS định nghĩa Professional Profile gồm nghề, kỹ năng, mức giá và portfolio. Ba ô dưới
+   * đây từng bị gỡ ở 5f57449 nên kỹ năng mắc kẹt ở bộ chuỗi cứng của preset onboarding,
+   * còn mức giá và portfolio thì không đường nào đặt được.
+   */
+  beforeEach(() => vi.clearAllMocks());
+
+  function moTabHoSo(profile: Partial<Profile> = {}) {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<ProfileSettings profile={{ ...DEFAULT_PROFILE, ...profile }} onSave={onSave} />);
+    return { user, onSave };
+  }
+
+  const nutLuu = () => screen.getByRole("button", { name: /lưu thay đổi/i });
+
+  async function luu(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(nutLuu());
+    await user.click(screen.getByRole("button", { name: /đồng ý/i }));
+  }
+
+  it("thêm kỹ năng bằng Enter rồi lưu thì gửi lên đủ", async () => {
+    const { user, onSave } = moTabHoSo({ skills: ["ReactJS"] });
+
+    await user.type(screen.getByLabelText("Nhập kỹ năng"), "NodeJS{Enter}");
+    await luu(user);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: ["ReactJS", "NodeJS"] }),
+    );
+  });
+
+  it("xoá hết kỹ năng cũng lưu được — mảng rỗng phải đi lên, không phải bị bỏ qua", async () => {
+    const { user, onSave } = moTabHoSo({ skills: ["ReactJS"] });
+
+    await user.click(screen.getByRole("button", { name: /xoá kỹ năng reactjs/i }));
+    await luu(user);
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ skills: [] }));
+  });
+
+  it("mức giá và portfolio lưu được — trước đây không có ô nào để nhập", async () => {
+    const { user, onSave } = moTabHoSo();
+
+    await user.type(screen.getByLabelText(/mức giá theo giờ/i), "300000");
+    await user.type(screen.getByLabelText(/link portfolio/i), "https://behance.net/toi");
+    await luu(user);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hourlyRate: 300000,
+        portfolioUrl: "https://behance.net/toi",
+      }),
+    );
+  });
+});

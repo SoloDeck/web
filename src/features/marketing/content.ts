@@ -53,12 +53,23 @@ export const PROJECT_CODE = "SU26SE083";
 // Hero
 // ---------------------------------------------------------------------------
 
+/**
+ * Hero có ĐÚNG MỘT nút, và nó trỏ tới `/login` như nút ở navbar.
+ *
+ * Lối vào thứ hai "Tôi cần thuê — Tìm freelancer" đã bỏ cùng danh bạ và KHÔNG quay lại:
+ * freelancer là người dùng duy nhất của hệ thống. Nút hero từng bị gỡ hẳn với lý do navbar
+ * đã có một nút rồi — nhưng nút ở navbar cao 64px và nằm sát mép phải, còn chỗ mắt người
+ * đọc dừng lại là ngay dưới tiêu đề. Thêm nút ở đây không mở thêm lối vào nào, chỉ đặt lối
+ * vào sẵn có vào đúng tầm mắt.
+ *
+ * KHÔNG có phụ đề. Câu cũ ("Từ yêu cầu đầu tiên tới lúc thu tiền, trên một bảng Kanban sáu
+ * giai đoạn") mô tả lại đúng thứ minh hoạ Kanban ngay bên dưới đang tự cho xem — nói bằng
+ * chữ cái mà người ta nhìn thấy được thì chỉ làm chậm đường tới nút bấm.  #Huynh
+ */
 export const HERO = {
   titleLead: "Quản lý khách hàng và hợp đồng",
   titleAccent: "cho chuyên gia dịch vụ độc lập",
-  subtitle: "Từ yêu cầu đầu tiên tới lúc thu tiền, trên một bảng Kanban sáu giai đoạn.",
-  ctaFreelancer: "Tôi là freelancer — Bắt đầu miễn phí",
-  ctaClient: "Tôi cần thuê — Tìm freelancer",
+  ctaLabel: "Bắt đầu miễn phí",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -223,12 +234,12 @@ export const FEATURE_TILES = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Hai nhóm người dùng — luồng màn hình số 1 trong SRS
+// Cách vận hành — freelancer là người dùng duy nhất, khách vào qua link riêng
 // ---------------------------------------------------------------------------
 
 export const AUDIENCE_HEADER = {
-  eyebrow: "Dành cho ai?",
-  title: "Hai nhóm người dùng, một điểm vào",
+  eyebrow: "Cách vận hành",
+  title: "Khách của bạn không cần tài khoản",
 } as const;
 
 /**
@@ -244,10 +255,19 @@ export const FREELANCER_FEATURES = [
   "Bảng doanh thu và tỷ lệ chốt deal",
 ] as const;
 
-export const CLIENT_FEATURES = [
-  "Tìm freelancer theo nhóm dịch vụ, kỹ năng",
-  "Xem hồ sơ công khai và portfolio",
-  "Gửi yêu cầu — không cần đăng nhập",
+/**
+ * Ba bước của luồng tiếp nhận — thay khối "khách duyệt danh bạ freelancer" đã bỏ.
+ *
+ * SoloDesk là CRM riêng của TỪNG freelancer, không phải sàn để khách vào chọn thợ: khách
+ * chỉ tới được khi chính freelancer gửi link của mình. Trang giới thiệu trước đây mở hẳn
+ * một cửa "Tôi cần thuê" dẫn vào danh bạ, khiến sản phẩm đọc như một cái chợ — sai với
+ * phiếu đề tài, vốn chỉ có đúng một dòng về khách hàng: "biểu mẫu tiếp nhận nhúng được
+ * (link chia sẻ để khách hàng tự điền)".  #Huynh
+ */
+export const INTAKE_FLOW = [
+  "Bạn gửi link biểu mẫu riêng cho khách — Zalo, Facebook, email, chữ ký thư",
+  "Khách điền yêu cầu ngay trên link đó, không cần đăng ký tài khoản",
+  "Yêu cầu rơi thẳng vào Kanban của bạn và được AI chấm điểm HOT / WARM / COLD",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -325,6 +345,17 @@ export const NAV_ANCHORS = [
   { href: "#quy-trinh", label: "Quy trình" },
   { href: "#ai", label: "Engine AI" },
   { href: "#phan-he", label: "Phân hệ" },
-  { href: "#danh-cho-ai", label: "Dành cho ai" },
+  // Nhãn phải khớp tiêu đề khối (`AUDIENCE_HEADER`); `id` giữ nguyên "danh-cho-ai" để
+  // link đã chia sẻ ra ngoài không chết.
+  { href: "#danh-cho-ai", label: "Cách vận hành" },
   { href: "#bang-gia", label: "Bảng giá" },
 ] as const;
+
+/**
+ * Danh sách id để `useScrollSpy` theo dõi — dựng ở CẤP MODULE, không tính trong component.
+ *
+ * Mảng này đi thẳng vào mảng phụ thuộc của một `useEffect`; tính lại mỗi lần render là mỗi
+ * lần render lại dựng một `IntersectionObserver` mới. React Compiler nhiều khả năng ghi nhớ
+ * hộ, nhưng một hợp đồng effect không nên dựa vào việc đó.
+ */
+export const NAV_ANCHOR_IDS = NAV_ANCHORS.map((a) => a.href.slice(1));

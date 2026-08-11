@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IntakeFormConfig } from "./IntakeFormConfig";
@@ -18,9 +18,39 @@ vi.mock("sonner", () => ({
 vi.mock("@/services/intakeService", () => ({
   getIntakeFormConfig: vi.fn(),
   updateIntakeFormConfig: vi.fn(),
+  getPublicIntakeFormConfig: vi.fn(),
+  submitIntake: vi.fn(),
+  uploadIntakeAttachment: vi.fn(),
+}));
+
+vi.mock("@/services/usersService", () => ({
+  getMe: (...a: unknown[]) => mockGetMe(...a),
+  updateFreelancerProfile: (...a: unknown[]) => mockUpdateFreelancerProfile(...a),
+  usersKeys: { me: ["users", "me"] as const },
 }));
 
 const SHARE_URL = "https://solodesk.vn/bieu-mau/token-demo";
+
+const mockGetMe = vi.fn();
+const mockUpdateFreelancerProfile = vi.fn();
+
+/** Chỉ những trường màn "Trang công khai" thật sự đọc từ GET /users/me. */
+function makeMe(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "u1",
+    full_name: "Nguyễn Văn Test",
+    email: "test@solodesk.vn",
+    professional_title: null,
+    bio: null,
+    avatar_url: null,
+    cover_url: null,
+    brand_color: null,
+    profile_slug: null,
+    intake_share_token: "token-demo",
+    professional_profile: { skills: [], portfolio_url: null },
+    ...overrides,
+  };
+}
 
 function makeIntakeConfig(
   overrides: Partial<IntakeFormConfigResponse> = {},
@@ -141,10 +171,24 @@ function renderWithClient() {
   );
 }
 
+/** Cột chỉnh sửa chia hai trang; màn mở ở trang 1 (Diện mạo). */
+async function renderAppearance() {
+  const view = renderWithClient();
+  await screen.findByLabelText("Tên đường dẫn");
+  return view;
+}
+
+/** Phần lớn bài test nói về trang 2 (nội dung biểu mẫu) nên chuyển sang luôn. */
 async function renderReady() {
   const view = renderWithClient();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: /Biểu mẫu tiếp nhận/ }));
   await screen.findByDisplayValue("Gửi yêu cầu dự án");
   return view;
+}
+
+async function moTrang(user: ReturnType<typeof userEvent.setup>, ten: RegExp) {
+  await user.click(screen.getByRole("button", { name: ten }));
 }
 
 async function replaceText(user: ReturnType<typeof userEvent.setup>, element: HTMLElement, value: string) {
@@ -161,6 +205,8 @@ beforeEach(() => {
     isAuthenticated: true,
   });
 
+  mockGetMe.mockResolvedValue(makeMe());
+  mockUpdateFreelancerProfile.mockResolvedValue(makeMe());
   vi.mocked(getIntakeFormConfig).mockResolvedValue(makeIntakeConfig());
   vi.mocked(updateIntakeFormConfig).mockImplementation(async (payload) =>
     configFromPayload(payload),
@@ -179,22 +225,40 @@ afterEach(() => {
 });
 
 describe("<IntakeFormConfig />", () => {
-  it("hiển thị đầy đủ các khu vực cấu hình chính", async () => {
-    await renderReady();
+  it("chia hai trang: Diện mạo và Biểu mẫu, khỏi phải kéo xuống", async () => {
+    const user = userEvent.setup();
+    await renderAppearance();
 
-    expect(screen.getByText("Thông tin biểu mẫu")).toBeInTheDocument();
+    // Trang 1
+    expect(screen.getByText("Ảnh bìa")).toBeInTheDocument();
+    expect(screen.getByText("Màu chủ đạo")).toBeInTheDocument();
+    expect(screen.queryByText("Cấu hình trường thông tin")).not.toBeInTheDocument();
+
+    // Trang 2
+    await moTrang(user, /Biểu mẫu tiếp nhận/);
+    expect(screen.getByLabelText("Tiêu đề biểu mẫu")).toBeInTheDocument();
     expect(screen.getByText("Cấu hình trường thông tin")).toBeInTheDocument();
-    expect(screen.getByText("Xem trước biểu mẫu")).toBeInTheDocument();
-    expect(screen.getByText("Chia sẻ biểu mẫu")).toBeInTheDocument();
+    expect(screen.queryByText("Ảnh bìa")).not.toBeInTheDocument();
+
+    // Khung xem trước, link và ô tên đường dẫn đứng NGOÀI phân trang — luôn nhìn thấy.
+    expect(screen.getByText("Xem trước trang công khai")).toBeInTheDocument();
+    expect(screen.getByText("Link công khai của bạn")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tên đường dẫn")).toBeInTheDocument();
   });
 
-  it("hiển thị 7 trường từ API và dùng tên tài khoản trong bản xem trước", async () => {
+  it("hiển thị 7 trường từ API, riêng Họ tên không có công tắc ẩn", async () => {
     await renderReady();
 
-    expect(screen.getAllByRole("switch", { name: /^Hiển thị:/ })).toHaveLength(7);
-    expect(screen.queryByLabelText("Tên hiển thị của Freelancer")).not.toBeInTheDocument();
-    expect(screen.getByText("Biểu mẫu của Nguyễn Văn Test")).toBeInTheDocument();
     expect(screen.getByText("7/7 đang hiển thị")).toBeInTheDocument();
+    // 6, không phải 7: Họ tên bắt buộc ở schema backend và `IntakeForm` tự chèn lại nếu
+    // thiếu — bày một công tắc rồi vẫn hiện là giao diện nói dối.
+    expect(screen.getAllByRole("switch", { name: /^Hiển thị:/ })).toHaveLength(6);
+    const hangHoTen = screen.getByTestId("field-row-name");
+    expect(within(hangHoTen).getByText("Luôn hiển thị")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Tên hiển thị của Freelancer")).not.toBeInTheDocument();
+    // Dòng "Biểu mẫu của X" từng được khoá ở đây — nó là câu chữ của bản xem trước VẼ TAY,
+    // không hề tồn tại trên trang thật. Bản xem trước nay dùng chính component trang thật.
+    expect(screen.queryByText("Biểu mẫu của Nguyễn Văn Test")).not.toBeInTheDocument();
     expect(screen.queryByText("Zalo")).not.toBeInTheDocument();
   });
 
@@ -226,12 +290,14 @@ describe("<IntakeFormConfig />", () => {
 
     await user.click(screen.getByRole("button", { name: "Thêm trường" }));
     await user.type(screen.getByLabelText("Nhãn trường"), "Nguồn giới thiệu");
-    await user.type(screen.getByLabelText("Nội dung gợi ý"), "Bạn biết đến tôi qua đâu?");
     await user.click(screen.getByRole("button", { name: "Thêm vào biểu mẫu" }));
 
     expect(screen.getByText("8/8 đang hiển thị")).toBeInTheDocument();
     expect(screen.getAllByText("Nguồn giới thiệu")).toHaveLength(2);
-    expect(screen.getByText("Bạn biết đến tôi qua đâu?")).toBeInTheDocument();
+    // Không còn ô "Nội dung gợi ý": mỗi loại câu trả lời đã có sẵn câu mặc định, và backend
+    // để `placeholder` nullable nên bỏ hẳn được.
+    expect(screen.queryByLabelText("Nội dung gợi ý")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Nhập câu trả lời ngắn")).toBeInTheDocument();
   });
 
   it("cho phép xóa một trường sau khi xác nhận", async () => {
@@ -249,17 +315,30 @@ describe("<IntakeFormConfig />", () => {
   it("cho phép đổi trạng thái bắt buộc và hiển thị", async () => {
     const user = userEvent.setup();
     await renderReady();
-    const firstRow = screen.getByTestId("field-row-name");
+    const hangTenDuAn = screen.getByTestId("field-row-project_name");
 
-    await user.click(within(firstRow).getByRole("switch", { name: "Bắt buộc: Bật" }));
-    expect(within(firstRow).getByRole("switch", { name: "Bắt buộc: Tắt" })).toBeInTheDocument();
+    await user.click(within(hangTenDuAn).getByRole("switch", { name: "Bắt buộc: Bật" }));
+    expect(within(hangTenDuAn).getByRole("switch", { name: "Bắt buộc: Tắt" })).toBeInTheDocument();
 
-    await user.click(within(firstRow).getByRole("switch", { name: "Hiển thị: Bật" }));
+    await user.click(within(hangTenDuAn).getByRole("switch", { name: "Hiển thị: Bật" }));
     expect(screen.getByText("6/7 đang hiển thị")).toBeInTheDocument();
-    expect(within(firstRow).getByText("Trường này đang được ẩn")).toBeInTheDocument();
+    expect(within(hangTenDuAn).getByRole("switch", { name: "Hiển thị: Tắt" })).toBeInTheDocument();
   });
 
-  it("hiển thị trạng thái trống khi ẩn tất cả các trường", async () => {
+  it("không cho ẩn nốt cách liên hệ cuối cùng", async () => {
+    // Ẩn cả email lẫn SĐT thì lead về mà không hồi âm lại được — đúng thứ CRM sinh ra để tránh.
+    const user = userEvent.setup();
+    await renderReady();
+
+    const hangEmail = screen.getByTestId("field-row-email");
+    await user.click(within(hangEmail).getByRole("switch", { name: "Hiển thị: Bật" }));
+
+    const hangSdt = screen.getByTestId("field-row-phone");
+    expect(within(hangSdt).queryByRole("switch", { name: /^Hiển thị:/ })).not.toBeInTheDocument();
+    expect(within(hangSdt).getByText(/ít nhất một cách liên hệ/i)).toBeInTheDocument();
+  });
+
+  it("ẩn hết mức có thể vẫn còn Họ tên và một cách liên hệ", async () => {
     const user = userEvent.setup();
     await renderReady();
 
@@ -267,22 +346,98 @@ describe("<IntakeFormConfig />", () => {
       await user.click(toggle);
     }
 
-    expect(screen.getByText("Chưa có trường nào hiển thị")).toBeInTheDocument();
-    expect(screen.getByText("0/7 đang hiển thị")).toBeInTheDocument();
+    // 7 trường, ẩn được 5: Họ tên khoá cứng, và một trong hai email/SĐT phải ở lại.
+    expect(screen.getByText("2/7 đang hiển thị")).toBeInTheDocument();
+    expect(screen.queryByText("Chưa có trường nào hiển thị")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText(/Họ tên khách hàng/).length).toBeGreaterThan(0);
   });
 
-  it("sao chép đường dẫn chia sẻ theo domain hiện tại", async () => {
-    await renderReady();
-
-    const copyButton = screen.getByRole("button", { name: "Sao chép link" });
-    await waitFor(() => expect(copyButton).toBeEnabled());
-    fireEvent.click(copyButton);
+  it("tên đường dẫn sửa ngay trong thẻ link, và chỉ có MỘT link", async () => {
+    // Ô sửa nằm luôn trong thẻ link: cái người dùng gõ chính là cái họ đọc ra trong link,
+    // tách thành mục "Địa chỉ riêng" riêng là bắt họ nhìn cùng một chuỗi ở hai chỗ.
+    mockGetMe.mockResolvedValue(makeMe({ profile_slug: "thu-thuy" }));
+    await renderAppearance();
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/bieu-mau/token-demo`);
+      expect(screen.getByLabelText("Tên đường dẫn")).toHaveValue("thu-thuy");
     });
-    expect(screen.getByDisplayValue(`${window.location.origin}/bieu-mau/token-demo`)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Đã sao chép" })).toBeInTheDocument();
+    expect(screen.getByText(`${window.location.origin}/thu-thuy`)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Sao chép link/ })).toHaveLength(1);
+    expect(screen.queryByText(/ho-so\//)).not.toBeInTheDocument();
+  });
+
+  it("công tắc nhận yêu cầu nằm cùng thẻ link, và lưu được", async () => {
+    // Công tắc quyết định chính cái link này có ăn hay không — để lẻ ở trang cấu hình biểu
+    // mẫu thì người dùng phải đi tìm. Backend nay ĐỌC `is_active` thật (chặn ở
+    // `validate_submission`), nên tắt là khách hết gửi được.
+    const user = userEvent.setup();
+    await renderAppearance();
+
+    const toggle = await screen.findByRole("switch", { name: /Đang nhận yêu cầu/ });
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+
+    await waitFor(() => expect(updateIntakeFormConfig).toHaveBeenCalled());
+    expect(vi.mocked(updateIntakeFormConfig).mock.calls[0][0].is_active).toBe(false);
+  });
+
+  it("gõ tên mới thì nhắc là phải bấm Lưu link mới chạy", async () => {
+    // Nút Sao chép bám giá trị ĐÃ LƯU — đưa link chưa lưu cho người ta đi phát là đưa một
+    // đường dẫn hỏng.
+    const user = userEvent.setup();
+    mockGetMe.mockResolvedValue(makeMe({ profile_slug: "thu-thuy" }));
+    await renderAppearance();
+
+    await waitFor(() => expect(screen.getByLabelText("Tên đường dẫn")).toHaveValue("thu-thuy"));
+    await replaceText(user, screen.getByLabelText("Tên đường dẫn"), "ten-moi");
+
+    expect(screen.getByText(/chỉ chạy sau khi bấm Lưu/i)).toBeInTheDocument();
+    expect(screen.getByText(`${window.location.origin}/thu-thuy`)).toBeInTheDocument();
+  });
+
+  it("chặn Lưu khi tên đường dẫn sai, và nói rõ vì sao", async () => {
+    // Bộ kiểm này trước ở màn Cài đặt hồ sơ; ô tên đường dẫn dời sang đây thì nó dời theo.
+    const user = userEvent.setup();
+    await renderAppearance();
+
+    const slugInput = screen.getByLabelText("Tên đường dẫn");
+    await replaceText(user, slugInput, "-sai-");
+
+    expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toBeDisabled();
+    expect(screen.getByText(/chỉ dùng chữ thường/i)).toBeInTheDocument();
+  });
+
+  it("tên dành riêng cho hệ thống cũng bị chặn ngay tại chỗ", async () => {
+    const user = userEvent.setup();
+    await renderAppearance();
+
+    await replaceText(user, screen.getByLabelText("Tên đường dẫn"), "login");
+
+    expect(screen.getByText(/dành riêng/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toBeDisabled();
+  });
+
+  it("một nút Lưu ghi cả nội dung biểu mẫu lẫn diện mạo", async () => {
+    const user = userEvent.setup();
+    await renderAppearance();
+
+    await replaceText(user, screen.getByLabelText("Tên đường dẫn"), "thu-thuy");
+    await moTrang(user, /Biểu mẫu tiếp nhận/);
+    await replaceText(user, screen.getByLabelText("Tiêu đề biểu mẫu"), "Form brief");
+
+    // Nút Lưu nằm ngoài phân trang nên bấm được từ cả hai trang.
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+
+    await waitFor(() => expect(updateIntakeFormConfig).toHaveBeenCalled());
+    await waitFor(() => expect(mockUpdateFreelancerProfile).toHaveBeenCalled());
+    // Chỉ ba trường diện mạo — không kéo theo cả gói ngân hàng/MoMo/nhắc nhở của màn Cài đặt.
+    expect(mockUpdateFreelancerProfile.mock.calls[0][0]).toEqual({
+      cover_url: "",
+      brand_color: "",
+      profile_slug: "thu-thuy",
+    });
   });
 
   it("lưu cấu hình biểu mẫu bằng PUT /intake-form", async () => {
@@ -291,13 +446,13 @@ describe("<IntakeFormConfig />", () => {
 
     const titleInput = screen.getByLabelText("Tiêu đề biểu mẫu");
     await replaceText(user, titleInput, "Form brief dự án");
-    await user.click(screen.getByRole("button", { name: "Lưu cấu hình" }));
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
 
     await waitFor(() => {
       expect(updateIntakeFormConfig).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Lưu cấu hình" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toBeDisabled();
     });
     const payload = vi.mocked(updateIntakeFormConfig).mock.calls[0][0];
     expect(payload).toEqual(
@@ -324,7 +479,7 @@ describe("<IntakeFormConfig />", () => {
     const user = userEvent.setup();
     await renderReady();
 
-    const saveButton = screen.getByRole("button", { name: "Lưu cấu hình" });
+    const saveButton = screen.getByRole("button", { name: "Lưu thay đổi" });
     const titleInput = screen.getByLabelText("Tiêu đề biểu mẫu");
 
     expect(saveButton).toBeDisabled();

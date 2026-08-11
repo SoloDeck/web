@@ -42,6 +42,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Khung xem trước dựng CẢ trang công khai thật (hồ sơ + biểu mẫu) trong mỗi bài test của
+    // màn cấu hình, nên vài bài vượt mốc 5s mặc định khi 34 file chạy song song — chạy riêng
+    // thì xanh. Nới mốc thay vì làm bản xem trước nhẹ đi, vì "dùng chính component trang
+    // thật" mới là thứ đang được kiểm.
+    testTimeout: 20_000,
     css: true,
     // Playwright owns e2e/; keep Vitest scoped to unit/component tests.
     include: ['src/**/*.{test,spec}.{ts,tsx}'],

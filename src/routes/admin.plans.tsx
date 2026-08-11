@@ -1,12 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AdminDashboard } from "@/features/admin/components/AdminDashboard";
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { requireAdmin } from "@/features/admin/utils/requireAdmin";
 
 export const Route = createFileRoute("/admin/plans")({
   beforeLoad: requireAdmin,
-  component: AdminPlansRoute,
+  component: lazyRouteComponent(
+    () => import("@/features/admin/components/adminPages"),
+    "AdminPlansPage",
+  ),
 });
-
-function AdminPlansRoute() {
-  return <AdminDashboard page="plans" />;
-}

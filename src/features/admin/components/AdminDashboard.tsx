@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -22,12 +22,14 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Trash2,
   Users,
   X,
   XCircle,
   Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import {
   useAdminPlans,
@@ -37,6 +39,7 @@ import {
   useAuditLogs,
   useCreateAdminPlan,
   useCreateAdminTemplate,
+  useDeleteAdminPlan,
   useOverrideSubscription,
   useUpdateAdminPlan,
   useUpdateAdminTemplate,
@@ -55,9 +58,17 @@ import type {
   AdminUserRole,
   AdminUserStatus,
 } from "@/services/adminService";
+import { isMomoPayableAmount } from "@/services/subscriptionsService";
 
 export type AdminPage = "dashboard" | "users" | "plans" | "templates" | 
 "ai-config" |"ai-costs" | "audit";
+
+/**
+ * Mã gói miễn phí. Đây là gói HỆ THỐNG, không phải một mặt hàng trong bảng giá: người
+ * đăng ký mới được gán vào nó, và job hết hạn hạ mọi gói trả phí về nó. Backend từ chối
+ * xoá nó — nên đừng bày ra một cái nút chắc chắn hỏng.  #Huynh
+ */
+const FREE_PLAN_SLUG = "free";
 
 const ADMIN_NAV_ITEMS: {
   page: AdminPage;
@@ -756,7 +767,9 @@ function PlansPage({ plans, stats }: { plans: AdminPlan[]; stats: AdminStats }) 
 
 function PlanCard({ plan }: { plan: AdminPlan }) {
   const updatePlan = useUpdateAdminPlan();
+  const deletePlan = useDeleteAdminPlan();
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (editing) {
     return (
@@ -794,11 +807,46 @@ function PlanCard({ plan }: { plan: AdminPlan }) {
             <span>Lượt AI/tháng: {plan.max_ai_generations_per_month}</span>
           </div>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
-          <Pencil className="size-4" />
-          Sửa gói
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" />
+            Sửa gói
+          </Button>
+          {plan.slug !== FREE_PLAN_SLUG && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Trash2 className="size-4" />
+              Xoá
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Hộp thoại riêng, không phải một khối nở ra trong thẻ gói: xoá là hành động không
+          hoàn tác được, nên nó xứng đáng một lần dừng hẳn lại — chặn thao tác khác, ghim
+          tiêu điểm, Esc để thoát. `ConfirmDialog` của dự án lo sẵn cả ba.  #Huynh */}
+      <ConfirmDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        title={`Xoá hẳn gói “${plan.name}”?`}
+        description={
+          "Không hoàn tác được. Chỉ xoá được gói chưa ai đăng ký và chưa từng có giao dịch " +
+          "nào. Gói đã có người dùng thì hãy bỏ chọn “Gói đang hoạt động” để ngừng bán: gói " +
+          "biến khỏi bảng giá và không ai mua mới được, còn người đang dùng vẫn giữ quyền " +
+          "lợi tới hết kỳ đã trả tiền."
+        }
+        confirmLabel="Xoá"
+        cancelLabel="Huỷ"
+        tone="danger"
+        isLoading={deletePlan.isPending}
+        onConfirm={() =>
+          deletePlan.mutate(plan.id, { onSuccess: () => setConfirmingDelete(false) })
+        }
+      />
     </article>
   );
 }
@@ -829,6 +877,7 @@ function PlanForm({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<PlanDraft>(() => toPlanDraft(plan));
+  const [priceError, setPriceError] = useState<string | null>(null);
   const isEditing = Boolean(plan);
   const canSubmit =
     draft.name.trim().length > 0 &&
@@ -841,6 +890,22 @@ function PlanForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
+
+    // Soi giá lúc BẤM LƯU, không phải lúc đang gõ. Gõ "1.000.000" thì có một khoảnh khắc
+    // giá trị là "1" — báo đỏ ngay lúc đó là mắng người ta giữa chừng câu. Còn treo sẵn
+    // một dòng hướng dẫn suốt thời gian mở form thì lại thành nhiễu, đọc vài lần là hết
+    // nhìn. Chỉ nói khi người dùng đã nói xong.
+    //
+    // 0đ = gói miễn phí, không đi qua cổng thanh toán nên không chịu hạn mức nào.  #Huynh
+    const price = Number(onlyDigits(draft.price_monthly) || "0");
+    if (price !== 0 && !isMomoPayableAmount(price)) {
+      setPriceError(
+        "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo), hoặc để 0 nếu là gói miễn phí."
+      );
+      return;
+    }
+
+    setPriceError(null);
     onSubmit(toPlanPayload(draft));
   }
 
@@ -867,7 +932,13 @@ function PlanForm({
           label="Giá tháng (VND)"
           value={draft.price_monthly}
           inputMode="numeric"
-          onChange={(value) => set("price_monthly", groupThousands(onlyDigits(value)))}
+          error={priceError}
+          onChange={(value) => {
+            // Gõ lại là xoá lỗi ngay: giữ chữ đỏ trong khi người ta đang sửa đúng chỗ
+            // được bảo là sai thì chỉ còn là cằn nhằn.
+            setPriceError(null);
+            set("price_monthly", groupThousands(onlyDigits(value)));
+          }}
         />
         <TextInput
           label="Giới hạn khách hàng"
@@ -1107,24 +1178,45 @@ function TextInput({
   placeholder,
   inputMode,
   onChange,
+  error,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   inputMode?: "text" | "numeric" | "decimal";
   onChange: (value: string) => void;
+  /** Lỗi của RIÊNG ô này, hiện ngay dưới ô. `null` = chưa có gì để nói.  #Huynh */
+  error?: string | null;
 }) {
+  const errorId = useId();
   return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-semibold">{label}</span>
-      <input
-        value={value}
-        inputMode={inputMode}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-      />
-    </label>
+    <div className="space-y-1.5">
+      {/* Câu báo lỗi nằm NGOÀI <label>, nối vào ô bằng `aria-describedby`. Nhét nó vào
+          trong label thì nó bị tính luôn vào tên gọi của ô, thành "Giá tháng (VND)Giá gói
+          phải từ 1.000đ…" — trình đọc màn hình đọc cả cục đó mỗi lần vào ô.  #Huynh */}
+      <label className="block space-y-1.5">
+        <span className="text-xs font-semibold">{label}</span>
+        <input
+          value={value}
+          inputMode={inputMode}
+          placeholder={placeholder}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(
+            "w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2",
+            error
+              ? "border-destructive focus:ring-destructive/40"
+              : "border-input focus:ring-ring"
+          )}
+        />
+      </label>
+      {error && (
+        <p id={errorId} className="text-xs leading-4 text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
