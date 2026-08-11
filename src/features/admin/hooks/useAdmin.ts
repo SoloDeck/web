@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   createAdminPlan,
   createAdminTemplate,
+  deleteAdminPlan,
   listAiCosts,
   listAuditLogs,
   listAdminPlans,
@@ -23,6 +24,7 @@ import {
   type AdminTemplateUpdatePayload,
   type AdminUpdateUserPayload,
 } from "@/services/adminService";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 export const adminKeys = {
   users: ["admin", "users"] as const,
@@ -110,8 +112,11 @@ export function useCreateAdminPlan() {
       queryClient.invalidateQueries({ queryKey: adminKeys.plans });
       toast.success("Đã tạo gói dịch vụ mới.");
     },
-    onError: () => {
-      toast.error("Không thể tạo gói. Vui lòng kiểm tra dữ liệu và thử lại.");
+    // Backend nói RÕ sai chỗ nào ("Giá gói phải là 0đ hoặc nằm trong khoảng 1.000đ –
+    // 50.000.000đ… Giá vừa nhập: 200đ"). Câu chung "kiểm tra dữ liệu và thử lại" ném đi
+    // đúng thông tin duy nhất giúp quản trị viên sửa được, và chỉ giữ lại phần vô ích.  #Huynh
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, "Không thể tạo gói. Vui lòng kiểm tra dữ liệu và thử lại."));
     },
   });
 }
@@ -125,8 +130,25 @@ export function useUpdateAdminPlan() {
       queryClient.invalidateQueries({ queryKey: adminKeys.plans });
       toast.success("Đã cập nhật gói dịch vụ.");
     },
-    onError: () => {
-      toast.error("Không thể cập nhật gói. Vui lòng thử lại.");
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, "Không thể cập nhật gói. Vui lòng thử lại."));
+    },
+  });
+}
+
+export function useDeleteAdminPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (planId: string) => deleteAdminPlan(planId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.plans });
+      toast.success("Đã xoá gói dịch vụ.");
+    },
+    // Backend là nơi biết gói có ai dùng không, và nó trả về câu nói rõ phải làm gì thay
+    // thế ("…đã có 3 lượt đăng ký, 5 giao dịch. Hãy NGỪNG BÁN gói này…"). Đó chính là câu
+    // cần hiện — không được thay bằng một câu chung chung.  #Huynh
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, "Không xoá được gói. Vui lòng thử lại."));
     },
   });
 }
