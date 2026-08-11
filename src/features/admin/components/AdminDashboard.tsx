@@ -53,6 +53,7 @@ import type {
   AdminUser,
   AdminUserRole,
   AdminUserStatus,
+  LLMProvider,
 } from "@/services/adminService";
 import { isMomoPayableAmount } from "@/services/subscriptionsService";
 
@@ -1515,67 +1516,39 @@ function TemplateForm({
 }
 
 /**
- * Trang cho phép Admin đổi provider (grog,gemini,ollama) và model. Trung
+ * Trang cho Admin đổi nhà cung cấp AI của toàn hệ thống. Trung
+ *
+ * CHỈ đổi nhà cung cấp, không chọn model. Backend cố ý ghi cứng model của từng nhà cung
+ * cấp trong code (`GroqProvider.MODEL`, `GeminiProvider.MODEL`…) — xem comment ở bảng
+ * `ai_provider_configuration`. Bảng đó chỉ có một cột `llm_provider`, và cả schema request
+ * lẫn response đều không có `llm_model`.
+ *
+ * Bản cũ có thêm một ô chọn Model. Nó lưu được, hiện lại được, nhưng backend vứt trường đó
+ * đi và AI vẫn chạy model ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi
+ * cả.  #Huynh
  */
 export function AdminAiConfigPage() {
-  const AI_PROVIDER_OPTIONS: {
-    value: "groq" | "gemini" | "ollama";
-    label: string;
-  }[] = [
+  // Phải khớp `SUPPORTED_LLM_PROVIDERS` bên backend. Bản cũ khai `ollama` (backend trả
+  // 422) và thiếu `openai` (backend hỗ trợ thật) — chọn Ollama là lưu không nổi.
+  const AI_PROVIDER_OPTIONS: { value: LLMProvider; label: string }[] = [
     { value: "groq", label: "Groq" },
     { value: "gemini", label: "Gemini" },
-    { value: "ollama", label: "Ollama" },
+    { value: "openai", label: "OpenAI" },
   ];
-
-  const AI_MODELS_BY_PROVIDER: Record<
-    "groq" | "gemini" | "ollama",
-    string[]
-  > = {
-    groq: [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-    ],
-    gemini: [
-      "gemini-2.5-flash",
-      "gemini-3.5-flash-lite",
-    ],
-    ollama: [
-      "qwen3:4b",
-    ],
-  };
 
   const { data, isLoading, isError, refetch } = useAdminLLMProvider();
   const updateMutation = useUpdateAdminLLMProvider();
 
-  const [selectedProvider, setSelectedProvider] = useState<
-    "groq" | "gemini" | "ollama"
-  >("groq");
-
-  const [selectedModel, setSelectedModel] = useState(
-    "llama-3.3-70b-versatile",
-  );
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("groq");
 
   useEffect(() => {
     if (!data) return;
 
     setSelectedProvider(data.llm_provider);
-    setSelectedModel(data.llm_model);
   }, [data]);
 
-  const availableModels = AI_MODELS_BY_PROVIDER[selectedProvider];
-
-  function handleProviderChange(
-    provider: "groq" | "gemini" | "ollama",
-  ) {
-    setSelectedProvider(provider);
-    setSelectedModel(AI_MODELS_BY_PROVIDER[provider][0]);
-  }
-
   function handleSave() {
-    updateMutation.mutate({
-      llm_provider: selectedProvider,
-      llm_model: selectedModel,
-    });
+    updateMutation.mutate({ llm_provider: selectedProvider });
   }
 
   if (isLoading) {
@@ -1611,56 +1584,25 @@ export function AdminAiConfigPage() {
       icon={Settings}
     >
       <div className="max-w-2xl space-y-6">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-provider"
-              className="text-sm font-semibold"
-            >
-              AI Provider
-            </label>
+        <div className="max-w-sm space-y-2">
+          <label htmlFor="ai-provider" className="text-sm font-semibold">
+            Nhà cung cấp AI
+          </label>
 
-            <select
-              id="ai-provider"
-              value={selectedProvider}
-              onChange={(event) =>
-                handleProviderChange(
-                  event.target.value as "groq" | "gemini" | "ollama",
-                )
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {AI_PROVIDER_OPTIONS.map((provider) => (
-                <option key={provider.value} value={provider.value}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-model"
-              className="text-sm font-semibold"
-            >
-              Model
-            </label>
-
-            <select
-              id="ai-model"
-              value={selectedModel}
-              onChange={(event) =>
-                setSelectedModel(event.target.value)
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {availableModels.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            id="ai-provider"
+            value={selectedProvider}
+            onChange={(event) =>
+              setSelectedProvider(event.target.value as LLMProvider)
+            }
+            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            {AI_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider.value} value={provider.value}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="rounded-xl border border-border bg-muted/30 p-4">
@@ -1668,20 +1610,16 @@ export function AdminAiConfigPage() {
             <Settings className="mt-0.5 size-5 text-muted-foreground" />
 
             <div>
-              <p className="text-sm font-semibold">
-                Cấu hình hiện tại
-              </p>
+              <p className="text-sm font-semibold">Cấu hình hiện tại</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Provider:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedProvider}
-                </span>
+                Nhà cung cấp:{" "}
+                <span className="font-medium text-foreground">{selectedProvider}</span>
               </p>
-              <p className="text-sm text-muted-foreground">
-                Model:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedModel}
-                </span>
+              {/* Nói rõ là CỐ Ý không cho chọn model, để người dùng khỏi tưởng màn hình
+                  thiếu mất một ô. */}
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Mỗi nhà cung cấp dùng một model mặc định do hệ thống chọn sẵn. Đổi model
+                phải sửa trong mã nguồn, không đổi được từ đây.
               </p>
             </div>
           </div>

@@ -2,17 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  AdminAiConfigPage,
   AdminAuditPage,
   AdminDashboardPage,
   AdminPlansPage,
   AdminUsersPage,
 } from "./AdminDashboard";
 import {
+  useAdminLLMProvider,
   useAdminPlans,
   useAdminUsers,
   useAuditLogs,
   useCreateAdminPlan,
   useDeleteAdminPlan,
+  useUpdateAdminLLMProvider,
   useUpdateAdminPlan,
   useUpdateAdminUser,
 } from "@/features/admin/hooks/useAdmin";
@@ -95,10 +98,23 @@ const plan: AdminPlan = {
 
 const mockCreatePlan = vi.fn();
 const mockDeletePlan = vi.fn();
+const mockUpdateProvider = vi.fn();
 
 beforeEach(() => {
   mockCreatePlan.mockClear();
   mockDeletePlan.mockClear();
+  mockUpdateProvider.mockClear();
+
+  vi.mocked(useAdminLLMProvider).mockReturnValue({
+    data: { llm_provider: "groq" },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useAdminLLMProvider>);
+  vi.mocked(useUpdateAdminLLMProvider).mockReturnValue({
+    mutate: mockUpdateProvider,
+    isPending: false,
+  } as unknown as ReturnType<typeof useUpdateAdminLLMProvider>);
 
   vi.mocked(useAdminUsers).mockReturnValue({
     data: [adminUser, freelancerUser],
@@ -329,5 +345,47 @@ describe("<AdminPlansPage /> — xoá gói", () => {
 
     expect(screen.queryByRole("button", { name: /^xoá$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sửa gói/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Cấu hình AI.
+ *
+ * Backend cố ý chỉ cho đổi NHÀ CUNG CẤP — model của từng nhà cung cấp ghi cứng trong code.
+ * Giao diện cũ lệch khỏi hợp đồng đó ở hai chỗ: bày thêm ô chọn Model (backend vứt đi), và
+ * danh sách nhà cung cấp sai (có `ollama` backend không nhận, thiếu `openai` backend có).
+ */
+describe("<AdminAiConfigPage />", () => {
+  it("chỉ cho chọn đúng ba nhà cung cấp backend chấp nhận", () => {
+    render(<AdminAiConfigPage />);
+
+    const select = screen.getByLabelText(/nhà cung cấp ai/i);
+    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+
+    expect(options).toEqual(["Groq", "Gemini", "OpenAI"]);
+  });
+
+  it("không còn ô chọn Model", () => {
+    render(<AdminAiConfigPage />);
+
+    // Ô cũ lưu được, hiện lại được, nhưng backend vứt trường đó đi và AI vẫn chạy model
+    // ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi.
+    expect(screen.queryByLabelText(/^model$/i)).not.toBeInTheDocument();
+  });
+
+  it("lưu chỉ gửi llm_provider, không gửi llm_model", async () => {
+    render(<AdminAiConfigPage />);
+
+    await userEvent.selectOptions(screen.getByLabelText(/nhà cung cấp ai/i), "gemini");
+    await userEvent.click(screen.getByRole("button", { name: /lưu cấu hình/i }));
+
+    expect(mockUpdateProvider).toHaveBeenCalledTimes(1);
+    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({ llm_provider: "gemini" });
+  });
+
+  it("nói rõ vì sao không cho chọn model", () => {
+    render(<AdminAiConfigPage />);
+
+    expect(screen.getByText(/model mặc định do hệ thống chọn sẵn/i)).toBeInTheDocument();
   });
 });
