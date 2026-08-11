@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
-import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
 
 /**
  * `React.lazy` chứ không phải `lazyRouteComponent`: đây không phải component của route nào,
@@ -28,12 +27,9 @@ function RootComponent() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const syncFromStorage = useAuthStore((s) => s.syncFromStorage);
-  const fetchConfig = useConfigStore((s) => s.fetchConfig);
 
-  useEffect(() => {
-    fetchConfig();
-  }, [fetchConfig]);
-
+  // `fetchConfig()` chỉ gọi ở `App.tsx`. Trước đây gọi ở CẢ hai nơi, mà `useConfigStore`
+  // không chống gọi trùng — nên mỗi lần khởi động bắn hai request `/config` giống hệt nhau.
   useEffect(() => {
     if (isAuthenticated) hydrate();
   }, [isAuthenticated, hydrate]);
