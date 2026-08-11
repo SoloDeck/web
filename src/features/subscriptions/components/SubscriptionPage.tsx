@@ -11,6 +11,7 @@ import {
 } from "@/features/subscriptions/hooks/useSubscriptions";
 import { useAiUsage } from "@/features/revenue/hooks/useAnalytics";
 import {
+  isMomoPayableAmount,
   planPrice,
   SETTLED_PAYMENT_STATUSES,
   type PlanResponse,
@@ -100,7 +101,13 @@ function PlanCard({
   const rows = featureRows(plan);
   // `planPrice` chứ không so thẳng: backend trả Decimal dạng CHUỖI ("0.00"), nên
   // `price_monthly === 0` luôn sai và gói Free hiện nút mua.  #Huynh
-  const isFree = planPrice(plan) === 0;
+  const price = planPrice(plan);
+  const isFree = price === 0;
+  // Giá gói do quản trị viên nhập tay, mà MoMo có hạn mức 1.000đ – 50.000.000đ. Gói nằm
+  // ngoài hạn mức thì bấm vào là chắc chắn lỗi — tắt nút ngay tại thẻ kèm lý do, đừng bắt
+  // người dùng đi một vòng sang backend chỉ để nhận về toast đỏ nói về một con số họ
+  // không đặt ra và cũng không sửa được.  #Huynh
+  const unpayable = !isFree && !isMomoPayableAmount(price);
 
   return (
     <div
@@ -178,17 +185,19 @@ function PlanCard({
         // hộp thư bật lên, trong khi hệ thống thừa sức tự bán.  #Huynh
         <button
           type="button"
-          disabled={isFree || buying}
+          disabled={isFree || unpayable || buying}
           onClick={() => onBuy(plan)}
           className={cn(
             "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
-            isFree
+            isFree || unpayable
               ? "border border-border text-muted-foreground"
               : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
           )}
         >
           {isFree ? (
             "Miễn phí"
+          ) : unpayable ? (
+            "Chưa mua được"
           ) : buying ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -201,6 +210,13 @@ function PlanCard({
             </>
           )}
         </button>
+      )}
+
+      {unpayable && (
+        <p className="mt-2 text-xs leading-4 text-muted-foreground">
+          Giá gói này nằm ngoài khoảng MoMo hỗ trợ (1.000đ – 50.000.000đ). Bạn liên hệ quản
+          trị viên để được chỉnh lại giúp nhé.
+        </p>
       )}
     </div>
   );
@@ -266,9 +282,16 @@ export function SubscriptionPage() {
 
   const statusMeta = subscription ? STATUS_LABEL[subscription.status] ?? STATUS_LABEL.active : null;
 
-  // Sort: free → pro → agency
+  // Sort: free → pro → agency → gói do quản trị viên tự tạo
+  //
+  // `ORDER.indexOf` trả -1 cho mã lạ, mà -1 nhỏ hơn mọi hạng hợp lệ — nên gói tự tạo bị
+  // đẩy lên ĐẦU bảng giá, đứng trước cả Free. `rank` đưa chúng xuống cuối.  #Huynh
   const ORDER = ["free", "pro", "agency"];
-  const sortedPlans = [...(plans ?? [])].sort((a, b) => ORDER.indexOf(a.slug) - ORDER.indexOf(b.slug));
+  const rank = (slug: string) => {
+    const index = ORDER.indexOf(slug);
+    return index === -1 ? ORDER.length : index;
+  };
+  const sortedPlans = [...(plans ?? [])].sort((a, b) => rank(a.slug) - rank(b.slug));
 
   return (
     // `h-full overflow-y-auto`: container chung của các tab là `overflow-hidden` (vì Kanban

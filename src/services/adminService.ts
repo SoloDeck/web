@@ -149,6 +149,18 @@ export async function updateAdminPlan(
 }
 
 /**
+ * DELETE /admin/plans/{id} — xoá HẲN một gói chưa từng được dùng.
+ *
+ * Chỉ dùng cho ca "lỡ tay tạo nhầm". Gói đã có người đăng ký hoặc từng có giao dịch thì
+ * backend trả 409 kèm lý do — xoá là hoá đơn cũ mất chỗ trỏ về. Đường đúng cho gói đó là
+ * ngừng bán (`is_active: false`): biến khỏi bảng giá, không ai mua mới được, người đang
+ * dùng giữ quyền lợi tới hết kỳ đã trả tiền.  #Huynh
+ */
+export async function deleteAdminPlan(planId: string): Promise<void> {
+  await axiosClient.delete(`/admin/plans/${planId}`);
+}
+
+/**
  * PATCH /admin/subscriptions/{id}/override — Admin đổi gói cho một freelancer.
  *
  * Đây là cách DUY NHẤT để nâng gói: freelancer KHÔNG tự nâng cấp được, vì tự nâng cấp
