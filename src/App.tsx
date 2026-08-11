@@ -5,42 +5,28 @@ import { useConfigStore } from "@/features/auth/hooks/useConfigStore";
 
 const router = getRouter();
 
+/**
+ * Cấu hình vẫn nạp lúc khởi động, nhưng KHÔNG chặn app render nữa.
+ *
+ * `ClientConfig` chỉ có hai trường: `app_env` (không nơi nào đọc) và `google_web_client_id`
+ * (chỉ `GoogleButton` đọc, và nó đã tự xử lý được khi thiếu — tắt đăng nhập Google, hiện
+ * skeleton). Vậy mà bản cũ dựng màn chờ rồi màn lỗi che TOÀN BỘ ứng dụng cho tới khi lấy
+ * được nó.
+ *
+ * Hậu quả: backend trục trặc là cả trang giới thiệu, trang hồ sơ công khai và mọi biểu mẫu
+ * chia sẻ đều tối đen với dòng "Lỗi tải cấu hình" — những trang không cần backend một chút
+ * nào. Đây cũng chính là thứ làm CI đỏ: job e2e chạy không có backend, nên `/auth/config`
+ * hỏng và trang `/home` không bao giờ dựng ra nổi cái `<h1>`.
+ *
+ * Lỗi vẫn được lưu trong store; chỗ duy nhất thật sự chịu ảnh hưởng là nút Google, và nó
+ * đã báo bằng trạng thái của chính nó.  #Huynh
+ */
 function App() {
   const fetchConfig = useConfigStore((s) => s.fetchConfig);
-  const isLoading = useConfigStore((s) => s.isLoading);
-  const error = useConfigStore((s) => s.error);
 
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto"></div>
-          <p className="mt-4 text-sm text-muted-foreground">Đang tải cấu hình hệ thống...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background p-4">
-        <div className="max-w-md text-center">
-          <h2 className="text-lg font-semibold text-destructive">Lỗi tải cấu hình</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <button
-            onClick={() => fetchConfig()}
-            className="mt-4 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Thử lại
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return <RouterProvider router={router} />;
 }
