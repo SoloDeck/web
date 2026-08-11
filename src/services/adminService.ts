@@ -8,16 +8,32 @@ import type { ApiResponse } from "@/features/auth/types";
 export type AdminUserRole = "freelancer" | "admin";
 export type AdminUserStatus = "active" | "suspended" | "deleted";
 
-export type LLMProvider = "groq" | "gemini" | "ollama";
+/**
+ * Nhà cung cấp AI mà backend chấp nhận.
+ *
+ * Phải khớp `SUPPORTED_LLM_PROVIDERS` bên backend (`src/ai/shared/constants.py`) và
+ * `Literal` trong `AdminUpdateLLMProviderRequest`. Bản cũ khai `"ollama"` — backend không
+ * có nên chọn nó là ăn 422 — mà lại thiếu `"openai"` là thứ backend hỗ trợ thật.  #Huynh
+ */
+export type LLMProvider = "groq" | "gemini" | "openai";
 
+/**
+ * KHÔNG có `llm_model`.
+ *
+ * Backend cố ý ghi cứng model của từng nhà cung cấp trong code — xem comment ở bảng
+ * `ai_provider_configuration`: *"Model cụ thể của từng nhà cung cấp được hard-code trong
+ * codebase để giảm độ phức tạp khi kiểm thử và triển khai"*. Bảng đó chỉ có đúng một cột
+ * `llm_provider`; schema request lẫn response đều không hề có `llm_model`.
+ *
+ * Bản cũ khai thêm trường này nên giao diện gửi lên một thứ pydantic lặng lẽ vứt đi, còn
+ * lúc đọc về thì hiện `undefined`.  #Huynh
+ */
 export type AdminLLMProviderResponse = {
   llm_provider: LLMProvider;
-  llm_model: string;
 };
 
 export type AdminUpdateLLMProviderPayload = {
   llm_provider: LLMProvider;
-  llm_model: string;
 };
 
 /** Gói của một user — backend TRẢ KÈM trong GET /admin/users, trước đây FE không khai nên vứt đi. */

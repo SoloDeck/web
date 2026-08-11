@@ -12,10 +12,7 @@ import {
   CheckCircle2,
   CreditCard,
   FileText,
-  LayoutDashboard,
   Loader2,
-  LogOut,
-  Menu,
   Pencil,
   Plus,
   RefreshCw,
@@ -30,7 +27,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
-import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import {
   useAdminPlans,
   useAdminTemplates,
@@ -57,11 +53,9 @@ import type {
   AdminUser,
   AdminUserRole,
   AdminUserStatus,
+  LLMProvider,
 } from "@/services/adminService";
 import { isMomoPayableAmount } from "@/services/subscriptionsService";
-
-export type AdminPage = "dashboard" | "users" | "plans" | "templates" | 
-"ai-config" |"ai-costs" | "audit";
 
 /**
  * Mã gói miễn phí. Đây là gói HỆ THỐNG, không phải một mặt hàng trong bảng giá: người
@@ -69,64 +63,6 @@ export type AdminPage = "dashboard" | "users" | "plans" | "templates" |
  * xoá nó — nên đừng bày ra một cái nút chắc chắn hỏng.  #Huynh
  */
 const FREE_PLAN_SLUG = "free";
-
-const ADMIN_NAV_ITEMS: {
-  page: AdminPage;
-  label: string;
-  path: string;
-  icon: ComponentType<{ className?: string }>;
-  description: string;
-}[] = [
-    {
-      page: "dashboard",
-      label: "Tổng quan",
-      path: "/admin",
-      icon: LayoutDashboard,
-      description: "Tổng quan vận hành SoloDesk",
-    },
-    {
-      page: "users",
-      label: "Tài khoản",
-      path: "/admin/users",
-      icon: Users,
-      description: "Quản lý người dùng và trạng thái truy cập",
-    },
-    {
-      page: "plans",
-      label: "Gói dịch vụ",
-      path: "/admin/plans",
-      icon: CreditCard,
-      description: "Danh mục gói và giới hạn sử dụng",
-    },
-    {
-      page: "templates",
-      label: "Thư viện mẫu",
-      path: "/admin/templates",
-      icon: FileText,
-      description: "Mẫu điều khoản báo giá / hợp đồng theo nghề",
-    },
-    {
-      page: "ai-config",
-      label: "Cấu hình AI",
-      path: "/admin/ai-config",
-      icon: Settings,
-      description: "Chọn AI provider và model đang được hệ thống sử dụng",
-    },
-    {
-      page: "ai-costs",
-      label: "Chi phí AI",
-      path: "/admin/ai-costs",
-      icon: Bot,
-      description: "Token và chi phí ước tính mỗi lần gọi AI",
-    },
-    {
-      page: "audit",
-      label: "Nhật ký",
-      path: "/admin/audit",
-      icon: ScrollText,
-      description: "Ai làm gì, cho ai, lúc nào",
-    },
-  ];
 
 const USER_ROLE_OPTIONS: { value: AdminUserRole; label: string }[] = [
   { value: "freelancer", label: "Người dùng" },
@@ -141,214 +77,45 @@ const USER_STATUS_OPTIONS: { value: AdminUserStatus; label: string }[] = [
 
 const USERS_PAGE_SIZE = 5;
 
-export function AdminDashboard({ page = "dashboard" }: { page?: AdminPage }) {
-  const currentUser = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
+
+/**
+ * Tab Tổng quan — màn duy nhất cần CẢ tài khoản lẫn gói.
+ *
+ * Từ đây trở đi mỗi tab tự gọi truy vấn của riêng nó thay vì nhận qua prop từ khung. Đó
+ * là điều làm cho "không tải dữ liệu thừa" thành ràng buộc CẤU TRÚC chứ không phải may
+ * mắn: tab Nhật ký không có cách nào chạm tới `useAdminUsers` nữa. TanStack Query gộp
+ * trùng theo queryKey nên vẫn chỉ đúng một lượt mạng cho mỗi khoá.  #Huynh
+ */
+export function AdminDashboardPage() {
   const usersQuery = useAdminUsers();
   const plansQuery = useAdminPlans();
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const users = usersQuery.data ?? [];
-  const plans = plansQuery.data ?? [];
-  const stats = useMemo(() => buildAdminStats(users, plans), [users, plans]);
-  const activeRoute = ADMIN_NAV_ITEMS.find((item) => item.page === page) ?? ADMIN_NAV_ITEMS[0];
-  const isLoading = usersQuery.isLoading || plansQuery.isLoading;
-  const isError = usersQuery.isError || plansQuery.isError;
+  // `?? []` phải nằm TRONG `useMemo`, không phải ngoài: viết ngoài thì mỗi lần render lại
+  // sinh một mảng rỗng mới, phụ thuộc của `useMemo` đổi liên tục và bộ nhớ đệm thành vô nghĩa.
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const plans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
+  const stats = useMemo(
+    () => ({ ...buildUserStats(users), ...buildPlanStats(plans) }),
+    [users, plans],
+  );
+  const latestUsers = useMemo(
+    () => [...users].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6),
+    [users],
+  );
 
-  function refresh() {
-    usersQuery.refetch();
-    plansQuery.refetch();
-  }
-
-  async function handleLogout() {
-    await logout();
-    window.location.assign("/login");
-  }
-
-  return (
-    <div className="min-h-screen bg-[#f5f7fb] text-foreground">
-      {mobileNavOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-30 bg-background/70 backdrop-blur-sm lg:hidden"
-          aria-label="Đóng menu quản trị"
-          onClick={() => setMobileNavOpen(false)}
-        />
-      )}
-
-      <AdminSidebar
-        activePage={page}
-        currentEmail={currentUser?.email ?? "admin@solodesk.dev"}
-        open={mobileNavOpen}
-        onClose={() => setMobileNavOpen(false)}
-        onLogout={handleLogout}
+  // Màn chờ và màn lỗi nằm TRONG tab, không phải ở khung. Mọi hook phải gọi xong trước
+  // các nhánh `return` sớm này — luật hook, và React Compiler đang bật.
+  if (usersQuery.isLoading || plansQuery.isLoading) return <AdminLoadingState />;
+  if (usersQuery.isError || plansQuery.isError) {
+    return (
+      <AdminErrorState
+        onRefresh={() => {
+          usersQuery.refetch();
+          plansQuery.refetch();
+        }}
       />
-
-      <div className="min-h-screen lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-          <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary lg:hidden"
-                aria-label="Mở menu quản trị"
-                onClick={() => setMobileNavOpen(true)}
-              >
-                <Menu className="size-5" />
-              </button>
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-bold sm:text-lg">{activeRoute.label}</h1>
-                <p className="hidden truncate text-xs text-muted-foreground md:block">
-                  {activeRoute.description}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <SystemStatusPill isError={isError} isLoading={isLoading} />
-              <Button type="button" variant="outline" size="sm" onClick={refresh}>
-                <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
-                <span className="hidden sm:inline">Làm mới</span>
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-[1540px] space-y-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-5">
-          {isLoading ? (
-            <AdminLoadingState />
-          ) : isError ? (
-            <AdminErrorState onRefresh={refresh} />
-          ) : page === "users" ? (
-            <UsersPage users={users} stats={stats} />
-          ) : page === "plans" ? (
-            <PlansPage plans={plans} stats={stats} />
-          ) : page === "templates" ? (
-            <TemplatesPage />
-          ) : page === "ai-config" ? (
-            <AiConfigPage />
-          ) : page === "ai-costs" ? (
-            <AiCostsPage />
-          ) : page === "audit" ? (
-            <AuditLogPage />
-          ) : (
-            <DashboardPage users={users} stats={stats} />
-          )}
-        </main>
-      </div>
-    </div>
-  );
-}
-
-function AdminSidebar({
-  activePage,
-  currentEmail,
-  open,
-  onClose,
-  onLogout,
-}: {
-  activePage: AdminPage;
-  currentEmail: string;
-  open: boolean;
-  onClose: () => void;
-  onLogout: () => void;
-}) {
-  return (
-    <aside
-      className={cn(
-        "fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-[#1f2937] bg-[#101828] text-white shadow-xl transition-transform lg:translate-x-0",
-        open ? "translate-x-0" : "-translate-x-full",
-      )}
-    >
-      <div className="flex h-16 items-center justify-between border-b border-white/10 px-5">
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-white text-[#101828]">
-            <ShieldCheck className="size-5" />
-          </span>
-          <div>
-            <div className="text-sm font-bold">Quản trị SoloDesk</div>
-            <div className="text-xs text-white/55">Trung tâm quản trị</div>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="rounded-lg p-2 text-white/70 hover:bg-white/10 lg:hidden"
-          aria-label="Đóng menu quản trị"
-          onClick={onClose}
-        >
-          <X className="size-5" />
-        </button>
-      </div>
-
-      <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-3 py-5">
-        <div>
-          <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/35">
-            Quản trị
-          </p>
-          <div className="mt-2 space-y-1">
-            {ADMIN_NAV_ITEMS.map((item) => (
-              <AdminNavLink key={item.page} item={item} active={activePage === item.page} />
-            ))}
-          </div>
-        </div>
-      </nav>
-
-      <div className="border-t border-white/10 p-4">
-        <div className="rounded-xl bg-white/8 p-3">
-          <div className="text-xs text-white/45">Đang đăng nhập</div>
-          <div className="mt-1 truncate text-sm font-semibold">{currentEmail}</div>
-        </div>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"
-        >
-          <LogOut className="size-4" />
-          Đăng xuất
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-function AdminNavLink({
-  item,
-  active,
-}: {
-  item: (typeof ADMIN_NAV_ITEMS)[number];
-  active: boolean;
-}) {
-  return (
-    <a
-      href={item.path}
-      className={cn(
-        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
-        active
-          ? "bg-white text-[#101828] shadow-sm"
-          : "text-white/72 hover:bg-white/10 hover:text-white",
-      )}
-    >
-      <item.icon className="size-4" />
-      <div className="min-w-0">
-        <div className="font-semibold">{item.label}</div>
-        <div className={cn("truncate text-xs", active ? "text-[#475467]" : "text-white/35")}>
-          {item.description}
-        </div>
-      </div>
-    </a>
-  );
-}
-
-type AdminStats = ReturnType<typeof buildAdminStats>;
-
-function DashboardPage({
-  users,
-  stats,
-}: {
-  users: AdminUser[];
-  stats: AdminStats;
-}) {
-  const latestUsers = [...users].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6);
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -439,7 +206,11 @@ function DashboardPage({
   );
 }
 
-function UsersPage({ users, stats }: { users: AdminUser[]; stats: AdminStats }) {
+export function AdminUsersPage() {
+  const usersQuery = useAdminUsers();
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const stats = useMemo(() => buildUserStats(users), [users]);
+
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | AdminUserRole>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | AdminUserStatus>("all");
@@ -469,6 +240,9 @@ function UsersPage({ users, stats }: { users: AdminUser[]; stats: AdminStats }) 
     // Khi lọc/tìm kiếm thay đổi, quay về trang đầu để tránh rơi vào trang rỗng.
     setPage(1);
   }, [query, roleFilter, statusFilter]);
+
+  if (usersQuery.isLoading) return <AdminLoadingState />;
+  if (usersQuery.isError) return <AdminErrorState onRefresh={() => usersQuery.refetch()} />;
 
   return (
     <div className="space-y-5">
@@ -718,9 +492,16 @@ function PaginationFooter({
   );
 }
 
-function PlansPage({ plans, stats }: { plans: AdminPlan[]; stats: AdminStats }) {
+export function AdminPlansPage() {
+  const plansQuery = useAdminPlans();
   const createPlan = useCreateAdminPlan();
   const [showCreate, setShowCreate] = useState(false);
+
+  const plans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
+  const stats = useMemo(() => buildPlanStats(plans), [plans]);
+
+  if (plansQuery.isLoading) return <AdminLoadingState />;
+  if (plansQuery.isError) return <AdminErrorState onRefresh={() => plansQuery.refetch()} />;
 
   return (
     <div className="space-y-6">
@@ -1147,31 +928,6 @@ function AdminErrorState({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-function SystemStatusPill({ isLoading, isError }: { isLoading: boolean; isError: boolean }) {
-  if (isLoading) {
-    return (
-      <span className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground sm:inline-flex">
-        <Loader2 className="size-3 animate-spin" />
-        Đang đồng bộ
-      </span>
-    );
-  }
-
-  return (
-    <span
-      className={cn(
-        "hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold sm:inline-flex",
-        isError
-          ? "border-destructive/30 bg-destructive/10 text-destructive"
-          : "border-success/25 bg-success/10 text-success",
-      )}
-    >
-      <span className="size-2 rounded-full bg-current" />
-      {isError ? "Mất kết nối" : "Hệ thống sẵn sàng"}
-    </span>
-  );
-}
-
 function TextInput({
   label,
   value,
@@ -1279,13 +1035,26 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function buildAdminStats(users: AdminUser[], plans: AdminPlan[]) {
+/**
+ * Tách đôi `buildAdminStats` cũ.
+ *
+ * Bản cũ nhận cả `users` lẫn `plans` nên MỌI tab muốn hiện một con số đều phải có sẵn cả
+ * hai mảng — đó chính là thứ buộc khung phải gọi hai truy vấn cho tất cả bảy tab. Tách ra
+ * thì tab Tài khoản chỉ cần tài khoản, tab Gói chỉ cần gói, và trình biên dịch giữ cho
+ * điều đó luôn đúng.  #Huynh
+ */
+function buildUserStats(users: AdminUser[]) {
   return {
     totalUsers: users.length,
     activeUsers: users.filter((user) => user.status === "active").length,
     suspendedUsers: users.filter((user) => user.status === "suspended").length,
     adminUsers: users.filter((user) => user.role === "admin").length,
     freelancerUsers: users.filter((user) => user.role === "freelancer").length,
+  };
+}
+
+function buildPlanStats(plans: AdminPlan[]) {
+  return {
     totalPlans: plans.length,
     activePlans: plans.filter((plan) => plan.is_active).length,
     aiPlans: plans.filter((plan) => plan.can_use_ai).length,
@@ -1473,7 +1242,7 @@ function professionLabel(slug: string | null): string {
   return PROFESSIONS.find((p) => p.value === slug)?.label ?? slug;
 }
 
-function TemplatesPage() {
+export function AdminTemplatesPage() {
   const [typeFilter, setTypeFilter] = useState<AdminTemplateType | "">("");
   const [professionFilter, setProfessionFilter] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
@@ -1747,67 +1516,39 @@ function TemplateForm({
 }
 
 /**
- * Trang cho phép Admin đổi provider (grog,gemini,ollama) và model. Trung
+ * Trang cho Admin đổi nhà cung cấp AI của toàn hệ thống. Trung
+ *
+ * CHỈ đổi nhà cung cấp, không chọn model. Backend cố ý ghi cứng model của từng nhà cung
+ * cấp trong code (`GroqProvider.MODEL`, `GeminiProvider.MODEL`…) — xem comment ở bảng
+ * `ai_provider_configuration`. Bảng đó chỉ có một cột `llm_provider`, và cả schema request
+ * lẫn response đều không có `llm_model`.
+ *
+ * Bản cũ có thêm một ô chọn Model. Nó lưu được, hiện lại được, nhưng backend vứt trường đó
+ * đi và AI vẫn chạy model ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi
+ * cả.  #Huynh
  */
-function AiConfigPage() {
-  const AI_PROVIDER_OPTIONS: {
-    value: "groq" | "gemini" | "ollama";
-    label: string;
-  }[] = [
+export function AdminAiConfigPage() {
+  // Phải khớp `SUPPORTED_LLM_PROVIDERS` bên backend. Bản cũ khai `ollama` (backend trả
+  // 422) và thiếu `openai` (backend hỗ trợ thật) — chọn Ollama là lưu không nổi.
+  const AI_PROVIDER_OPTIONS: { value: LLMProvider; label: string }[] = [
     { value: "groq", label: "Groq" },
     { value: "gemini", label: "Gemini" },
-    { value: "ollama", label: "Ollama" },
+    { value: "openai", label: "OpenAI" },
   ];
-
-  const AI_MODELS_BY_PROVIDER: Record<
-    "groq" | "gemini" | "ollama",
-    string[]
-  > = {
-    groq: [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-    ],
-    gemini: [
-      "gemini-2.5-flash",
-      "gemini-3.5-flash-lite",
-    ],
-    ollama: [
-      "qwen3:4b",
-    ],
-  };
 
   const { data, isLoading, isError, refetch } = useAdminLLMProvider();
   const updateMutation = useUpdateAdminLLMProvider();
 
-  const [selectedProvider, setSelectedProvider] = useState<
-    "groq" | "gemini" | "ollama"
-  >("groq");
-
-  const [selectedModel, setSelectedModel] = useState(
-    "llama-3.3-70b-versatile",
-  );
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("groq");
 
   useEffect(() => {
     if (!data) return;
 
     setSelectedProvider(data.llm_provider);
-    setSelectedModel(data.llm_model);
   }, [data]);
 
-  const availableModels = AI_MODELS_BY_PROVIDER[selectedProvider];
-
-  function handleProviderChange(
-    provider: "groq" | "gemini" | "ollama",
-  ) {
-    setSelectedProvider(provider);
-    setSelectedModel(AI_MODELS_BY_PROVIDER[provider][0]);
-  }
-
   function handleSave() {
-    updateMutation.mutate({
-      llm_provider: selectedProvider,
-      llm_model: selectedModel,
-    });
+    updateMutation.mutate({ llm_provider: selectedProvider });
   }
 
   if (isLoading) {
@@ -1843,56 +1584,25 @@ function AiConfigPage() {
       icon={Settings}
     >
       <div className="max-w-2xl space-y-6">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-provider"
-              className="text-sm font-semibold"
-            >
-              AI Provider
-            </label>
+        <div className="max-w-sm space-y-2">
+          <label htmlFor="ai-provider" className="text-sm font-semibold">
+            Nhà cung cấp AI
+          </label>
 
-            <select
-              id="ai-provider"
-              value={selectedProvider}
-              onChange={(event) =>
-                handleProviderChange(
-                  event.target.value as "groq" | "gemini" | "ollama",
-                )
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {AI_PROVIDER_OPTIONS.map((provider) => (
-                <option key={provider.value} value={provider.value}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-model"
-              className="text-sm font-semibold"
-            >
-              Model
-            </label>
-
-            <select
-              id="ai-model"
-              value={selectedModel}
-              onChange={(event) =>
-                setSelectedModel(event.target.value)
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {availableModels.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            id="ai-provider"
+            value={selectedProvider}
+            onChange={(event) =>
+              setSelectedProvider(event.target.value as LLMProvider)
+            }
+            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            {AI_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider.value} value={provider.value}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="rounded-xl border border-border bg-muted/30 p-4">
@@ -1900,20 +1610,16 @@ function AiConfigPage() {
             <Settings className="mt-0.5 size-5 text-muted-foreground" />
 
             <div>
-              <p className="text-sm font-semibold">
-                Cấu hình hiện tại
-              </p>
+              <p className="text-sm font-semibold">Cấu hình hiện tại</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Provider:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedProvider}
-                </span>
+                Nhà cung cấp:{" "}
+                <span className="font-medium text-foreground">{selectedProvider}</span>
               </p>
-              <p className="text-sm text-muted-foreground">
-                Model:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedModel}
-                </span>
+              {/* Nói rõ là CỐ Ý không cho chọn model, để người dùng khỏi tưởng màn hình
+                  thiếu mất một ô. */}
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Mỗi nhà cung cấp dùng một model mặc định do hệ thống chọn sẵn. Đổi model
+                phải sửa trong mã nguồn, không đổi được từ đây.
               </p>
             </div>
           </div>
@@ -1948,7 +1654,7 @@ function AiConfigPage() {
  * "Ước tính" là đúng nghĩa đen: Groq tính tiền theo bảng giá của họ, con số ở đây là ta
  * tự nhân đơn giá. Giao diện phải nói rõ, đừng để ai tưởng đây là hoá đơn.  #Huynh
  */
-function AiCostsPage() {
+export function AdminAiCostsPage() {
   const { data, isLoading } = useAiCosts();
 
   if (isLoading) {
@@ -2019,7 +1725,7 @@ function AiCostsPage() {
  * kích hoạt tay. Mô hình đó chỉ đứng vững nếu mọi lần kích hoạt để lại dấu vết: ai làm,
  * cho ai, lúc nào. Không có nhật ký thì "admin kích hoạt thủ công" chỉ là một cái cửa sau.
  */
-function AuditLogPage() {
+export function AdminAuditPage() {
   const { data: logs, isLoading } = useAuditLogs();
 
   if (isLoading) {

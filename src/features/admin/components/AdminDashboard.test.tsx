@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AdminDashboard } from "./AdminDashboard";
 import {
+  AdminAiConfigPage,
+  AdminAuditPage,
+  AdminDashboardPage,
+  AdminPlansPage,
+  AdminUsersPage,
+} from "./AdminDashboard";
+import {
+  useAdminLLMProvider,
   useAdminPlans,
   useAdminUsers,
+  useAuditLogs,
   useCreateAdminPlan,
   useDeleteAdminPlan,
+  useUpdateAdminLLMProvider,
   useUpdateAdminPlan,
   useUpdateAdminUser,
 } from "@/features/admin/hooks/useAdmin";
@@ -25,13 +34,28 @@ vi.mock("@/features/auth/hooks/useAuthStore", () => ({
     }),
 }));
 
+// Từ khi bảy màn admin nằm chung một đồ thị import, factory này phải khai ĐỦ mọi hook mà
+// bất kỳ màn nào dùng — thiếu một cái là `TypeError: useX is not a function` ở màn khác.
 vi.mock("@/features/admin/hooks/useAdmin", () => ({
+  adminKeys: { all: ["admin"] },
   useAdminUsers: vi.fn(),
   useAdminPlans: vi.fn(),
   useUpdateAdminUser: vi.fn(),
   useCreateAdminPlan: vi.fn(),
   useUpdateAdminPlan: vi.fn(),
   useDeleteAdminPlan: vi.fn(),
+  useAdminTemplates: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  useCreateAdminTemplate: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUpdateAdminTemplate: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useAiCosts: vi.fn(() => ({ data: undefined, isLoading: false, isError: false })),
+  useAuditLogs: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  useAdminLLMProvider: vi.fn(() => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
+  useUpdateAdminLLMProvider: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   // Admin đổi gói tay cho freelancer — dùng khi thu tiền ngoài hệ thống. Không còn là
   // cách duy nhất để nâng gói kể từ khi có checkout MoMo.
   useOverrideSubscription: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
@@ -74,10 +98,23 @@ const plan: AdminPlan = {
 
 const mockCreatePlan = vi.fn();
 const mockDeletePlan = vi.fn();
+const mockUpdateProvider = vi.fn();
 
 beforeEach(() => {
   mockCreatePlan.mockClear();
   mockDeletePlan.mockClear();
+  mockUpdateProvider.mockClear();
+
+  vi.mocked(useAdminLLMProvider).mockReturnValue({
+    data: { llm_provider: "groq" },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useAdminLLMProvider>);
+  vi.mocked(useUpdateAdminLLMProvider).mockReturnValue({
+    mutate: mockUpdateProvider,
+    isPending: false,
+  } as unknown as ReturnType<typeof useUpdateAdminLLMProvider>);
 
   vi.mocked(useAdminUsers).mockReturnValue({
     data: [adminUser, freelancerUser],
@@ -111,20 +148,40 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof useDeleteAdminPlan>);
 });
 
-describe("<AdminDashboard />", () => {
+describe("<AdminDashboardPage /> + <AdminUsersPage />", () => {
+  // Tiêu đề "Tổng quan" và câu mô tả nằm ở KHUNG, không phải ở màn này — hai khẳng định
+  // đó đã chuyển sang `AdminLayout.test.tsx`.
   it("renders the admin dashboard summary without developer-only coverage data", () => {
-    render(<AdminDashboard />);
+    render(<AdminDashboardPage />);
 
-    expect(screen.getByRole("heading", { name: "Tổng quan" })).toBeInTheDocument();
-    expect(screen.getAllByText("Tổng quan vận hành SoloDesk").length).toBeGreaterThan(0);
     expect(screen.getByText("Người dùng hoạt động")).toBeInTheDocument();
     expect(screen.getAllByText("Quản trị viên").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Tạm khóa").length).toBeGreaterThan(0);
     expect(screen.queryByText("Backend readiness")).not.toBeInTheDocument();
   });
 
+  it("tab Nhật ký hiện ngay, không đợi hai truy vấn nó không dùng", () => {
+    // Bản cũ: khung gọi sẵn users + plans rồi lấy `isLoading` của chúng thay TOÀN BỘ vùng
+    // nội dung — nên Nhật ký bị hai truy vấn không liên quan chặn ngang mặt.
+    vi.mocked(useAdminUsers).mockReturnValue({
+      isLoading: true,
+    } as unknown as ReturnType<typeof useAdminUsers>);
+    vi.mocked(useAdminPlans).mockReturnValue({
+      isLoading: true,
+    } as unknown as ReturnType<typeof useAdminPlans>);
+    vi.mocked(useAuditLogs).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useAuditLogs>);
+
+    render(<AdminAuditPage />);
+
+    expect(screen.queryByText(/Đang tải dữ liệu quản trị/i)).not.toBeInTheDocument();
+  });
+
   it("renders user management rows on the users page", async () => {
-    render(<AdminDashboard page="users" />);
+    render(<AdminUsersPage />);
 
     expect(screen.getAllByText("SoloDesk Admin").length).toBeGreaterThan(0);
     expect(screen.getByText("Freelancer Demo")).toBeInTheDocument();
@@ -135,7 +192,7 @@ describe("<AdminDashboard />", () => {
   });
 
   it("does not allow admin to edit a user's display name", async () => {
-    render(<AdminDashboard page="users" />);
+    render(<AdminUsersPage />);
 
     await userEvent.click(screen.getAllByRole("button", { name: /Sửa/i })[0]);
 
@@ -154,9 +211,9 @@ describe("<AdminDashboard />", () => {
  * Báo lỗi khi BẤM LƯU, không phải trong lúc gõ: gõ "1.000.000" thì có một khoảnh khắc
  * giá trị là "1", báo đỏ ngay lúc đó là mắng người ta giữa chừng câu.
  */
-describe("<AdminDashboard /> — hạn mức giá gói", () => {
+describe("<AdminPlansPage /> — hạn mức giá gói", () => {
   async function dienForm(ten: string, gia: string) {
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
     await userEvent.click(screen.getByRole("button", { name: /^tạo gói$/i }));
     await userEvent.type(screen.getByLabelText("Tên gói"), ten);
     await userEvent.type(screen.getByLabelText("Giá tháng (VND)"), gia);
@@ -227,9 +284,9 @@ describe("<AdminDashboard /> — hạn mức giá gói", () => {
  * Xoá thật chỉ dành cho ca "lỡ tay tạo nhầm". Gói đã có người dùng thì backend từ chối —
  * xoá là hoá đơn cũ mất chỗ trỏ về. Còn gói Free là gói hệ thống, không xoá được bao giờ.
  */
-describe("<AdminDashboard /> — xoá gói", () => {
+describe("<AdminPlansPage /> — xoá gói", () => {
   it("bấm Xoá thì mở hộp thoại hỏi lại, chưa gọi xoá", async () => {
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^xoá$/i }));
@@ -244,7 +301,7 @@ describe("<AdminDashboard /> — xoá gói", () => {
   });
 
   it("hộp thoại chỉ ra đường thay thế cho gói đã có người dùng", async () => {
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
     await userEvent.click(screen.getByRole("button", { name: /^xoá$/i }));
 
     const hopThoai = screen.getByRole("alertdialog");
@@ -254,7 +311,7 @@ describe("<AdminDashboard /> — xoá gói", () => {
   });
 
   it("xác nhận xong mới thật sự gọi xoá", async () => {
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
     await userEvent.click(screen.getByRole("button", { name: /^xoá$/i }));
 
     // Nút trên thẻ gói và nút xác nhận cùng tên "Xoá" — phải khoanh trong hộp thoại,
@@ -267,7 +324,7 @@ describe("<AdminDashboard /> — xoá gói", () => {
   });
 
   it("bấm Huỷ thì đóng phần xác nhận và không xoá gì", async () => {
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
     await userEvent.click(screen.getByRole("button", { name: /^xoá$/i }));
 
     await userEvent.click(screen.getByRole("button", { name: /^huỷ$/i }));
@@ -284,9 +341,51 @@ describe("<AdminDashboard /> — xoá gói", () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useAdminPlans>);
 
-    render(<AdminDashboard page="plans" />);
+    render(<AdminPlansPage />);
 
     expect(screen.queryByRole("button", { name: /^xoá$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sửa gói/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Cấu hình AI.
+ *
+ * Backend cố ý chỉ cho đổi NHÀ CUNG CẤP — model của từng nhà cung cấp ghi cứng trong code.
+ * Giao diện cũ lệch khỏi hợp đồng đó ở hai chỗ: bày thêm ô chọn Model (backend vứt đi), và
+ * danh sách nhà cung cấp sai (có `ollama` backend không nhận, thiếu `openai` backend có).
+ */
+describe("<AdminAiConfigPage />", () => {
+  it("chỉ cho chọn đúng ba nhà cung cấp backend chấp nhận", () => {
+    render(<AdminAiConfigPage />);
+
+    const select = screen.getByLabelText(/nhà cung cấp ai/i);
+    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+
+    expect(options).toEqual(["Groq", "Gemini", "OpenAI"]);
+  });
+
+  it("không còn ô chọn Model", () => {
+    render(<AdminAiConfigPage />);
+
+    // Ô cũ lưu được, hiện lại được, nhưng backend vứt trường đó đi và AI vẫn chạy model
+    // ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi.
+    expect(screen.queryByLabelText(/^model$/i)).not.toBeInTheDocument();
+  });
+
+  it("lưu chỉ gửi llm_provider, không gửi llm_model", async () => {
+    render(<AdminAiConfigPage />);
+
+    await userEvent.selectOptions(screen.getByLabelText(/nhà cung cấp ai/i), "gemini");
+    await userEvent.click(screen.getByRole("button", { name: /lưu cấu hình/i }));
+
+    expect(mockUpdateProvider).toHaveBeenCalledTimes(1);
+    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({ llm_provider: "gemini" });
+  });
+
+  it("nói rõ vì sao không cho chọn model", () => {
+    render(<AdminAiConfigPage />);
+
+    expect(screen.getByText(/model mặc định do hệ thống chọn sẵn/i)).toBeInTheDocument();
   });
 });
