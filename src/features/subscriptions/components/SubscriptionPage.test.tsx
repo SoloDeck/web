@@ -57,6 +57,21 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
           max_deals: null,
           max_ai_generations_per_month: 50,
         },
+        // Gói quản trị viên tự tạo, để giá 200đ — DƯỚI mức tối thiểu 1.000đ của MoMo.
+        // Đây đúng là gói đã gây ra sự cố trên bản deploy: bấm mua thì MoMo trả HTTP 400
+        // và người dùng nhận được câu "Could not reach MoMo".
+        {
+          id: "plan-abc",
+          name: "abc",
+          slug: "abc",
+          price_monthly: "200.00",
+          currency: "VND",
+          can_use_ai: false,
+          can_export_pdf: false,
+          max_clients: null,
+          max_deals: null,
+          max_ai_generations_per_month: 0,
+        },
       ],
       isLoading: false,
     }),
@@ -213,5 +228,34 @@ describe("<SubscriptionPage /> — mua gói", () => {
 
     const nutFree = screen.getByRole("button", { name: /^miễn phí$/i });
     expect(nutFree).toBeDisabled();
+  });
+
+  it("gói giá dưới mức tối thiểu của MoMo thì không bày nút mua, và nói rõ vì sao", () => {
+    // Trước bản vá, gói 200đ vẫn hiện nút "Nâng cấp qua MoMo" bình thường. Bấm vào là
+    // MoMo trả HTTP 400, và người dùng nhận về "Could not reach MoMo" — một câu vừa
+    // không nói được nguyên nhân, vừa chỉ sai hướng.  #Huynh
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(screen.getByRole("button", { name: /chưa mua được/i })).toBeDisabled();
+    expect(screen.getByText(/ngoài khoảng momo hỗ trợ/i)).toBeInTheDocument();
+  });
+
+  it("gói ngoài hạn mức không làm phát sinh thêm nút mua nào", () => {
+    render(<SubscriptionPage />, { wrapper });
+
+    // Vẫn đúng một nút mua (gói Pro). Gắn nút mua vào gói 200đ là test này đổ.
+    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(1);
+  });
+
+  it("gói tự tạo xếp xuống cuối bảng giá, không nhảy lên trước gói Free", () => {
+    // `ORDER.indexOf` trả -1 cho mã lạ, mà -1 nhỏ hơn mọi hạng hợp lệ — nên gói tự tạo
+    // từng bị đẩy lên ĐẦU bảng giá, đứng trước cả Free.  #Huynh
+    render(<SubscriptionPage />, { wrapper });
+
+    const tenGoi = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+
+    expect(tenGoi.indexOf("Free")).toBeLessThan(tenGoi.indexOf("abc"));
+    expect(tenGoi.indexOf("Pro")).toBeLessThan(tenGoi.indexOf("abc"));
+    expect(tenGoi[0]).toBe("Free");
   });
 });

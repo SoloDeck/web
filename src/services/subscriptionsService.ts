@@ -1,10 +1,31 @@
 import axiosClient from "@/configs/axios";
 import type { ApiResponse } from "@/features/auth/types";
 
+/**
+ * Mã gói. KHÔNG khai cứng `"free" | "pro" | "agency"` được: quản trị viên tạo được gói
+ * mới với mã bất kỳ (`abc`, `combo-2026`…), nên union đó sai ngay từ lúc tính năng tạo
+ * gói ra đời. Ba mã trên chỉ là ba gói seed sẵn, không phải toàn bộ tập hợp.
+ */
+export type PlanSlug = string;
+
+/**
+ * Hạn mức MoMo nhận cho một giao dịch:
+ * https://developers.momo.vn/v3/docs/payment/api/wallet/onetime/
+ *
+ * Đây là BẢN SAO, không phải nguồn sự thật — backend mới là nơi chặn thật. Bản này chỉ
+ * để KHÔNG BÀY RA một cái nút chắc chắn hỏng. Hai bên lệch nhau thì backend thắng, và
+ * người dùng nhận đúng câu backend trả về qua toast.
+ *
+ * Cách còn lại là thêm một endpoint trả hạn mức, tức một vòng request cho hai con số gần
+ * như không bao giờ đổi.
+ */
+export const MOMO_MIN_AMOUNT_VND = 1_000;
+export const MOMO_MAX_AMOUNT_VND = 50_000_000;
+
 export type PlanResponse = {
   id: string;
   name: string;
-  slug: "free" | "pro" | "agency";
+  slug: PlanSlug;
   /**
    * CHUỖI, không phải số: backend là `Decimal` nên serialize ra `"199000.00"` / `"0.00"`.
    *
@@ -28,7 +49,7 @@ export type SubscriptionResponse = {
   user_id: string;
   plan_id: string;
   plan_name: string;
-  plan_slug: "free" | "pro" | "agency";
+  plan_slug: PlanSlug;
   status: SubscriptionStatus;
   current_period_start: string;
   current_period_end: string;
@@ -76,6 +97,16 @@ export type PaymentIntentResponse = {
 export function planPrice(plan: Pick<PlanResponse, "price_monthly">): number {
   const value = Number(plan.price_monthly);
   return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Giá này có nằm trong khoảng MoMo nhận không.
+ *
+ * Chỉ hỏi cho gói CÓ PHÍ — gói 0đ không đi qua cổng thanh toán nên không chịu hạn mức
+ * nào; phía gọi tự tách nhánh đó ra trước.
+ */
+export function isMomoPayableAmount(amount: number): boolean {
+  return amount >= MOMO_MIN_AMOUNT_VND && amount <= MOMO_MAX_AMOUNT_VND;
 }
 
 export async function listPlans(): Promise<PlanResponse[]> {
