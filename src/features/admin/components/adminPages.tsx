@@ -1,35 +1,23 @@
-import { AdminDashboard } from "@/features/admin/components/AdminDashboard";
-
 /**
- * Sáu màn admin, mỗi màn là một component không tham số.
+ * Cửa duy nhất để router vào khu quản trị.
  *
- * Tồn tại vì `lazyRouteComponent` dựng component bằng props của route, không truyền được
- * prop tự đặt — mà cả sáu route admin đều chỉ khác nhau ở một prop `page`. Gói chung MỘT
- * file nên sáu route dùng chung một chunk: admin đã vào một màn thì các màn còn lại không
- * phải tải lại lần nữa.
+ * Cả tám route admin (khung + bảy tab) đều `import()` đúng module này, nên trình gói nhét
+ * khung lẫn bảy màn vào MỘT chunk (`dist/assets/adminPages-*.js`, ~115 KB). Vào được một
+ * tab là có sẵn mã của cả khu; từ đó đổi tab không tốn thêm lượt mạng nào.
+ *
+ * Tách khung ra chunk riêng chỉ thêm một lượt tải cho thứ mà tab nào cũng cần. Còn nhét
+ * khung vào gói khởi động thì bắt cả khách lạ ở trang giới thiệu gánh mã quản trị — đúng
+ * thứ mà lần tách mã theo route vừa dọn xong.
  *
  * File chỉ xuất component, không xuất gì khác — `react-refresh/only-export-components`.  #Huynh
  */
-export function AdminDashboardPage() {
-  return <AdminDashboard page="dashboard" />;
-}
-
-export function AdminUsersPage() {
-  return <AdminDashboard page="users" />;
-}
-
-export function AdminPlansPage() {
-  return <AdminDashboard page="plans" />;
-}
-
-export function AdminTemplatesPage() {
-  return <AdminDashboard page="templates" />;
-}
-
-export function AdminAuditPage() {
-  return <AdminDashboard page="audit" />;
-}
-
-export function AdminAiCostsPage() {
-  return <AdminDashboard page="ai-costs" />;
-}
+export { AdminLayout } from "./AdminLayout";
+export {
+  AdminDashboardPage,
+  AdminUsersPage,
+  AdminPlansPage,
+  AdminTemplatesPage,
+  AdminAiConfigPage,
+  AdminAiCostsPage,
+  AdminAuditPage,
+} from "./AdminDashboard";

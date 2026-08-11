@@ -8,66 +8,64 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
+// LƯU Ý CHO NGƯỜI SAU: dự án KHÔNG cài `@tanstack/router-plugin` lẫn `@tanstack/router-cli`,
+// và `vite.config.ts` cũng không có plugin router — nên bất chấp dòng cảnh báo phía trên,
+// file này đang được sửa TAY.
+//
+// Đổi cấu trúc route thì phải sửa đủ SÁU chỗ: khối `.update()` (id/path của route CON là
+// TƯƠNG ĐỐI với cha, KHÔNG phải đường dẫn đầy đủ — để nguyên `/admin/plans` dưới cha
+// `/admin` thì URL thật thành `/admin/admin/plans`), ba interface `FileRoutesBy*`, ba union
+// trong `FileRouteTypes`, khối `declare module`, `RootRouteChildren`, và `_addFileChildren`.
+//
+// Sót một chỗ là route âm thầm mọc sai chỗ chứ KHÔNG báo lỗi: file có `@ts-nocheck` và
+// `eslint-disable` nên TypeScript lẫn ESLint đều bỏ qua. Cách kiểm duy nhất là chạy app rồi
+// bấm đủ các tab và đọc thanh địa chỉ.  #Huynh
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as AdminRouteImport } from './routes/admin'
-import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
-import { Route as HomeRouteImport } from './routes/home'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as RegisterRouteImport } from './routes/register'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAiConfigRouteImport } from './routes/admin.ai-config'
+import { Route as AdminPlansRouteImport } from './routes/admin.plans'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
 import { Route as AdminAiCostsRouteImport } from './routes/admin.ai-costs'
 import { Route as AdminAuditRouteImport } from './routes/admin.audit'
-import { Route as AdminPlansRouteImport } from './routes/admin.plans'
-import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
-import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as HomeRouteImport } from './routes/home'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as BieuMauTokenRouteImport } from './routes/bieu-mau.$token'
+import { Route as SlugRouteImport } from './routes/$slug'
+import { Route as HoSoTokenRouteImport } from './routes/ho-so.$token'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as DealsDealIdRouteImport } from './routes/deals.$dealId'
-import { Route as HoSoTokenRouteImport } from './routes/ho-so.$token'
 import { Route as IntakeTokenRouteImport } from './routes/intake.$token'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SlugRoute = SlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => rootRouteImport,
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
-const HomeRoute = HomeRouteImport.update({
-  id: '/home',
-  path: '/home',
-  getParentRoute: () => rootRouteImport,
+const AdminPlansRoute = AdminPlansRouteImport.update({
+  id: '/plans',
+  path: '/plans',
+  getParentRoute: () => AdminRoute,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AdminRoute,
 } as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => rootRouteImport,
+const AdminTemplatesRoute = AdminTemplatesRouteImport.update({
+  id: '/templates',
+  path: '/templates',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminAiConfigRoute = AdminAiConfigRouteImport.update({
   id: '/ai-config',
@@ -84,24 +82,49 @@ const AdminAuditRoute = AdminAuditRouteImport.update({
   path: '/audit',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminPlansRoute = AdminPlansRouteImport.update({
-  id: '/plans',
-  path: '/plans',
-  getParentRoute: () => AdminRoute,
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AdminTemplatesRoute = AdminTemplatesRouteImport.update({
-  id: '/templates',
-  path: '/templates',
-  getParentRoute: () => AdminRoute,
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AdminUsersRoute = AdminUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AdminRoute,
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const BieuMauTokenRoute = BieuMauTokenRouteImport.update({
   id: '/bieu-mau/$token',
   path: '/bieu-mau/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SlugRoute = SlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HoSoTokenRoute = HoSoTokenRouteImport.update({
+  id: '/ho-so/$token',
+  path: '/ho-so/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
@@ -114,11 +137,6 @@ const DealsDealIdRoute = DealsDealIdRouteImport.update({
   path: '/deals/$dealId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HoSoTokenRoute = HoSoTokenRouteImport.update({
-  id: '/ho-so/$token',
-  path: '/ho-so/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IntakeTokenRoute = IntakeTokenRouteImport.update({
   id: '/intake/$token',
   path: '/intake/$token',
@@ -126,167 +144,160 @@ const IntakeTokenRoute = IntakeTokenRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/$slug': typeof SlugRoute
   '/admin': typeof AdminRouteWithChildren
-  '/forgot-password': typeof ForgotPasswordRoute
-  '/home': typeof HomeRoute
-  '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
-  '/register': typeof RegisterRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
-  '/admin/plans': typeof AdminPlansRoute
-  '/admin/templates': typeof AdminTemplatesRoute
-  '/admin/users': typeof AdminUsersRoute
+  '/home': typeof HomeRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/$slug': typeof SlugRoute
-  '/admin': typeof AdminRouteWithChildren
-  '/forgot-password': typeof ForgotPasswordRoute
-  '/home': typeof HomeRoute
-  '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
-  '/register': typeof RegisterRoute
+  // `to` gom route index về '/admin' — KHÔNG có mục '/admin/' ở bảng này.
+  '/admin': typeof AdminIndexRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
-  '/admin/plans': typeof AdminPlansRoute
-  '/admin/templates': typeof AdminTemplatesRoute
-  '/admin/users': typeof AdminUsersRoute
+  '/home': typeof HomeRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/$slug': typeof SlugRoute
   '/admin': typeof AdminRouteWithChildren
-  '/forgot-password': typeof ForgotPasswordRoute
-  '/home': typeof HomeRoute
-  '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
-  '/register': typeof RegisterRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/plans': typeof AdminPlansRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
   '/admin/audit': typeof AdminAuditRoute
-  '/admin/plans': typeof AdminPlansRoute
-  '/admin/templates': typeof AdminTemplatesRoute
-  '/admin/users': typeof AdminUsersRoute
+  '/home': typeof HomeRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/onboarding': typeof OnboardingRoute
   '/bieu-mau/$token': typeof BieuMauTokenRoute
+  '/$slug': typeof SlugRoute
+  '/ho-so/$token': typeof HoSoTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/deals/$dealId': typeof DealsDealIdRoute
-  '/ho-so/$token': typeof HoSoTokenRoute
   '/intake/$token': typeof IntakeTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/$slug'
     | '/admin'
-    | '/forgot-password'
-    | '/home'
-    | '/login'
-    | '/onboarding'
-    | '/register'
+    | '/admin/'
+    | '/admin/plans'
+    | '/admin/users'
+    | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
     | '/admin/audit'
-    | '/admin/plans'
-    | '/admin/templates'
-    | '/admin/users'
+    | '/home'
+    | '/'
+    | '/login'
+    | '/register'
+    | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/ho-so/$token'
     | '/intake/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/$slug'
     | '/admin'
-    | '/forgot-password'
-    | '/home'
-    | '/login'
-    | '/onboarding'
-    | '/register'
+    | '/admin/plans'
+    | '/admin/users'
+    | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
     | '/admin/audit'
-    | '/admin/plans'
-    | '/admin/templates'
-    | '/admin/users'
+    | '/home'
+    | '/'
+    | '/login'
+    | '/register'
+    | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/ho-so/$token'
     | '/intake/$token'
   id:
     | '__root__'
-    | '/'
-    | '/$slug'
     | '/admin'
-    | '/forgot-password'
-    | '/home'
-    | '/login'
-    | '/onboarding'
-    | '/register'
+    | '/admin/'
+    | '/admin/plans'
+    | '/admin/users'
+    | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
     | '/admin/audit'
-    | '/admin/plans'
-    | '/admin/templates'
-    | '/admin/users'
+    | '/home'
+    | '/'
+    | '/login'
+    | '/register'
+    | '/forgot-password'
+    | '/onboarding'
     | '/bieu-mau/$token'
+    | '/$slug'
+    | '/ho-so/$token'
     | '/clients/$clientId'
     | '/deals/$dealId'
-    | '/ho-so/$token'
     | '/intake/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  SlugRoute: typeof SlugRoute
+  // Sáu route admin con KHÔNG còn ở đây — chúng là con của `/admin`. Để sót một cái lại
+  // đây thì nó vẫn treo ở gốc, `<Outlet />` của khung vẽ rỗng và `/admin` ra trang trắng.
   AdminRoute: typeof AdminRouteWithChildren
-  ForgotPasswordRoute: typeof ForgotPasswordRoute
   HomeRoute: typeof HomeRoute
+  IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
-  OnboardingRoute: typeof OnboardingRoute
   RegisterRoute: typeof RegisterRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  OnboardingRoute: typeof OnboardingRoute
   BieuMauTokenRoute: typeof BieuMauTokenRoute
+  SlugRoute: typeof SlugRoute
+  HoSoTokenRoute: typeof HoSoTokenRoute
   ClientsClientIdRoute: typeof ClientsClientIdRoute
   DealsDealIdRoute: typeof DealsDealIdRoute
-  HoSoTokenRoute: typeof HoSoTokenRoute
   IntakeTokenRoute: typeof IntakeTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$slug': {
-      id: '/$slug'
-      path: '/$slug'
-      fullPath: '/$slug'
-      preLoaderRoute: typeof SlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -294,40 +305,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/forgot-password': {
-      id: '/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof ForgotPasswordRouteImport
-      parentRoute: typeof rootRouteImport
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/home': {
-      id: '/home'
-      path: '/home'
-      fullPath: '/home'
-      preLoaderRoute: typeof HomeRouteImport
-      parentRoute: typeof rootRouteImport
+    '/admin/plans': {
+      id: '/admin/plans'
+      path: '/plans'
+      fullPath: '/admin/plans'
+      preLoaderRoute: typeof AdminPlansRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
-      parentRoute: typeof rootRouteImport
+    '/admin/templates': {
+      id: '/admin/templates'
+      path: '/templates'
+      fullPath: '/admin/templates'
+      preLoaderRoute: typeof AdminTemplatesRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/ai-config': {
       id: '/admin/ai-config'
@@ -350,32 +354,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAuditRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/plans': {
-      id: '/admin/plans'
-      path: '/plans'
-      fullPath: '/admin/plans'
-      preLoaderRoute: typeof AdminPlansRouteImport
-      parentRoute: typeof AdminRoute
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/admin/templates': {
-      id: '/admin/templates'
-      path: '/templates'
-      fullPath: '/admin/templates'
-      preLoaderRoute: typeof AdminTemplatesRouteImport
-      parentRoute: typeof AdminRoute
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/admin/users': {
-      id: '/admin/users'
-      path: '/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AdminUsersRouteImport
-      parentRoute: typeof AdminRoute
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/bieu-mau/$token': {
       id: '/bieu-mau/$token'
       path: '/bieu-mau/$token'
       fullPath: '/bieu-mau/$token'
       preLoaderRoute: typeof BieuMauTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$slug': {
+      id: '/$slug'
+      path: '/$slug'
+      fullPath: '/$slug'
+      preLoaderRoute: typeof SlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ho-so/$token': {
+      id: '/ho-so/$token'
+      path: '/ho-so/$token'
+      fullPath: '/ho-so/$token'
+      preLoaderRoute: typeof HoSoTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/clients/$clientId': {
@@ -392,13 +431,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DealsDealIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/ho-so/$token': {
-      id: '/ho-so/$token'
-      path: '/ho-so/$token'
-      fullPath: '/ho-so/$token'
-      preLoaderRoute: typeof HoSoTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/intake/$token': {
       id: '/intake/$token'
       path: '/intake/$token'
@@ -410,38 +442,40 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminIndexRoute: typeof AdminIndexRoute
+  AdminPlansRoute: typeof AdminPlansRoute
+  AdminUsersRoute: typeof AdminUsersRoute
+  AdminTemplatesRoute: typeof AdminTemplatesRoute
   AdminAiConfigRoute: typeof AdminAiConfigRoute
   AdminAiCostsRoute: typeof AdminAiCostsRoute
   AdminAuditRoute: typeof AdminAuditRoute
-  AdminPlansRoute: typeof AdminPlansRoute
-  AdminTemplatesRoute: typeof AdminTemplatesRoute
-  AdminUsersRoute: typeof AdminUsersRoute
 }
 
-const AdminRouteChildren: AdminRouteChildren = {
+const adminRouteChildren: AdminRouteChildren = {
+  AdminIndexRoute: AdminIndexRoute,
+  AdminPlansRoute: AdminPlansRoute,
+  AdminUsersRoute: AdminUsersRoute,
+  AdminTemplatesRoute: AdminTemplatesRoute,
   AdminAiConfigRoute: AdminAiConfigRoute,
   AdminAiCostsRoute: AdminAiCostsRoute,
   AdminAuditRoute: AdminAuditRoute,
-  AdminPlansRoute: AdminPlansRoute,
-  AdminTemplatesRoute: AdminTemplatesRoute,
-  AdminUsersRoute: AdminUsersRoute,
 }
 
-const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+const AdminRouteWithChildren = AdminRoute._addFileChildren(adminRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  SlugRoute: SlugRoute,
   AdminRoute: AdminRouteWithChildren,
-  ForgotPasswordRoute: ForgotPasswordRoute,
   HomeRoute: HomeRoute,
+  IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
-  OnboardingRoute: OnboardingRoute,
   RegisterRoute: RegisterRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  OnboardingRoute: OnboardingRoute,
   BieuMauTokenRoute: BieuMauTokenRoute,
+  SlugRoute: SlugRoute,
+  HoSoTokenRoute: HoSoTokenRoute,
   ClientsClientIdRoute: ClientsClientIdRoute,
   DealsDealIdRoute: DealsDealIdRoute,
-  HoSoTokenRoute: HoSoTokenRoute,
   IntakeTokenRoute: IntakeTokenRoute,
 }
 export const routeTree = rootRouteImport

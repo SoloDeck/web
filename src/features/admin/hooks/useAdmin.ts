@@ -27,6 +27,11 @@ import {
 import { getApiErrorMessage } from "@/lib/api-error";
 
 export const adminKeys = {
+  /**
+   * Gốc của mọi khoá admin. Nhờ nó mà khung quản trị đếm được "đang có truy vấn admin nào
+   * chạy không" và làm mới đúng tab đang xem, mà không cần biết tab đó dùng khoá nào.
+   */
+  all: ["admin"] as const,
   users: ["admin", "users"] as const,
   plans: ["admin", "plans"] as const,
   aiCosts: ["admin", "ai-costs"] as const,

@@ -1,8 +1,6 @@
 import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router";
-import { requireAdmin } from "@/features/admin/utils/requireAdmin";
 
 export const Route = createFileRoute("/admin/templates")({
-  beforeLoad: requireAdmin,
   component: lazyRouteComponent(
     () => import("@/features/admin/components/adminPages"),
     "AdminTemplatesPage",
