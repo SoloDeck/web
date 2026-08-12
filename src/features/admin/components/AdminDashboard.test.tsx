@@ -106,7 +106,10 @@ beforeEach(() => {
   mockUpdateProvider.mockClear();
 
   vi.mocked(useAdminLLMProvider).mockReturnValue({
-    data: { llm_provider: "groq" },
+    data: {
+      llm_provider: "groq",
+      llm_model: "llama-3.3-70b-versatile",
+    },
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -351,41 +354,83 @@ describe("<AdminPlansPage /> — xoá gói", () => {
 /**
  * Cấu hình AI.
  *
- * Backend cố ý chỉ cho đổi NHÀ CUNG CẤP — model của từng nhà cung cấp ghi cứng trong code.
- * Giao diện cũ lệch khỏi hợp đồng đó ở hai chỗ: bày thêm ô chọn Model (backend vứt đi), và
- * danh sách nhà cung cấp sai (có `ollama` backend không nhận, thiếu `openai` backend có).
+ * Admin có thể chọn cả nhà cung cấp AI và model.
+ * Backend lưu cả `llm_provider` và `llm_model`.
  */
 describe("<AdminAiConfigPage />", () => {
-  it("chỉ cho chọn đúng ba nhà cung cấp backend chấp nhận", () => {
+  it("cho phép chọn đúng ba nhà cung cấp AI", () => {
     render(<AdminAiConfigPage />);
 
     const select = screen.getByLabelText(/nhà cung cấp ai/i);
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+    const options = within(select)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
 
-    expect(options).toEqual(["Groq", "Gemini", "OpenAI"]);
+    expect(options).toEqual(["Groq", "Gemini", "Ollama"]);
   });
 
-  it("không còn ô chọn Model", () => {
+  it("hiển thị ô chọn Model", () => {
     render(<AdminAiConfigPage />);
 
-    // Ô cũ lưu được, hiện lại được, nhưng backend vứt trường đó đi và AI vẫn chạy model
-    // ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi.
-    expect(screen.queryByLabelText(/^model$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^model$/i)).toBeInTheDocument();
   });
 
-  it("lưu chỉ gửi llm_provider, không gửi llm_model", async () => {
+  it("hiển thị model hiện tại từ backend", () => {
     render(<AdminAiConfigPage />);
 
-    await userEvent.selectOptions(screen.getByLabelText(/nhà cung cấp ai/i), "gemini");
-    await userEvent.click(screen.getByRole("button", { name: /lưu cấu hình/i }));
+    const modelSelect = screen.getByLabelText(/^model$/i);
+
+    expect(modelSelect).toHaveValue("llama-3.3-70b-versatile");
+  });
+
+  it("đổi provider và cập nhật danh sách model", async () => {
+    render(<AdminAiConfigPage />);
+
+    const providerSelect = screen.getByLabelText(/nhà cung cấp ai/i);
+    const modelSelect = screen.getByLabelText(/^model$/i);
+
+    await userEvent.selectOptions(providerSelect, "gemini");
+
+    expect(modelSelect).toHaveValue("gemini-2.5-flash");
+
+    const options = within(modelSelect)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+
+    expect(options).toEqual([
+      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+    ]);
+  });
+
+  it("đổi provider và model rồi gửi cả hai giá trị khi lưu", async () => {
+    render(<AdminAiConfigPage />);
+
+    const providerSelect = screen.getByLabelText(/nhà cung cấp ai/i);
+    const modelSelect = screen.getByLabelText(/^model$/i);
+
+    await userEvent.selectOptions(providerSelect, "ollama");
+
+    expect(modelSelect).toHaveValue("qwen3:4b");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /lưu cấu hình/i }),
+    );
 
     expect(mockUpdateProvider).toHaveBeenCalledTimes(1);
-    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({ llm_provider: "gemini" });
+
+    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({
+      llm_provider: "ollama",
+      llm_model: "qwen3:4b",
+    });
   });
 
-  it("nói rõ vì sao không cho chọn model", () => {
+  it("hiển thị cấu hình provider và model hiện tại", () => {
     render(<AdminAiConfigPage />);
 
-    expect(screen.getByText(/model mặc định do hệ thống chọn sẵn/i)).toBeInTheDocument();
+    expect(screen.getByText("groq")).toBeInTheDocument();
+    expect(
+      screen.getByText("llama-3.3-70b-versatile"),
+    ).toBeInTheDocument();
   });
 });
