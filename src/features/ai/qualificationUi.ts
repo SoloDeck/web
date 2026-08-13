@@ -33,20 +33,64 @@ export const LEVEL_UI: Record<
   },
 };
 
-export const WIN_UI: Record<string, { label: string; badgeClass: string; scoreClass: string }> = {
-  high: {
-    label: "Cao",
-    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    scoreClass: "text-emerald-600",
-  },
-  medium: {
-    label: "Trung bình",
-    badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
-    scoreClass: "text-amber-600",
-  },
-  low: {
-    label: "Thấp",
-    badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
-    scoreClass: "text-rose-600",
-  },
+/**
+ * Ngưỡng HOT của bộ chấm điểm — cũng là tổng ba tiêu chí thiết yếu (30+25+20).
+ *
+ * Dưới mức này nghĩa là thiếu ít nhất một trong ba thứ "biết làm gì / có bao nhiêu tiền /
+ * cần xong khi nào". Đó là lý do cảnh báo lúc chốt chia hai mức ở đúng con số này, chứ
+ * không phải một ngưỡng nghĩ ra cho tròn.
+ */
+export const HOT_THRESHOLD = 75;
+
+export type SaveWarningLevel = "none" | "soft" | "hard";
+
+/**
+ * Chốt bản đánh giá thiếu điểm thì cảnh báo tới mức nào.
+ *
+ * Tách khỏi component để test thẳng được, và để chỗ nào cần biết "lần lưu này có phải cảnh
+ * báo không" thì hỏi đúng một hàm.  #Huynh
+ */
+export function saveWarningLevel(score: number, lostPoints: number): SaveWarningLevel {
+  if (lostPoints <= 0) return "none";
+  return score < HOT_THRESHOLD ? "hard" : "soft";
+}
+
+/**
+ * Nhãn cho khối dữ kiện, nói đúng thứ người dùng đang tìm.
+ *
+ * Ở đây chứ không nằm trong file component: cả bảng chấm điểm lẫn màn Chi tiết deal đều
+ * hiện dữ kiện AI bóc tách được, hai nơi phải gọi cùng một tên cho cùng một thứ.  #Huynh
+ */
+export const EVIDENCE_LABEL: Record<string, string> = {
+  scope: "Khách cần làm gì",
+  budget: "Ngân sách khách đưa ra",
+  timeline: "Mốc thời gian khách nêu",
+  detail: "Yêu cầu cụ thể ghi nhận được",
+  context: "Bối cảnh khách hàng",
+  source: "Deal đến từ đâu",
 };
+
+/**
+ * Câu hiển thị khi KHÔNG tìm thấy dữ kiện cho tiêu chí đó.
+ *
+ * Phải nói rõ THIẾU CÁI GÌ, không phải một câu chung chung "không có dữ liệu". Người dùng
+ * đọc xong phải biết ngay việc tiếp theo cần làm: hỏi khách về hạn bàn giao.  #Huynh
+ */
+export const EMPTY_EVIDENCE: Record<string, string> = {
+  scope: "Không tìm thấy mô tả phạm vi công việc — chưa rõ khách cần làm những hạng mục gì.",
+  budget: "Không tìm thấy con số ngân sách nào khách đưa ra.",
+  timeline: "Không tìm thấy mốc thời gian nào — chưa rõ khách cần bàn giao khi nào.",
+  detail: "Khách chưa mô tả chi tiết yêu cầu.",
+  context: "Không có thông tin về ngành nghề, quy mô hay hiện trạng của khách.",
+  source: "Chưa rõ deal này đến từ đâu.",
+};
+
+/** Thứ tự hiển thị 5 tiêu chí. `source` chỉ có ở thang khả năng chốt nên xếp cuối. */
+export const CRITERION_ORDER = [
+  "scope",
+  "budget",
+  "timeline",
+  "detail",
+  "context",
+  "source",
+] as const;

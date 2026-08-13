@@ -2,7 +2,7 @@ import { Clock, Eye, FileText, Loader2, Sparkles } from "lucide-react";
 
 import { useAiJobsForEntity } from "@/features/ai/hooks/useAIJobs";
 import { useDealQualifications } from "@/features/deals/hooks/useDealQualifications";
-import { getAiJobErrorMessage, isTerminal, type AiJob } from "@/services/aiJobsService";
+import { getAiJobErrorMessage, type AiJob } from "@/services/aiJobsService";
 import type { DealQualification } from "@/services/dealsService";
 import { cn } from "@/lib/utils";
 
@@ -78,10 +78,14 @@ export function DealActivityTimeline({
     proposalId: p.id,
   }));
 
-  // Job đã xong thì bản chấm ở trên đã kể rồi — giữ lại là kể trùng. Chỉ lấy job CHƯA xong
-  // hoặc THẤT BẠI, vì hai trạng thái đó không sinh ra bản chấm nào.
+  // CHỈ lấy job HỎNG hoặc BỊ HUỶ.
+  //
+  // Job thành công thì bản chấm ở trên đã kể rồi — giữ lại là kể trùng. Job ĐANG CHẠY cũng
+  // không thuộc về đây: lịch sử ghi những chuyện ĐÃ XẢY RA, còn "AI đang chấm điểm deal..."
+  // là trạng thái nhất thời, vài giây sau nó thành "AI đã chấm điểm: 70/100" và dòng cũ nằm
+  // lại vĩnh viễn như một mục lịch sử giả. Tác vụ đang chạy đã có Task Center lo.  #Huynh
   const jobItems: TimelineItem[] = (jobs ?? [])
-    .filter((job) => job.status !== "succeeded")
+    .filter((job) => job.status === "failed" || job.status === "cancelled")
     .map((job) => ({
       key: job.id,
       date: job.created_at,
@@ -185,13 +189,8 @@ export function DealActivityTimeline({
   );
 }
 
+/** Chỉ còn hai trạng thái tới được đây: `failed` và `cancelled` (xem bộ lọc `jobItems`). */
 function aiJobText(job: AiJob): string {
-  if (!isTerminal(job.status)) return "AI đang chấm điểm deal...";
-
-  if (job.status === "succeeded") {
-    const score = job.result?.ai_qualification_score as number | undefined;
-    return score != null ? `AI đã chấm điểm deal: ${score}/100.` : "AI đã chấm điểm xong deal.";
-  }
   if (job.status === "cancelled") return "Đã hủy lần chấm điểm AI.";
 
   return `AI chấm điểm deal thất bại. ${getAiJobErrorMessage(job) ?? ""}`.trim();

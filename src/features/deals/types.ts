@@ -73,6 +73,15 @@ export type Deal = {
   createdAt: string;
   updatedAt?: string;
   notes: string;
+  /** Mốc thời gian KHÁCH nêu. Vào khối chấm điểm — tiêu chí "Thời gian". */
+  desiredTimeline?: string;
+  /**
+   * Ngân sách KHÁCH nêu, ghi lại sau khi hỏi được.
+   *
+   * KHÁC `value` (`estimated_value` ở BE) là con số freelancer tự ước để tính doanh thu và
+   * bị CẤM dùng để chấm điểm. Ô này là lời khách nên ĐƯỢC chấm.
+   */
+  clientBudget?: string;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
   history: DealHistoryItem[];

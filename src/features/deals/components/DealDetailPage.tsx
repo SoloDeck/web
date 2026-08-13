@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type React from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bot,
   Briefcase,
-  CalendarDays,
   CheckCircle2,
   ClipboardCheck,
   CreditCard,
@@ -15,7 +13,6 @@ import {
   Lock,
   Loader2,
   Mail,
-  MoreVertical,
   Paperclip,
   Pencil,
   Plus,
@@ -61,7 +58,6 @@ import {
   useCreateInvoice,
   useDeleteInvoice,
   useDealInvoices,
-  useInvoicePayments,
   useRecordInvoicePayment,
   useSendInvoice,
   useUpdateInvoice,
@@ -79,6 +75,7 @@ import {
 import { STAGES, STAGE_BY_ID, formatDealSource, type Deal, type ProjectTask } from "@/features/deals/types";
 import { AttachmentViewerModal } from "@/features/deals/components/AttachmentViewerModal";
 import { formatVND } from "@/utils/format";
+import { gmailComposeLink, zaloLink } from "@/lib/contact-links";
 import { cn } from "@/lib/utils";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO, ProposalDecisionStatus } from "@/services/proposalsService";
@@ -90,6 +87,8 @@ import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { getApiErrorCode, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { QualificationResultView } from "@/features/ai/components/QualificationResult";
+import { SaveQualificationDialog } from "@/features/ai/components/SaveQualificationDialog";
+import { LEVEL_UI, saveWarningLevel } from "@/features/ai/qualificationUi";
 import {
   useDealAttachments,
   useDeleteDealAttachment,
@@ -103,9 +102,11 @@ import {
   type DealAttachment,
 } from "@/services/dealAttachmentsService";
 import {
+  dealQualificationKeys,
   savedQualifications,
   toQualificationView,
   useDealQualifications,
+  useSaveDealQualification,
 } from "@/features/deals/hooks/useDealQualifications";
 import type { DealQualification } from "@/services/dealsService";
 
@@ -138,7 +139,9 @@ function addDays(date: Date, days: number): Date {
  * diễn giải nó thành "nên tiếp tục tư vấn" — đúng NGƯỢC nghĩa, rất nguy hiểm.  #Huynh
  */
 function recommendationLabel(value?: string | null): string {
-  if (value === "qualify") return "Đủ thông tin — nên tiến tới báo giá.";
+  // Không nói cứng "báo giá": câu này hiện ở mọi giai đoạn, mà deal đã ký hợp đồng rồi thì
+  // bước tiếp theo đâu còn là báo giá nữa.
+  if (value === "qualify") return "Đủ thông tin - Nên chuyển qua bước tiếp theo";
   if (value === "pass") return "Chưa đủ thông tin — nên hỏi thêm trước khi báo giá.";
   if (value === "reject") return "Nên cân nhắc từ chối deal này.";
   return "Chưa có đánh giá AI chi tiết cho deal này.";
@@ -183,8 +186,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const clientQuery = useClient(deal?.clientId);
   const dealHistory = useDealHistory(deal?.id);
   const invoices = useDealInvoices(deal?.id);
-  const firstInvoice = invoices.data?.[0];
-  const payments = useInvoicePayments(firstInvoice?.id);
   const createInvoice = useCreateInvoice(deal?.id);
   const updateInvoiceMutation = useUpdateInvoice(deal?.id);
   const deleteInvoiceMutation = useDeleteInvoice(deal?.id);
@@ -274,10 +275,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const qualifications = useDealQualifications(deal?.id);
   const savedQualificationDocs = savedQualifications(qualifications.data);
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
-  // Bản nháp báo giá KHÔNG còn được chọn hộ ở đây nữa: `ProposalModal` tự liệt kê các bản
-  // nháp trong màn chọn để freelancer quyết mở lại bản nào (hoặc tạo bản mới).  #Huynh
-  const latestProposal = proposalItems[0];
-  const latestContract = contractItems[0];
   // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
   const draftContract = contractItems.find((contract) => contract.status === "draft");
   // Chỉ tin trạng thái THẬT từ backend. Trước đây còn cộng thêm một Set trong useState —
@@ -306,7 +303,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   }, [deal, intakeQuery.data]);
   const intakeDescription = intakeFallback?.inquiryText.trim() ?? "";
   const intakeBudget = intakeFallback?.estimatedBudget.trim() ?? "";
-  const intakeTimeline = intakeFallback?.desiredTimeline.trim() ?? "";
   const displayDescription = deal?.notes?.trim() || intakeDescription;
   const displayBudget = deal?.budgetLabel || (deal && deal.value > 0 ? formatVND(deal.value) : intakeBudget || (deal ? formatVND(deal.value) : formatVND(0)));
   const displayBudgetLabel = deal?.budgetLabel ? "Ngân sách khách nhập" : deal && deal.value > 0 ? "Giá trị dự kiến" : intakeBudget ? "Ngân sách khách nhập" : "Giá trị dự kiến";
@@ -316,25 +312,47 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     return { ...deal, notes: intakeDescription };
   }, [deal, intakeDescription]);
 
+  // Thanh tiến độ chỉ tính trên các giai đoạn THUỘC quy trình. `lost` không phải một nấc
+  // tiến độ mà là lối ra, nên loại khỏi thang đo.
+  //
+  // Bản cũ chia cho `STAGES.length - 1` = 6 nhưng vẫn tìm chỉ số trong cả 7 phần tử: deal ở
+  // `lost` (chỉ số 6) ra 117%, thanh tràn khỏi khung. Kẹp thêm `Math.min` để dù thang có đổi
+  // cũng không vỡ giao diện.  #Huynh
+  const PIPELINE_STAGES = STAGES.filter((stage) => stage.id !== "lost");
+  const isLost = deal?.stage === "lost";
   const progressStageIndex = deal
-    ? Math.max(0, STAGES.findIndex((stage) => stage.id === deal.stage))
+    ? Math.max(0, PIPELINE_STAGES.findIndex((stage) => stage.id === deal.stage))
     : 0;
-  const progress = deal
-    ? Math.round(((progressStageIndex + 1) / (STAGES.length - 1)) * 100)
-    : 0;
+  const progress =
+    deal && !isLost
+      ? Math.min(100, Math.round(((progressStageIndex + 1) / PIPELINE_STAGES.length) * 100))
+      : 0;
   const hasOverviewChanges = Boolean(
     deal &&
       (draft.title !== deal.projectType ||
         draft.notes !== (deal.notes ?? ""))
   );
 
+  // ĐANG SỬA THÌ KHÔNG ĐỒNG BỘ ĐÈ LÊN.
+  //
+  // Effect này nạp lại nháp mỗi khi `deal` đổi. Thiếu chốt chặn `overviewEditing` thì một
+  // lần refetch giữa chừng sẽ GHI ĐÈ đúng cái ô người dùng đang gõ dở, và vì
+  // `hasOverviewChanges` so nháp với giá trị server nên nút Lưu cũng tắt theo — chữ mất
+  // im lặng, không một thông báo nào.
+  //
+  // Không phải tình huống hiếm: bấm "Bổ sung thông tin" ở panel AI là gọi `useUpdateDeal`,
+  // nó vô hiệu hoá `dealKeys.detail` → `deal.notes` đổi → effect chạy. Panel AI gắn ở tầng
+  // gốc nên màn chi tiết vẫn đang mở với ô sửa đang gõ dở.
+  //
+  // Bỏ luôn `deal?.value` và `deal?.source` khỏi deps: thân effect không hề đọc hai thứ đó
+  // (nháp chỉ có title + notes), giữ lại chỉ khiến effect chạy oan mỗi lần giá deal đổi.
   useEffect(() => {
-    if (!deal) return;
+    if (!deal || overviewEditing) return;
     setDraft({
       title: deal.projectType,
       notes: deal.notes ?? "",
     });
-  }, [deal?.id, deal?.projectType, deal?.value, deal?.source, deal?.notes]);
+  }, [deal?.id, deal?.projectType, deal?.notes, overviewEditing]);
 
   function goBack() {
     navigate({ to: "/" });
@@ -356,7 +374,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           client_id: deal.clientId,
           title,
           stage: deal.stage,
-          notes: draft.notes.trim() || undefined,
+          // `.trim()` trần, KHÔNG `|| undefined`. Axios bỏ hẳn key `undefined` khỏi JSON,
+          // mà backend duyệt field theo kiểu `if value is not None` (deals service, hàm
+          // `update`) — field vắng mặt nghĩa là GIỮ NGUYÊN giá trị cũ. Hệ quả: xoá sạch ô
+          // mô tả rồi bấm Lưu thì hệ thống báo "Đã cập nhật" nhưng chữ cũ vẫn còn nguyên.
+          // Chuỗi rỗng thì backend xoá được thật, nên chỉ cần thôi đổi nó thành undefined.
+          notes: draft.notes.trim(),
         },
       });
       setOverviewEditing(false);
@@ -954,6 +977,14 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         onNavigate={(nav) => navigate({ to: nav === "admin" ? "/admin" : "/" })}
       />
 
+      {/* KHUNG CỐ ĐỊNH: trang không cuộn, mỗi vùng tự cuộn phần của nó.
+          Tab nào nhiều nội dung thì cuộn trong tab đó, cột phải cuộn riêng.
+
+          NHƯNG chỉ áp từ `xl` trở lên — chỗ này từng là một lỗi mất nội dung thật.
+          Dưới 1280px lưới hai cột xếp chồng lại, tổng chiều cao chắc chắn vượt màn hình;
+          khoá `overflow-hidden` lúc đó là phần dưới bị cắt mà KHÔNG có thanh cuộn nào kéo
+          tới được (laptop 1366×768 dính đúng lỗi này). Nên dưới `xl` để vùng nội dung tự
+          cuộn như một trang bình thường.  #Huynh */}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="z-20 shrink-0 border-b border-border bg-card/95 backdrop-blur">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
@@ -986,152 +1017,33 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
               >
                 <Trash2 className="h-4 w-4" /> Loại bỏ dự án
               </button>
-              <button className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary" aria-label="Thêm tuỳ chọn">
-                <MoreVertical className="h-4 w-4" />
-              </button>
             </div>
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-hidden p-4 lg:p-6">
-          <div className="grid h-full min-w-0 items-start gap-4 xl:grid-cols-[280px_minmax(0,1fr)_300px]">
-            <ClientInfoPanel
-              deal={deal}
-              client={client}
-            />
+        {/* Vùng này cuộn — nhưng bình thường KHÔNG hiện thanh cuộn nào, vì lưới bên trong
+            cao đúng 100% (`xl:h-full`) nên vừa khít.
 
-            <section className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
-              <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tổng quan dự án</div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {overviewEditing ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={cancelOverviewEdit}
-                          disabled={updateDeal.isPending}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <X className="h-3.5 w-3.5" /> Hủy
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveOverview}
-                          disabled={!hasOverviewChanges || updateDeal.isPending}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {updateDeal.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                          {updateDeal.isPending ? "Đang lưu..." : "Lưu"}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setOverviewEditing(true)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Chỉnh sửa
-                      </button>
-                    )}
-                    <div className="ml-2 text-right">
-                      <div className="text-xs text-muted-foreground">{displayBudgetLabel}</div>
-                      <div className="mt-1 max-w-[12rem] break-words text-xl font-bold text-primary">{displayBudget}</div>
-                    </div>
-                  </div>
-                </div>
+            Giữ `overflow-y-auto` làm lưới đỡ cho hai trường hợp: dưới 1280px (hai cột xếp
+            chồng, chắc chắn cao hơn màn hình) và khi cột phải dài bất thường. Khoá cứng
+            `overflow-hidden` là nội dung tràn ra bị cắt mà không cách nào kéo tới. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+          {/* HAI cột: việc bên trái, thông tin bổ trợ bên phải.
+              Bản cũ ba cột (khách 280px | nội dung | hành động 300px) ngốn 580px chiều ngang
+              cho hai cột phụ, mà cả hai đều là thông tin bổ trợ nên gom về một chỗ. */}
+          <div className="grid gap-4 xl:h-full xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="min-w-0 xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+              {/* MỘT thanh tab cho cả trang, "Tổng quan" là tab đầu.
+                  Trước đây thẻ tổng quan nằm rời phía trên rồi mới tới thanh tab — nhìn như
+                  hai khu riêng, mà thực chất đều là nội dung của cùng một deal.
 
-                <div className="mt-3 min-w-0">
-                  {overviewEditing ? (
-                    <>
-                      <input
-                        value={draft.title}
-                        onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                        aria-label="Tên dự án"
-                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xl font-bold outline-none focus:ring-2 focus:ring-ring"
-                      />
-                      <textarea
-                        value={draft.notes}
-                        onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-                        aria-label="Mô tả dự án"
-                        rows={4}
-                        placeholder="Mô tả yêu cầu, phạm vi hoặc ghi chú nội bộ..."
-                        className="mt-2 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <h2 className="text-xl font-bold">{deal.projectType}</h2>
-                      <p className="mt-2 w-full whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {displayDescription || "Chưa có mô tả chi tiết."}
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                {/* File khách gửi kèm — hiện NGAY ở tổng quan, không bắt lặn vào tab Tài liệu.
-                    Đây là thứ AI đọc để chấm điểm, nên người dùng cần thấy ngay "deal này có
-                    brief hay không" và "AI có đọc được nó không".  #Huynh */}
-                {dealAttachments.length > 0 && (
-                  <div className="mt-4 border-t border-border pt-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      File khách gửi ({dealAttachments.length})
-                    </div>
-                    <ul className="mt-2 space-y-1.5">
-                      {dealAttachments.map((file) => (
-                        <li key={file.id} className="flex items-center gap-2">
-                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          {isViewableInApp(file.content_type) ? (
-                            <button
-                              type="button"
-                              onClick={() => setViewAttachment(file)}
-                              className="min-w-0 truncate text-sm text-foreground underline-offset-2 hover:underline"
-                            >
-                              {file.filename}
-                            </button>
-                          ) : (
-                            <span className="min-w-0 truncate text-sm text-foreground">{file.filename}</span>
-                          )}
-                          {file.ai_readable ? (
-                            <span
-                              title="AI đã đọc nội dung file này để chấm điểm deal"
-                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
-                            >
-                              <Sparkles className="h-2.5 w-2.5" /> AI đọc được
-                            </span>
-                          ) : (
-                            <span
-                              title="File scan/ảnh không có lớp chữ — AI không bóc được nội dung"
-                              className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                            >
-                              AI không đọc được
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <div className="mt-5">
-                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Tiến độ quy trình</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-primary/10">
-                    <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Container `overflow-hidden` để thanh tab luôn dính trên, không bị nội dung
-                  đẩy đi. Đổi lại: MỖI TabsContent phải tự lo cuộn dọc
-                  (`min-h-0 flex-1 overflow-y-auto`). Thiếu là nội dung dài hơn khung bị CẮT
-                  và không kéo xuống được — đúng lỗi đã gặp ở trang "Gói đăng ký".  #Huynh */}
+                  CỐ Ý không bọc tất cả vào một thẻ có viền: mỗi tab bên trong đã tự dựng thẻ
+                  riêng (DocumentsTab, ProjectTaskPanel, DealReminderPanel…), bọc thêm một
+                  lớp nữa là viền lồng viền.  #Huynh */}
               <Tabs
                 value={tab}
                 onValueChange={(value) => setTab(value as DetailTab)}
-                className="min-h-0 flex-1 flex-col gap-0 overflow-hidden"
+                className="flex-col gap-0 xl:min-h-0 xl:flex-1 xl:overflow-hidden"
               >
                 <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto border-b border-border">
                   <TabsTrigger value="overview">Tổng quan</TabsTrigger>
@@ -1145,29 +1057,149 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   <TabsTrigger value="history">Lịch sử</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="overview" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
-                  <OverviewTab
-                    deal={deal}
-                    invoices={invoices.data ?? []}
-                    payments={payments.data ?? []}
-                    latestProposalTitle={latestProposal?.content?.title}
-                    latestContractStatus={latestContract?.status}
-                    displayDescription={displayDescription}
-                    intakeTimeline={intakeTimeline}
-                  />
+                <TabsContent value="overview" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+                  <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                    {/* Bỏ nhãn "TỔNG QUAN DỰ ÁN": chính cái tab đang mở đã nói điều đó rồi.
+                        Nhãn đi thì hàng này chỉ còn nhóm nút bên phải, nên gộp luôn hai lớp
+                        div lồng nhau (cả hai đều justify-end) làm một. */}
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {overviewEditing ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={cancelOverviewEdit}
+                            disabled={updateDeal.isPending}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <X className="h-3.5 w-3.5" /> Hủy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveOverview}
+                            disabled={!hasOverviewChanges || updateDeal.isPending}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {updateDeal.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                            {updateDeal.isPending ? "Đang lưu..." : "Lưu"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setOverviewEditing(true)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Chỉnh sửa
+                        </button>
+                      )}
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground">{displayBudgetLabel}</div>
+                        <div className="mt-1 max-w-[12rem] break-words text-xl font-bold text-primary">{displayBudget}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 min-w-0">
+                      {overviewEditing ? (
+                        <>
+                          <input
+                            value={draft.title}
+                            onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                            aria-label="Tên dự án"
+                            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xl font-bold outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <textarea
+                            value={draft.notes}
+                            onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+                            aria-label="Mô tả dự án"
+                            rows={4}
+                            placeholder="Mô tả yêu cầu, phạm vi hoặc ghi chú nội bộ..."
+                            className="mt-2 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <h2 className="text-xl font-bold">{deal.projectType}</h2>
+                          {/* Giữ NGUYÊN VĂN như lúc nhập, không tách thành từng mục. Đây là chữ
+                              của khách và của chính freelancer gõ vào — bóc nhỏ ra rồi sắp lại
+                              làm mất mạch đọc. */}
+                          <p className="mt-2 w-full whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                            {displayDescription || "Chưa có mô tả chi tiết."}
+                          </p>
+                        </>
+                      )}
+                    </div>
+
+                    {/* File khách gửi kèm — hiện NGAY ở tổng quan, không bắt lặn vào tab Tài liệu.
+                        Đây là thứ AI đọc để chấm điểm, nên người dùng cần thấy ngay "deal này có
+                        brief hay không" và "AI có đọc được nó không".  #Huynh */}
+                    {dealAttachments.length > 0 && (
+                      <div className="mt-4 border-t border-border pt-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          File khách gửi ({dealAttachments.length})
+                        </div>
+                        <ul className="mt-2 space-y-1.5">
+                          {dealAttachments.map((file) => (
+                            <li key={file.id} className="flex items-center gap-2">
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              {isViewableInApp(file.content_type) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewAttachment(file)}
+                                  className="min-w-0 truncate text-sm text-foreground underline-offset-2 hover:underline"
+                                >
+                                  {file.filename}
+                                </button>
+                              ) : (
+                                <span className="min-w-0 truncate text-sm text-foreground">{file.filename}</span>
+                              )}
+                              {file.ai_readable ? (
+                                <span
+                                  title="AI đã đọc nội dung file này để chấm điểm deal"
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                                >
+                                  <Sparkles className="h-2.5 w-2.5" /> AI đọc được
+                                </span>
+                              ) : (
+                                <span
+                                  title="File scan/ảnh không có lớp chữ — AI không bóc được nội dung"
+                                  className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                >
+                                  AI không đọc được
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Deal đã loại bỏ thì không có "tiến độ" nào cả — nói thẳng trạng thái thay
+                        vì vẽ một thanh 0% trông như dự án mới bắt đầu. */}
+                    <div className="mt-5">
+                      {isLost ? (
+                        <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          Dự án đã bị loại bỏ — không còn nằm trong quy trình.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Tiến độ quy trình</span>
+                            <span>{progress}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-primary/10">
+                            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress}%` }} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </TabsContent>
 
-                {/* `flex flex-col` để panel con lấp đầy đúng chiều cao tab. Không có nó thì
-                    panel tự chốt 560px, mà tab thì cũng cuộn được → HAI thanh cuộn lồng nhau,
-                    người dùng không biết kéo cái nào.
-
-                    Vẫn GIỮ `overflow-y-auto` theo đúng ràng buộc nêu ở khối chú thích trên:
-                    nó là lưới an toàn, lỡ panel có vượt khung thì còn kéo được chứ không bị
-                    cắt cụt.  #Huynh */}
-                <TabsContent
-                  value="tasks"
-                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto pt-4"
-                >
+                {/* Trang tự cuộn nên tab KHÔNG được tự cuộn nữa.
+                    Bất biến cũ ("mỗi TabsContent phải có min-h-0 flex-1 overflow-y-auto") gắn
+                    với mô hình khung cố định. Giữ lại trong mô hình mới là sinh hai thanh cuộn
+                    lồng nhau — thứ khó chịu nhất khi dùng.  #Huynh */}
+                <TabsContent value="tasks" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                   {projectStageUnlocked && taskQuery.isLoading ? (
                     <div className="grid min-h-64 place-items-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
@@ -1181,6 +1213,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       onUpdateTask={handleUpdateTask}
                       onDeleteTask={handleDeleteTask}
                       onToggleTask={handleToggleTask}
+                      /* `fill` để khung kéo dài hết chiều cao tab. Bản mặc định chốt cứng
+                         560px nên trên màn hình cao, thẻ dừng lơ lửng giữa chừng mà bên
+                         trong đã có thanh cuộn — nhìn như bị cắt cụt.
+
+                         An toàn ở cả hai phía: `fill` = `h-full`, tức `height: 100%`. Dưới
+                         `xl` khung cha cao tự do nên theo chuẩn CSS nó tính về `auto` —
+                         danh sách trải hết và trang cuộn, đúng thứ mình muốn ở màn nhỏ. */
                       height="fill"
                       invoiceActions={{
                         onCreateAndSend: createAndSendInvoice,
@@ -1194,7 +1233,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="documents" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
+                <TabsContent value="documents" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                   <DocumentsTab
                     attachments={dealAttachments}
                     onViewAttachment={setViewAttachment}
@@ -1229,11 +1268,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   />
                 </TabsContent>
 
-                <TabsContent value="reminders" className="min-h-0 min-w-0 flex-1 overflow-hidden pt-4">
+                {/* `overflow-hidden` chứ không phải `overflow-y-auto`: `DealReminderPanel`
+                    đã tự cuộn danh sách bên trong nó. Cho tab cuộn nữa là hai thanh lồng. */}
+                <TabsContent value="reminders" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
                   <DealReminderPanel deal={deal} />
                 </TabsContent>
 
-                <TabsContent value="history" className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-4">
+                <TabsContent value="history" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                   {/* MỘT dòng thời gian: các lần AI chấm điểm (lấy thẳng từ backend nên
                       xem lại được kể cả sau F5) trộn chung với hoạt động khác, xếp theo
                       thời gian. Trước đây tách hai danh sách, người dùng phải nhìn hai
@@ -1249,30 +1290,45 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
               </Tabs>
             </section>
 
-            <ActionsPanel
-              deal={deal}
-              onEvaluate={() => {
-                if (!deal) return;
-                openAiPanel({ kind: "deal_qualification", dealId: deal.id });
-              }}
-              onProposal={() => {
-                const target = dealForProposal ?? deal;
-                if (!target) return;
-                // KHÔNG nhét sẵn id bản nháp nữa: modal tự hiện màn chọn (bản nháp đang có +
-                // mẫu điều khoản) rồi freelancer quyết mở lại bản nào hay tạo bản mới. Nhảy
-                // thẳng vào bản nháp là cướp mất quyền chọn đó.  #Huynh
-                openAiPanel({ kind: "proposal_generation", dealId: target.id });
-              }}
-              onContract={handleGenerateContract}
-              onStartProject={handleStartProject}
-              onComplete={handleCompleteProject}
-              contractLoading={createContract.isPending || generateContract.isPending}
-              stageTransitionLoading={transitionDealStage.isPending || completePending}
-              hasAcceptedProposal={Boolean(acceptedProposal)}
-              hasContract={contractItems.length > 0}
-              hasDraftContract={Boolean(draftContract)}
-              hasActiveContract={hasDeploymentReadyContract}
-            />
+            {/* MỘT cột bổ trợ duy nhất, dính lại khi cuộn.
+                `max-h` + `overflow-y-auto` là bắt buộc chứ không phải cho đẹp: cột này cao
+                hơn màn hình (thẻ điểm + thẻ khách + thẻ thông tin) mà chỉ có `sticky` thì
+                phần đáy bị ghim ngoài tầm nhìn, cuộn kiểu gì cũng không tới.  #Huynh */}
+            {/* `div` chứ không phải `aside`: hai thẻ con đã là `aside` rồi, lồng landmark
+                trong landmark thì trình đọc màn hình đọc thành ba vùng phụ chồng nhau.
+
+                Cột này KHÔNG tự cuộn: cao đúng bằng nội dung (`xl:self-start`), không kéo
+                giãn theo hàng lưới nên cũng không sinh thanh cuộn riêng. Trường hợp hiếm mà
+                nội dung cao hơn màn hình thì vùng ngoài đỡ (xem chú thích ở đó), chứ không
+                bị cắt mất. */}
+            <div className="space-y-4 xl:self-start">
+              <ActionsPanel
+                deal={deal}
+                onEvaluate={() => {
+                  if (!deal) return;
+                  openAiPanel({ kind: "deal_qualification", dealId: deal.id });
+                }}
+                onProposal={() => {
+                  const target = dealForProposal ?? deal;
+                  if (!target) return;
+                  // KHÔNG nhét sẵn id bản nháp nữa: modal tự hiện màn chọn (bản nháp đang có +
+                  // mẫu điều khoản) rồi freelancer quyết mở lại bản nào hay tạo bản mới. Nhảy
+                  // thẳng vào bản nháp là cướp mất quyền chọn đó.  #Huynh
+                  openAiPanel({ kind: "proposal_generation", dealId: target.id });
+                }}
+                onContract={handleGenerateContract}
+                onStartProject={handleStartProject}
+                onComplete={handleCompleteProject}
+                contractLoading={createContract.isPending || generateContract.isPending}
+                stageTransitionLoading={transitionDealStage.isPending || completePending}
+                hasAcceptedProposal={Boolean(acceptedProposal)}
+                hasContract={contractItems.length > 0}
+                hasDraftContract={Boolean(draftContract)}
+                hasActiveContract={hasDeploymentReadyContract}
+              />
+
+              <ClientInfoPanel deal={deal} client={client} />
+            </div>
           </div>
         </div>
       </main>
@@ -1321,7 +1377,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           onClose={() => setViewProposalId(null)}
         />
       )}
-      {viewQualificationDoc && <QualificationViewModal document={viewQualificationDoc} onClose={() => setViewQualificationDoc(null)} />}
+      {viewQualificationDoc && (
+        <QualificationViewModal
+          document={viewQualificationDoc}
+          deal={deal}
+          onClose={() => setViewQualificationDoc(null)}
+        />
+      )}
       {viewAttachment && (
         <AttachmentViewerModal attachment={viewAttachment} onClose={() => setViewAttachment(null)} />
       )}
@@ -1501,6 +1563,9 @@ function ClientInfoPanel({
     .toUpperCase() || "KH";
   const phone = client?.phone ?? deal.clientPhone;
   const email = client?.email ?? deal.clientEmail;
+
+  const zaloUrl = zaloLink(phone);
+  const mailUrl = gmailComposeLink({ to: email, subject: `Về dự án ${deal.projectType}` });
   const notes = client?.notes ?? "";
   const hasChanges =
     draft.phone !== (phone ?? "") ||
@@ -1553,10 +1618,8 @@ function ClientInfoPanel({
         <div className="min-w-0">
           <h2 className="truncate font-semibold">{deal.client}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{phone || "Chưa có Zalo/SĐT"}</p>
-          <div className="mt-2 flex gap-1.5">
-            <ContactButton label="Zalo" disabled={!phone} />
-            <ContactButton icon={Mail} label="Email" disabled={!email} />
-          </div>
+          {/* Bỏ cặp chip Zalo/Email ở đây: y hệt cặp nút to phía dưới thẻ. Một việc bày hai
+              chỗ trong cùng một thẻ thì người dùng phải đoán hai cái đó khác nhau ra sao. */}
         </div>
       </div>
 
@@ -1601,25 +1664,63 @@ function ClientInfoPanel({
             className="mt-2 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
           />
         ) : (
+          // KHÔNG rơi về `deal.notes` nữa. `clients.notes` là ghi chú RIÊNG về khách
+          // ("khách này khó tính"), còn `deals.notes` là YÊU CẦU của khách — hai khái niệm
+          // khác nhau, lưu hai bảng khác nhau. Rơi về nhau khiến bản mô tả dự án bị bày ra
+          // dưới nhãn "Ghi chú nội bộ", vừa trùng lần thứ ba trên cùng màn hình, vừa làm
+          // người dùng tưởng đã điền ghi chú khách rồi.  #Huynh
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-            {client?.notes || deal.notes || "Chưa có ghi chú khách hàng."}
+            {client?.notes || "Chưa có ghi chú khách hàng."}
           </p>
         )}
       </div>
 
+      {/* Nối THẬT chứ không còn là nút trang trí. Trước đây cả bốn nút liên hệ trong thẻ
+          này đều không có `onClick` — bấm không ra gì.
+
+          Cả hai đường dẫn dựng bằng `src/lib/contact-links.ts`; xem chú thích ở đó để biết
+          vì sao nút thư mở Gmail chứ không phải `mailto:`.  #Huynh */}
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <button
-          disabled={!phone}
-          className="inline-flex items-center justify-center rounded-lg bg-success px-3 py-2 text-sm font-semibold text-success-foreground hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          Zalo
-        </button>
-        <button
-          disabled={!email}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          <Mail className="h-4 w-4" /> Email
-        </button>
+        {zaloUrl ? (
+          <a
+            href={zaloUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center rounded-lg bg-success px-3 py-2 text-sm font-semibold text-success-foreground hover:opacity-95"
+          >
+            Zalo
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="Khách chưa có số điện thoại"
+            className="inline-flex cursor-not-allowed items-center justify-center rounded-lg bg-success px-3 py-2 text-sm font-semibold text-success-foreground opacity-45"
+          >
+            Zalo
+          </button>
+        )}
+        {mailUrl ? (
+          /* Mở tab mới: giờ đây là trang web (Gmail) chứ không phải ứng dụng ngoài, để cùng
+             tab là đá người dùng ra khỏi màn deal đang xem. */
+          <a
+            href={mailUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary"
+          >
+            <Mail className="h-4 w-4" /> Email
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="Khách chưa có email"
+            className="inline-flex cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold opacity-45"
+          >
+            <Mail className="h-4 w-4" /> Email
+          </button>
+        )}
       </div>
 
       <div className="mt-3 flex gap-2 border-t border-border pt-3">
@@ -1668,15 +1769,37 @@ function ClientInfoPanel({
   );
 }
 
-function ContactButton({ icon: Icon, label, disabled }: { icon?: typeof Mail; label: string; disabled?: boolean }) {
+/**
+ * Vòng tròn điểm — bản thu nhỏ của `ScoreCard` trong panel đánh giá.
+ *
+ * Vẫn là SVG dựng tay chứ không kéo thư viện chart về cho một chỉ số. `currentColor` để
+ * vòng tròn ăn theo màu chữ của mức, khỏi khai màu hai lần.
+ */
+function ScoreDial({ score, level }: { score: number; level: Deal["score"] }) {
+  const pct = Math.max(0, Math.min(100, score));
+  const RADIUS = 26;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45"
-    >
-      {Icon && <Icon className="h-3 w-3" />} {label}
-    </button>
+    <div className={cn("relative h-16 w-16 shrink-0", LEVEL_UI[level].scoreClass)}>
+      <svg viewBox="0 0 64 64" className="h-full w-full -rotate-90">
+        <circle cx="32" cy="32" r={RADIUS} fill="none" strokeWidth="6" className="stroke-muted" />
+        <circle
+          cx="32"
+          cy="32"
+          r={RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={CIRCUMFERENCE}
+          strokeDashoffset={CIRCUMFERENCE * (1 - pct / 100)}
+        />
+      </svg>
+      <div className="absolute inset-0 grid place-items-center">
+        <span className="text-lg font-black leading-none">{score}</span>
+      </div>
+    </div>
   );
 }
 
@@ -1752,16 +1875,46 @@ function ActionsPanel({
           Cả sản phẩm này dựng trên việc "điểm AI phải kiểm chứng được"; bịa một con số
           mặc định là đạp đổ đúng thứ đó. Thà nói thẳng "chưa chấm".  #Huynh */}
       <div className="rounded-lg border border-border bg-muted/30 p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Sparkles className="h-4 w-4 text-primary" /> Đánh giá AI
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-primary" /> Đánh giá AI
+          </div>
+          {/* Nhãn HOT/WARM/COLD lấy từ `LEVEL_UI` — cùng bảng màu với thẻ Kanban và bảng
+              chấm điểm, không tự khai lại lần nữa. */}
+          {typeof deal.aiQualificationScore === "number" && (
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                LEVEL_UI[deal.score].badgeClass
+              )}
+            >
+              {LEVEL_UI[deal.score].label}
+            </span>
+          )}
         </div>
         {typeof deal.aiQualificationScore === "number" ? (
           <>
-            <div className="mt-3 text-3xl font-bold text-primary">
-              {deal.aiQualificationScore}
-              <span className="text-base font-semibold text-muted-foreground">/100</span>
+            {/* Vòng tròn giống hệt panel đánh giá và hộp xem lại. Trước đây chỗ này tự vẽ
+                kiểu chữ trơn riêng — là bản vẽ THỨ BA của cùng một con điểm, nên cùng một
+                deal nhìn ba nơi lại thấy ba kiểu.  #Huynh */}
+            <div className="mt-3 flex items-center gap-3">
+              <ScoreDial score={deal.aiQualificationScore} level={deal.score} />
+              <div className="min-w-0 text-sm text-muted-foreground">
+                <div>
+                  <span className="font-semibold text-foreground">{deal.aiQualificationScore}</span> / 100 điểm
+                </div>
+                {deal.aiQualificationScore < 100 && (
+                  <div className="mt-0.5 text-xs">
+                    còn thiếu{" "}
+                    <span className="font-semibold text-foreground">
+                      {100 - deal.aiQualificationScore}
+                    </span>{" "}
+                    điểm
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               {recommendationLabel(deal.aiQualificationRecommendation)}
             </p>
           </>
@@ -1957,78 +2110,6 @@ function ProjectLockedPanel({ deal, hasAcceptedProposal }: { deal: Deal; hasAcce
   );
 }
 
-function OverviewTab({
-  deal,
-  invoices,
-  payments,
-  latestProposalTitle,
-  latestContractStatus,
-  displayDescription,
-  intakeTimeline,
-}: {
-  deal: Deal;
-  invoices: Array<{ id: string; status: string; total: number; amount_paid: number; due_date: string }>;
-  payments: Array<{ id: string; amount: number; payment_date: string; payment_method: string }>;
-  latestProposalTitle?: string;
-  latestContractStatus?: string;
-  displayDescription: string;
-  intakeTimeline: string;
-}) {
-  const invoice = invoices[0];
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <InfoCard icon={FileText} title="Tài liệu">
-        <p className="text-sm text-muted-foreground">
-          Báo giá mới nhất: <span className="font-medium text-foreground">{latestProposalTitle ?? "Chưa có"}</span>
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Hợp đồng: <span className="font-medium text-foreground">{latestContractStatus ?? "Chưa có"}</span>
-        </p>
-      </InfoCard>
-      <InfoCard icon={CreditCard} title="Thanh toán">
-        {invoice ? (
-          <>
-            <p className="text-sm">
-              <span className="font-medium">{formatVND(invoice.amount_paid)}</span> / {formatVND(invoice.total)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Trạng thái {invoice.status} · hạn {formatDate(invoice.due_date)}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">{payments.length} giao dịch đã ghi nhận</p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Chưa có hóa đơn liên kết dự án. UI vẫn hiển thị khu thanh toán để sẵn sàng khi BE có dữ liệu.
-          </p>
-        )}
-      </InfoCard>
-      <InfoCard icon={CalendarDays} title="Mốc thời gian">
-        <p className="text-sm text-muted-foreground">
-          Tạo ngày {formatDate(deal.createdAt)} · cập nhật {deal.updatedAt ? formatDate(deal.updatedAt) : "chưa rõ"}
-        </p>
-        {intakeTimeline && (
-          <p className="mt-1 text-sm text-muted-foreground">
-            Mong muốn của khách: <span className="font-medium text-foreground">{intakeTimeline}</span>
-          </p>
-        )}
-      </InfoCard>
-      <InfoCard icon={CheckCircle2} title="Ghi chú">
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{displayDescription || "Chưa có ghi chú."}</p>
-      </InfoCard>
-    </div>
-  );
-}
-
-function InfoCard({ icon: Icon, title, children }: { icon: typeof FileText; title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-        <Icon className="h-4 w-4 text-primary" /> {title}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 type InvoiceComposerClient = {
   name: string;
@@ -2743,7 +2824,17 @@ function DocumentsTab({
                 onClick={() => onViewInvoice(invoice)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
               >
-                <FileText className="h-3.5 w-3.5" /> {invoice.status === "draft" ? "Sửa" : "Xem"}
+                {/* Icon đi theo nhãn: nháp thì đây là nút SỬA, còn lại là nút XEM. Trước đây
+                    nhãn đổi mà icon đứng yên nên hai hành động khác hẳn nhau trông như một. */}
+                {invoice.status === "draft" ? (
+                  <>
+                    <Pencil className="h-3.5 w-3.5" /> Sửa
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-3.5 w-3.5" /> Xem
+                  </>
+                )}
               </button>
               {canSendInvoice && (
                 <button
@@ -2896,7 +2987,7 @@ function DocumentsTab({
                 onClick={() => onViewProposal(item.id)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
               >
-                <FileText className="h-3.5 w-3.5" /> Xem nội dung
+                <Eye className="h-3.5 w-3.5" /> Xem nội dung
               </button>
             )}
             <DownloadPdfButton
@@ -2968,7 +3059,7 @@ function DocumentsTab({
               onClick={() => onViewContract(item.id)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
             >
-              <FileText className="h-3.5 w-3.5" /> Xem nội dung
+              <Eye className="h-3.5 w-3.5" /> Xem nội dung
             </button>
             <DownloadPdfButton
               fetchPdf={() => downloadContractPdf(item.id)}
@@ -3015,24 +3106,24 @@ function DocumentsTab({
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* Nhãn lấy từ `qualificationUi` chứ không tự khai tại chỗ.
+                Trước đây đây là bộ nhãn THỨ BA của cùng một thang điểm ("Tiềm năng cao /
+                Trung bình / Cần hỏi thêm"), nên một deal hiện HOT ở Kanban mà "Tiềm năng
+                cao" ở tab này — người dùng không biết có phải cùng một thứ không.  #Huynh */}
             <span
               className={cn(
-                "rounded-full px-2 py-1 text-xs font-semibold",
-                item.level === "hot"
-                  ? GOOD_BADGE
-                  : item.level === "cold"
-                    ? NEUTRAL_BADGE
-                    : WAITING_BADGE
+                "rounded-full border px-2 py-1 text-xs font-semibold",
+                LEVEL_UI[item.level].badgeClass
               )}
             >
-              {item.level === "hot" ? "Tiềm năng cao" : item.level === "cold" ? "Cần hỏi thêm" : "Trung bình"}
+              {LEVEL_UI[item.level].label}
             </span>
             <button
               type="button"
               onClick={() => onViewQualification(item)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
             >
-              <FileText className="h-3.5 w-3.5" /> Xem
+              <Eye className="h-3.5 w-3.5" /> Xem
             </button>
           </div>
         </div>
@@ -3118,16 +3209,71 @@ type ProposalViewContent = {
   notes?: string;
 };
 
+/**
+ * Xem lại một bản đánh giá cũ — VÀ chốt được nó.
+ *
+ * Luồng bị thiếu trước đây: freelancer chấm xong quên bấm Lưu rồi dọn mất tác vụ ở Task
+ * Center. Vào tab Lịch sử mở lại bản đó thì chỉ xem được rồi đóng, không có đường chốt.
+ * Muốn chuyển deal sang "Đã đánh giá" là phải chấm lại — tốn một lượt AI cho một kết quả
+ * đã nằm sẵn trong database.
+ *
+ * Nút chốt CHỈ hiện khi deal còn ở "Deal mới" và bản này chưa từng được chốt. Deal đã đi
+ * qua giai đoạn đó rồi thì chốt thêm một bản cũ chẳng để làm gì.  #Huynh
+ */
 function QualificationViewModal({
   document,
+  deal,
   onClose,
 }: {
   document: DealQualification;
+  deal: Deal;
   onClose: () => void;
 }) {
+  const qc = useQueryClient();
+  const saveQualification = useSaveDealQualification();
+  const transitionStage = useTransitionDealStage();
+  const [warnOpen, setWarnOpen] = useState(false);
+
+  const view = toQualificationView(document);
+  const canSave = deal.stage === "new_lead" && !document.saved_at;
+  const saving = saveQualification.isPending || transitionStage.isPending;
+
+  function commitSave(gapAcknowledged: boolean) {
+    const stamp = () =>
+      saveQualification.mutate(
+        { dealId: deal.id, qualificationId: document.id, gapAcknowledged },
+        {
+          onSuccess: () => {
+            qc.invalidateQueries({ queryKey: dealQualificationKeys.forDeal(deal.id) });
+            setWarnOpen(false);
+            toast.success("Đã chốt bản đánh giá này và chuyển deal sang Đã đánh giá.");
+            onClose();
+          },
+          onError: (err) =>
+            toast.error(getApiErrorMessage(err, "Không chốt được bản đánh giá này.")),
+        }
+      );
+
+    // Đổi giai đoạn TRƯỚC rồi mới đóng dấu — cùng thứ tự với nút Lưu ở panel đánh giá, để
+    // hai đường vào cho ra đúng một kết quả.
+    transitionStage.mutate({ id: deal.id, stage: "qualified" }, { onSuccess: stamp });
+  }
+
+  function handleSave() {
+    // Cùng luật cảnh báo với panel đánh giá. Không có nó thì đây thành cửa sau để chốt một
+    // bản thiếu điểm mà không bị hỏi gì.
+    if (view.gaps && saveWarningLevel(view.score, view.gaps.lost_points) !== "none") {
+      setWarnOpen(true);
+      return;
+    }
+    commitSave(false);
+  }
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      {/* Rộng bằng panel đánh giá (max-w-6xl): CÙNG một nội dung thì phải hiện y như nhau.
+          Để max-w-2xl thì bảng chấm điểm hai cột bị bóp lại còn một hai từ mỗi dòng. */}
+      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
             <div className="flex items-center gap-2">
@@ -3146,7 +3292,7 @@ function QualificationViewModal({
               Hai bản vẽ riêng thì kiểu gì cũng có ngày lệch nhau.  #Huynh */}
           {/* Dựng view bằng ĐÚNG hàm mà bản vừa chấm xong dùng — hai nơi vẽ riêng thì kiểu
               gì cũng có ngày lệch nhau.  #Huynh */}
-          <QualificationResultView view={toQualificationView(document)} />
+          <QualificationResultView view={view} />
 
           {!document.breakdown?.length && (
             <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
@@ -3156,15 +3302,40 @@ function QualificationViewModal({
           )}
         </div>
 
-        <div className="shrink-0 border-t border-border px-6 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
           <button
             onClick={onClose}
-            className="inline-flex w-full items-center justify-center rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary"
+            disabled={saving}
+            className={cn(
+              "inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50",
+              !canSave && "w-full"
+            )}
           >
             Đóng
           </button>
+          {canSave && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Chốt bản này &amp; chuyển sang Đã đánh giá
+            </button>
+          )}
         </div>
       </div>
+
+      {view.gaps && (
+        <SaveQualificationDialog
+          open={warnOpen}
+          onOpenChange={setWarnOpen}
+          score={view.score}
+          gaps={view.gaps}
+          isSaving={saving}
+          onConfirm={() => commitSave(true)}
+        />
+      )}
     </div>
   );
 }

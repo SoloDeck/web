@@ -1,29 +1,12 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bot, Clock, Flame, Snowflake, Sparkles, Sun } from "lucide-react";
+import { Bot, Clock, Sparkles } from "lucide-react";
 import type React from "react";
 import { BrandIcon } from "@/components/solodesk/BrandIcon";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
+import { LEVEL_UI } from "@/features/ai/qualificationUi";
 import type { Deal } from "@/features/deals/types";
-
-const scoreCfg = {
-  hot: {
-    icon: Flame,
-    label: "HOT",
-    cls: "border-red-200 bg-red-50 text-red-600",
-  },
-  warm: {
-    icon: Sun,
-    label: "WARM",
-    cls: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  cold: {
-    icon: Snowflake,
-    label: "COLD",
-    cls: "border-blue-200 bg-blue-50 text-blue-700",
-  },
-} as const;
 
 export function DealCard({
   deal,
@@ -50,7 +33,7 @@ export function DealCard({
     transition,
     opacity: isDragging ? 0.7 : 1,
   };
-  const ScoreIcon = scoreCfg[deal.score].icon;
+  const ScoreIcon = LEVEL_UI[deal.score].icon;
   const stage = deal.stage;
   const isNewLead = stage === "new_lead";
   // CHƯA CHẤM THÌ KHÔNG HIỆN NHÃN. Trước đây deal chưa có điểm vẫn hiện "Ấm" (vì
@@ -109,12 +92,12 @@ export function DealCard({
           <span
             className={cn(
               "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-              scoreCfg[deal.score].cls
+              LEVEL_UI[deal.score].badgeClass
             )}
             title={`Điểm AI: ${deal.aiQualificationScore}/100`}
           >
             <ScoreIcon className="h-2.5 w-2.5" />
-            {scoreCfg[deal.score].label}
+            {LEVEL_UI[deal.score].label}
           </span>
         )}
       </div>

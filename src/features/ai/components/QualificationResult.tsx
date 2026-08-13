@@ -1,18 +1,28 @@
 import {
   AlertTriangle,
   ArrowRight,
-  ArrowUpRight,
   BadgeCheck,
+  Check,
   CheckCircle2,
-  ChevronRight,
+  Copy,
   Flame,
+  MessageSquareQuote,
+  PencilLine,
   SearchX,
+  TrendingUp,
   } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { LeadScore } from "@/features/deals/types";
+import type { ScoreDelta } from "@/features/deals/hooks/useDealQualifications";
+import type { QualificationGap, QualificationScoreGaps } from "@/services/dealsService";
 import { cn } from "@/lib/utils";
-import { LEVEL_UI } from "@/features/ai/qualificationUi";
+import {
+  CRITERION_ORDER,
+  EMPTY_EVIDENCE,
+  EVIDENCE_LABEL,
+  LEVEL_UI,
+} from "@/features/ai/qualificationUi";
 
 export type ScoreItem = {
   key?: string;
@@ -48,13 +58,15 @@ export type QualificationView = {
   recommendation: string;
   signals: string[];
   breakdown: ScoreItem[];
-  win: { score: number; level: string; factors: ScoreItem[] } | null;
+  /**
+   * Vì sao MẤT phần điểm còn lại. `null` = bản ghi quá cũ, không có bảng phân rã để suy ra.
+   *
+   * Nội dung do backend tra từ bảng barem, KHÔNG phải chữ AI viết — nên nó luôn khớp với con
+   * số điểm bên cạnh và không bao giờ trống vì AI trả thiếu.
+   */
+  gaps: QualificationScoreGaps | null;
   redFlags: string[];
-  price: { low: number; high: number } | null;
 };
-
-/** Thứ tự hiển thị. `source` chỉ có ở thang khả năng chốt nên xếp cuối. */
-const CRITERION_ORDER = ["scope", "budget", "timeline", "detail", "context", "source"] as const;
 
 type MergedRow = {
   key: string;
@@ -62,31 +74,9 @@ type MergedRow = {
   readiness: { points: number; max: number } | null;
   reason: string;
   evidence: string | null;
-};
-
-/**
- * Câu hiển thị khi KHÔNG tìm thấy dữ kiện cho tiêu chí đó.
- *
- * Phải nói rõ THIẾU CÁI GÌ, không phải một câu chung chung "không có dữ liệu". Người dùng
- * đọc xong phải biết ngay việc tiếp theo cần làm: hỏi khách về hạn bàn giao.  #Huynh
- */
-const EMPTY_EVIDENCE: Record<string, string> = {
-  scope: "Không tìm thấy mô tả phạm vi công việc — chưa rõ khách cần làm những hạng mục gì.",
-  budget: "Không tìm thấy con số ngân sách nào khách đưa ra.",
-  timeline: "Không tìm thấy mốc thời gian nào — chưa rõ khách cần bàn giao khi nào.",
-  detail: "Khách chưa mô tả chi tiết yêu cầu.",
-  context: "Không có thông tin về ngành nghề, quy mô hay hiện trạng của khách.",
-  source: "Chưa rõ deal này đến từ đâu.",
-};
-
-/** Nhãn cho khối dữ kiện, nói đúng thứ người dùng đang tìm. */
-const EVIDENCE_LABEL: Record<string, string> = {
-  scope: "Khách cần làm gì",
-  budget: "Ngân sách khách đưa ra",
-  timeline: "Mốc thời gian khách nêu",
-  detail: "Yêu cầu cụ thể ghi nhận được",
-  context: "Bối cảnh khách hàng",
-  source: "Deal đến từ đâu",
+  gap: QualificationGap | null;
+  /** Một trong ba tiêu chí cộng lại bằng ngưỡng HOT. Thiếu là chắc chắn chưa thể HOT. */
+  essential: boolean;
 };
 
 /**
@@ -97,12 +87,24 @@ const EVIDENCE_LABEL: Record<string, string> = {
  * kết luận và mấy dòng tín hiệu — không có bảng phân rã, không có khả năng chốt, không
  * có cờ đỏ. Hai bản vẽ riêng thì kiểu gì cũng có ngày lệch nhau.  #Huynh
  */
-export function QualificationResultView({ view }: { view: QualificationView }) {
+export function QualificationResultView({
+  view,
+  delta,
+  onFillGaps,
+}: {
+  view: QualificationView;
+  /** So với lần chấm trước. `null` ở lần chấm đầu tiên, hoặc khi chưa chắc chắn. */
+  delta?: ScoreDelta | null;
+  /** Mở form bổ sung nhanh. Không truyền thì khối thiếu điểm chỉ có nút sao chép câu hỏi. */
+  onFillGaps?: () => void;
+}) {
   const levelUi = LEVEL_UI[view.level];
   const ScoreIcon = levelUi.icon;
 
   const mergedRows = useMemo<MergedRow[]>(() => {
     const readiness = new Map(view.breakdown.map((item) => [item.key ?? item.label, item]));
+    const gapByKey = new Map((view.gaps?.gaps ?? []).map((gap) => [gap.key, gap]));
+    const essential = new Set(view.gaps?.essential_missing ?? []);
 
     return CRITERION_ORDER.map((key): MergedRow | null => {
       const r = readiness.get(key);
@@ -114,85 +116,152 @@ export function QualificationResultView({ view }: { view: QualificationView }) {
         readiness: { points: r.points, max: r.max_points },
         reason: r.reason?.trim() || "",
         evidence: r.evidence?.trim() || null,
+        gap: gapByKey.get(key) ?? null,
+        essential: essential.has(key),
       };
     }).filter((row): row is MergedRow => row !== null);
   }, [view]);
 
-  return (
-    <div className="space-y-4">
-      {/* Một con số chủ đạo — mức độ sẵn sàng để báo giá.
-          Trước đây có thêm thẻ "Khả năng chốt", nhưng nó suy đoán về khả năng thắng deal
-          từ vài dữ kiện mỏng — người dùng thấy không giúp ích cho quyết định thực tế, nên
-          đã bỏ. Giữ lại một con số RÕ RÀNG còn hơn hai con số làm loãng.  #Huynh */}
-      <ScoreCard
-        title="Sẵn sàng báo giá"
-        hint="Yêu cầu của khách đã đủ rõ để bạn báo giá chưa"
-        score={view.score}
-        badge={view.label}
-        badgeClass={levelUi.badgeClass}
-        scoreClass={levelUi.scoreClass}
-        Icon={ScoreIcon}
-      />
+  const gaps = view.gaps;
 
-      {/* Cờ đỏ ngay dưới điểm số — thứ có thể khiến freelancer mất tiền, để cuối trang
-          thì đọc tới nơi đã muộn. */}
-      {view.redFlags.length > 0 && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            Cờ đỏ cần lưu ý ({view.redFlags.length})
+  return (
+    /* HAI CỘT, cột trái DÍNH lại khi cuộn.
+     *
+     * Trước đây mọi thứ xếp dọc trong khung 768px: đọc "Thời gian mất 20 điểm" ở khối trên
+     * rồi phải cuộn xuống khối "Căn cứ chấm điểm" để xem dữ kiện của CHÍNH tiêu chí đó —
+     * mà lúc cuộn tới nơi thì con điểm tổng đã trôi khỏi màn hình.
+     *
+     * Giờ: điểm + phần thiếu + nút hành động nằm bên trái và ĐỨNG YÊN; chi tiết từng tiêu
+     * chí cuộn bên phải.
+     *
+     * Dùng CONTAINER QUERY (`@container` + `@4xl:`) chứ KHÔNG dùng breakpoint màn hình.
+     * Cùng component này được dựng trong hai khung rộng khác hẳn nhau: panel đánh giá
+     * (1152px) và hộp xem lại bản đã lưu ở tab Lịch sử. Bám theo bề rộng MÀN HÌNH thì hộp
+     * hẹp vẫn tưởng mình rộng nên vẫn chia hai cột, và chữ bị bóp còn một hai từ mỗi dòng.
+     * Bám theo bề rộng CỦA CHÍNH NÓ thì đặt ở đâu cũng đúng.  #Huynh */
+    <div className="@container">
+    <div className="grid gap-5 @4xl:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] @4xl:items-start">
+      <aside className="space-y-3 @4xl:sticky @4xl:top-20">
+        <ScoreCard
+          title="Sẵn sàng báo giá"
+          hint="Yêu cầu của khách đã đủ rõ để bạn báo giá chưa"
+          score={view.score}
+          lostPoints={gaps?.lost_points ?? 0}
+          badge={view.label}
+          badgeClass={levelUi.badgeClass}
+          scoreClass={levelUi.scoreClass}
+          Icon={ScoreIcon}
+        />
+
+        {delta && <DeltaStrip score={view.score} delta={delta} />}
+
+        {gaps && gaps.gaps.length > 0 && <GapSummary gaps={gaps} onFillGaps={onFillGaps} />}
+      </aside>
+
+      <div className="min-w-0 space-y-4">
+        {/* Cờ đỏ lên đầu cột phải — thứ có thể khiến freelancer mất tiền, để cuối trang
+            thì đọc tới nơi đã muộn. */}
+        {view.redFlags.length > 0 && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Cờ đỏ cần lưu ý ({view.redFlags.length})
+            </div>
+            <ul className="mt-2.5 space-y-1.5">
+              {view.redFlags.map((flag) => (
+                <li key={flag} className="flex items-start gap-2 text-sm text-foreground/80">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+                  <span>{flag}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="mt-2.5 space-y-1.5">
-            {view.redFlags.map((flag) => (
-              <li key={flag} className="flex items-start gap-2 text-sm text-foreground/80">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
-                <span>{flag}</span>
+        )}
+
+        {mergedRows.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="text-sm font-semibold">Bảng chấm điểm — {mergedRows.length} tiêu chí</div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Mỗi dòng nói cả hai vế: được điểm nhờ dữ kiện nào của khách, và mất điểm vì
+              thiếu gì.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {mergedRows.map((row) => (
+                <CriterionRow key={row.key} row={row} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <PanelCard title="Tín hiệu AI phát hiện" Icon={CheckCircle2}>
+          <ul className="space-y-2">
+            {view.signals.map((signal) => (
+              <li key={signal} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>{signal}</span>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        </PanelCard>
 
-      {mergedRows.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold">Căn cứ chấm điểm</div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Bấm vào từng dòng để xem dữ kiện thật — bạn không cần mở file ra đọc lại.
-              </p>
-            </div>
-            <div className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Điểm
-            </div>
+        <PanelCard title="Kết luận" Icon={BadgeCheck}>
+          <p className="text-sm leading-6 text-muted-foreground">{view.rationale}</p>
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
+            <ArrowRight className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{view.recommendation}</span>
           </div>
+        </PanelCard>
+      </div>
+    </div>
+    </div>
+  );
+}
 
-          <div className="mt-4 divide-y divide-border">
-            {mergedRows.map((row) => (
-              <CriterionRow key={row.key} row={row} />
-            ))}
-          </div>
-        </div>
+/**
+ * Dải "27 → 72  +45 so với lần chấm trước".
+ *
+ * Chứng minh vòng bổ sung–chấm lại có tác dụng thật: người dùng vừa điền ngân sách xong,
+ * chấm lại thấy đúng dòng "Ngân sách +25" thì hiểu ngay cơ chế mà không cần giải thích.
+ */
+function DeltaStrip({ score, delta }: { score: number; delta: ScoreDelta }) {
+  const diff = score - delta.previousScore;
+  if (diff === 0 && delta.changes.length === 0) return null;
+
+  const up = diff > 0;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5 text-sm",
+        up ? "border-success/30 bg-success/5" : "border-border bg-muted/40"
       )}
-
-      <PanelCard title="Tín hiệu AI phát hiện" Icon={CheckCircle2}>
-        <ul className="space-y-2">
-          {view.signals.map((signal) => (
-            <li key={signal} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <span>{signal}</span>
-            </li>
+    >
+      <span className="flex items-center gap-1.5 font-semibold tabular-nums">
+        <span className="text-muted-foreground">{delta.previousScore}</span>
+        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+        <span>{score}</span>
+        {diff !== 0 && (
+          <span className={cn("ml-1", up ? "text-success" : "text-destructive")}>
+            {up ? "+" : ""}
+            {diff}
+          </span>
+        )}
+      </span>
+      <span className="text-xs text-muted-foreground">so với lần chấm trước</span>
+      {delta.changes.length > 0 && (
+        <span className="flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          {delta.changes.map((change) => (
+            <span key={change.label} className="tabular-nums">
+              {change.label}{" "}
+              <span className={cn("font-semibold", change.diff > 0 ? "text-success" : "text-destructive")}>
+                {change.diff > 0 ? "+" : ""}
+                {change.diff}
+              </span>
+            </span>
           ))}
-        </ul>
-      </PanelCard>
-
-      <PanelCard title="Kết luận" Icon={BadgeCheck}>
-        <p className="text-sm leading-6 text-muted-foreground">{view.rationale}</p>
-        <div className="mt-3 flex items-start gap-2 rounded-lg bg-primary/5 p-3 text-sm font-medium text-primary">
-          <ArrowRight className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{view.recommendation}</span>
-        </div>
-      </PanelCard>
+        </span>
+      )}
     </div>
   );
 }
@@ -202,6 +271,7 @@ function ScoreCard({
   title,
   hint,
   score,
+  lostPoints,
   badge,
   badgeClass,
   scoreClass,
@@ -210,6 +280,7 @@ function ScoreCard({
   title: string;
   hint: string;
   score: number;
+  lostPoints: number;
   badge: string;
   badgeClass: string;
   scoreClass: string;
@@ -260,10 +331,139 @@ function ScoreCard({
           </div>
         </div>
         <div className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{score}</span> / 100 điểm
+          <div>
+            <span className="font-semibold text-foreground">{score}</span> / 100 điểm
+          </div>
+          {/* Con số bị thiếu phải đứng NGANG HÀNG với con số đạt được. Chỉ hiện điểm đạt là
+              kể nửa câu chuyện — người dùng đọc "27" mà không biết 27 đó xa 100 tới đâu. */}
+          {lostPoints > 0 && (
+            <div className="mt-0.5 text-xs">
+              còn thiếu <span className="font-semibold text-foreground">{lostPoints}</span> điểm
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Tóm tắt phần thiếu ở cột trái: mất tổng bao nhiêu, mất ở đâu, và làm gì tiếp.
+ *
+ * CỐ Ý chỉ là bản tóm tắt. Chi tiết từng tiêu chí (đang ở nấc nào, lên nấc trên cần gì, nên
+ * hỏi khách câu gì) nằm trong `CriterionRow` bên cột phải — CÙNG một dòng với dữ kiện đã ăn
+ * điểm của chính tiêu chí đó.
+ *
+ * Bản trước tách hẳn thành khối "Vì sao chưa đạt 100 điểm" đặt trên bảng căn cứ, nên mỗi
+ * tiêu chí hiện HAI LẦN ở hai chỗ cách nhau cả màn hình. Đúng cái bẫy `_factor()` trong
+ * scoring.py đã cảnh báo khi bỏ thẻ "Khả năng chốt": hai bảng tách rời là kể một chuyện hai
+ * lần, người dùng thấy "Thời gian 0/20" rồi lát sau lại "Thời gian 0/20".  #Huynh
+ */
+function GapSummary({
+  gaps,
+  onFillGaps,
+}: {
+  gaps: QualificationScoreGaps;
+  onFillGaps?: () => void;
+}) {
+  const essential = new Set(gaps.essential_missing);
+  const essentialCount = gaps.gaps.filter((gap) => essential.has(gap.key)).length;
+
+  const headline = essentialCount
+    ? `Thiếu ${essentialCount} mảng thiết yếu — chưa đủ căn cứ để báo giá chắc.`
+    : "Đủ ba mảng thiết yếu để báo giá. Phần thiếu còn lại chỉ làm báo giá sắc hơn.";
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-sm font-semibold">Còn thiếu</div>
+        <span className="shrink-0 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-destructive">
+          {gaps.lost_points} điểm
+        </span>
+      </div>
+      <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{headline}</p>
+
+      {/* Sắp giảm dần theo điểm mất (backend đã sắp): hỏi một câu về ngân sách được 25 điểm,
+          làm rõ bối cảnh chỉ được 10 — thứ tự đó phải nhìn thấy, đừng bắt người dùng tự so. */}
+      <ul className="mt-3 space-y-1.5">
+        {gaps.gaps.map((gap) => (
+          <li key={gap.key} className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span className="truncate">{gap.label}</span>
+              {essential.has(gap.key) && (
+                <span
+                  className="shrink-0 text-warm"
+                  title="Tiêu chí thiết yếu — còn thiếu thì chưa thể HOT"
+                >
+                  •
+                </span>
+              )}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums text-destructive">
+              −{gap.lost_points}đ
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {/* MỘT nút duy nhất. Bỏ "Sao chép cả bộ câu hỏi" vì mỗi câu hỏi đã có nút chép riêng
+          ngay cạnh nó bên bảng chấm điểm — hai đường làm cùng một việc chỉ tổ phải chọn. */}
+      {onFillGaps && (
+        <button
+          type="button"
+          onClick={onFillGaps}
+          className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <PencilLine className="h-3.5 w-3.5" />
+          Bổ sung thông tin
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** "Khách nêu CON SỐ..." -> "khách nêu CON SỐ..." để ghép được sau chữ "nếu". */
+function lowerFirst(text: string): string {
+  return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
+}
+
+function CopyButton({
+  text,
+  label,
+  copiedLabel,
+  iconOnly = false,
+  className,
+}: {
+  text: string;
+  label: string;
+  copiedLabel?: string;
+  iconOnly?: boolean;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  // `navigator.clipboard` không tồn tại trên http thường và trong jsdom — không chắn thì
+  // bấm nút là nổ TypeError giữa màn kết quả.
+  const canCopy = typeof navigator !== "undefined" && Boolean(navigator.clipboard);
+
+  if (!canCopy) return null;
+
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      className={className}
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+        });
+      }}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {!iconOnly && <span>{copied ? (copiedLabel ?? "Đã sao chép") : label}</span>}
+    </button>
   );
 }
 
@@ -287,115 +487,136 @@ function PanelCard({
   );
 }
 
-/** Một dòng căn cứ: nhãn, hai cột điểm, thanh màu, và LÝ DO.
+/**
+ * Một tiêu chí — CẢ HAI VẾ trên cùng một dòng.
  *
- * Lý do là phần bắt buộc — điểm số không kèm lý do thì người dùng không kiểm chứng được,
- * mà không kiểm chứng được thì không đáng tin.
+ * Trái: được điểm nhờ dữ kiện nào của khách. Phải: mất điểm vì thiếu gì, và lên từng nấc
+ * cần gì. Đây là điểm khác quan trọng nhất so với bản trước: hai vế của cùng một tiêu chí
+ * từng nằm ở hai khối cách nhau cả màn hình, nên muốn đối chiếu là phải cuộn lên cuộn xuống.
+ *
+ * Cũng bỏ luôn kiểu gập/mở. Trước đây phải bấm từng dòng mới thấy dữ kiện — hợp lý khi khung
+ * chỉ rộng 768px, nhưng giờ có hai cột thì giấu đi chỉ tổ bắt người dùng bấm 5 lần để đọc
+ * đúng thứ họ mở màn hình này ra để đọc.  #Huynh
  */
 function CriterionRow({ row }: { row: MergedRow }) {
-  const [open, setOpen] = useState(false);
-
   const bar = row.readiness;
   const ratio = bar && bar.max > 0 ? bar.points / bar.max : 0;
   const tone = ratio >= 0.7 ? "positive" : ratio >= 0.4 ? "neutral" : "negative";
   const hasEvidence = Boolean(row.evidence);
-
-  // Tách "Để lên tối đa: ..." ra dòng riêng, nhấn màu — người dùng thấy NGAY cần làm gì
-  // để lên điểm, không lẫn trong câu giải thích vì sao.
-  const improveIdx = row.reason.indexOf("Để lên tối đa");
-  const whyText = improveIdx >= 0 ? row.reason.slice(0, improveIdx).trim() : row.reason;
-  const improveText = improveIdx >= 0 ? row.reason.slice(improveIdx).trim() : "";
+  const gap = row.gap;
 
   return (
-    <div className="first:pt-0 last:pb-0">
-      {/* Cả dòng là một nút. Bấm đâu cũng mở — bắt người dùng nhắm vào đúng cái mũi tên
-          nhỏ xíu bên phải là thiết kế hành hạ người ta. */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="w-full rounded-lg px-2 py-3 text-left transition-colors hover:bg-secondary/60"
-      >
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <ChevronRight
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                open && "rotate-90"
-              )}
-            />
-            <span className="min-w-0 truncate text-sm font-medium">{row.label}</span>
-            {/* Chấm màu báo trước là bên trong CÓ dữ kiện hay không, để người dùng không
-                phải bấm mở từng dòng mới biết dòng nào rỗng. */}
-            <span
-              className={cn(
-                "ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                hasEvidence ? "bg-primary/70" : "bg-muted-foreground/25"
-              )}
-            />
+    /* `@container` trên chính dòng này: hai vế "được điểm / mất điểm" bên dưới chia đôi theo
+       bề rộng CỦA DÒNG, không theo màn hình. Nhờ vậy dòng nằm trong hộp hẹp thì tự xếp dọc
+       thay vì bóp chữ thành một hai từ mỗi dòng. */
+    <div className="@container rounded-lg border border-border/70 bg-muted/20 p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-semibold">{row.label}</span>
+          {/* Thiết yếu = một trong ba tiêu chí cộng lại đúng bằng ngưỡng HOT. Còn thiếu cái
+              nào ở đây thì deal không thể HOT, dù các tiêu chí kia có đầy điểm.
+
+              Chữ để `text-foreground` chứ không phải `text-warm`: token --warm là oklch
+              L=0.75, làm màu chữ trên nền sáng thì tương phản chỉ ~2.3:1, đọc không nổi.
+              Màu ngữ nghĩa đẩy sang viền và nền. */}
+          {row.essential && (
+            <span className="shrink-0 rounded-full border border-warm bg-warm/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
+              thiết yếu
+            </span>
+          )}
+        </span>
+        <span className="shrink-0 text-xs tabular-nums">
+          <span className="font-semibold">
+            {bar?.points ?? 0}
+            <span className="font-normal text-muted-foreground">/{bar?.max ?? 0}</span>
           </span>
-          <div className="flex shrink-0 items-baseline text-xs tabular-nums">
-            <PointCell value={row.readiness} />
-          </div>
-        </div>
-
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all",
-              tone === "positive"
-                ? "bg-emerald-500"
-                : tone === "negative"
-                  ? "bg-rose-500"
-                  : "bg-amber-500"
-            )}
-            style={{ width: `${Math.round(ratio * 100)}%` }}
-          />
-        </div>
-
-        {whyText && (
-          <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{whyText}</p>
-        )}
-        {improveText && (
-          <p className="mt-1 flex items-start gap-1 text-xs font-medium leading-4 text-primary">
-            <ArrowUpRight className="mt-0.5 h-3 w-3 shrink-0" />
-            <span>{improveText}</span>
-          </p>
-        )}
-      </button>
-
-      {open && (
-        <div className="mx-2 mb-3 rounded-lg border border-border bg-muted/40 p-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {EVIDENCE_LABEL[row.key] ?? "Dữ kiện ghi nhận được"}
-          </div>
-
-          {hasEvidence ? (
-            <p className="mt-1 text-sm leading-5 text-foreground">{row.evidence}</p>
+          {gap ? (
+            <span className="ml-2 font-semibold text-destructive">−{gap.lost_points}đ</span>
           ) : (
-            <p className="mt-1 flex items-start gap-1.5 text-sm leading-5 text-muted-foreground">
+            <span className="ml-2 font-semibold text-success">đủ điểm</span>
+          )}
+        </span>
+      </div>
+
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            tone === "positive"
+              ? "bg-success"
+              : tone === "negative"
+                ? "bg-destructive"
+                : "bg-warm"
+          )}
+          style={{ width: `${Math.round(ratio * 100)}%` }}
+        />
+      </div>
+
+      <div className={cn("mt-3 grid gap-x-4 gap-y-3", gap && "@2xl:grid-cols-2")}>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Được điểm vì
+          </div>
+          {row.reason && (
+            <p className="mt-1 text-sm leading-5 text-foreground/80">{row.reason}</p>
+          )}
+          {hasEvidence ? (
+            <div className="mt-1.5 rounded-md border-l-2 border-primary/40 bg-primary/5 px-2.5 py-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {EVIDENCE_LABEL[row.key] ?? "Dữ kiện ghi nhận được"}
+              </div>
+              <p className="mt-0.5 text-sm leading-5 text-foreground">{row.evidence}</p>
+            </div>
+          ) : (
+            <p className="mt-1.5 flex items-start gap-1.5 text-sm leading-5 text-muted-foreground">
               <SearchX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
               <span>{EMPTY_EVIDENCE[row.key] ?? "Không tìm thấy thông tin cho mục này."}</span>
             </p>
           )}
         </div>
+
+        {gap && (
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Mất điểm vì
+            </div>
+            <p className="mt-1 text-sm leading-5 text-foreground/80">{gap.current_state}</p>
+
+            {/* THANG NẤC — thứ chứng minh điểm không tuỳ tiện. Nhìn là thấy tiêu chí này chỉ
+                có vài giá trị hợp lệ, không có 22 hay 25 lẻ. Chỉ hiện các nấc TRÊN: nấc thấp
+                hơn không giúp gì cho việc đi lên. */}
+            <ul className="mt-1.5 space-y-1">
+              {gap.steps.map((step) => (
+                <li key={step.points} className="flex items-start gap-1.5 text-sm leading-5">
+                  <TrendingUp className="mt-1 h-3 w-3 shrink-0 text-primary" />
+                  <span className="min-w-0">
+                    <span className="font-semibold text-primary">
+                      Lên {step.points}đ (+{step.gain})
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      nếu {lowerFirst(step.requirement)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {gap?.ask && (
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-primary/5 p-2">
+          <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          <p className="min-w-0 flex-1 text-sm leading-5 text-foreground/90">{gap.ask}</p>
+          <CopyButton
+            text={gap.ask}
+            label="Sao chép câu hỏi"
+            iconOnly
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          />
+        </div>
       )}
     </div>
-  );
-}
-
-function PointCell({ value }: { value: { points: number; max: number } | null }) {
-  return (
-    <span className="w-12 text-right font-semibold">
-      {value ? (
-        <>
-          {value.points}
-          <span className="text-muted-foreground opacity-70">/{value.max}</span>
-        </>
-      ) : (
-        <span className="text-muted-foreground opacity-40">—</span>
-      )}
-    </span>
   );
 }
 
