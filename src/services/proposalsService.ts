@@ -1,5 +1,5 @@
 import axiosClient from "@/configs/axios";
-import type { PaymentMilestone, PricingDetail } from "@/features/deals/proposalHtml";
+import type { CostItem, PaymentMilestone, PricingDetail } from "@/features/deals/proposalHtml";
 import type { ApiResponse } from "@/features/auth/types";
 
 /** Một lựa chọn mẫu điều khoản (thư viện admin) freelancer chọn trước khi sinh tài liệu. */
@@ -102,11 +102,18 @@ export type ProposalContentDTO = {
   payment_milestones?: PaymentMilestone[];
 
   /**
-   * Nhãn hạng mục chi phí freelancer sửa ở màn review (mục 7). PHẢI giữ khi lưu — cùng cái
-   * bẫy "DTO không có chỗ chứa nên bị vứt" như `payment_milestones`. Backend đọc
-   * `content["pricing_items"]` để chia đều giá chốt thành bảng chi phí.  #Huynh
+   * Hạng mục chi phí freelancer sửa ở màn review (mục 7). PHẢI giữ khi lưu — cùng cái
+   * bẫy "DTO không có chỗ chứa nên bị vứt" như `payment_milestones`, và nó ĐÃ SẬP:
+   * `normalizeProposalContentForApi()` quên khoá này nên mọi lần lưu đều làm rụng, im lặng.
+   *
+   * HAI dạng, vì shape đã đổi mà bản nháp cũ trong DB vẫn dùng dạng cũ:
+   *   - `["Nhãn A", "Nhãn B"]`            (cũ) → chỉ nhãn, BE chia đều tiền theo giá chốt
+   *   - `[{ label, amount, due? }]`       (mới) → freelancer tự gõ tiền, BE dùng thẳng
+   *
+   * Kiểu cũ khai `string[]` là NÓI DỐI: editor đã ghi `CostItem[]` từ lâu, chỉ là TS không
+   * thấy vì `patchMoneyContent` nhận `Record<string, unknown>`.  #Huynh
    */
-  pricing_items?: string[];
+  pricing_items?: (string | CostItem)[];
 
   /**
    * Hạn hiệu lực freelancer tự đặt, ISO "2026-08-31".

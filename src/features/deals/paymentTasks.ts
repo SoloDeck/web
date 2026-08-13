@@ -1,27 +1,30 @@
 import type { ProjectTask } from "@/features/deals/types";
 
 /**
- * Tiền tố các task "Thu tiền:" mà backend tự sinh từ mốc thanh toán của báo giá đã chốt.
+ * Tiền tố tên của task thu tiền bản CŨ (sinh từ mốc thanh toán theo %).
  *
- * Phải khớp TUYỆT ĐỐI với `PAYMENT_TASK_PREFIX` bên backend
- * (`src/modules/tasks/application/service.py`) — đó là hợp đồng ngầm giữa hai bên: backend
- * sinh task theo tiền tố này, guard "hoàn thành dự án" tìm task theo tiền tố này, và giờ hàng
- * task trong tab Công việc cũng nhận diện mốc thu tiền theo nó.
+ * KHÔNG còn là dấu nhận biết — `billingAmount != null` mới là. Giữ lại đúng một vai trò: lối
+ * rơi về cho các task cũ mà migration `a4b5c6d7e8f9` cố ý không backfill (tên đã bị sửa, tổng
+ * lệch giá deal), để chúng vẫn hiện đúng trên bảng việc. Khớp với `PAYMENT_TASK_PREFIX` bên
+ * backend (`src/modules/tasks/application/service.py`).
  *
- * Tách ra file riêng vì đã có tới hai nơi cần (`DealDetailPage` để đếm mốc chưa thu,
- * `ProjectTaskList` để vẽ nút hóa đơn). Ba chỗ tự gõ lại cùng một chuỗi thì kiểu gì cũng có
- * ngày lệch — mà lệch ở đây nghĩa là hàng task mất sạch nút hóa đơn, im lặng, không báo gì.
- *  #Huynh
+ * Vì sao đổi: dấu nhận biết cũ là TÊN TASK, nên freelancer sửa tên một chữ là hàng task mất
+ * sạch nút hóa đơn và mốc đó biến khỏi bảng doanh thu — im lặng, không báo gì.  #Huynh
  */
 export const PAYMENT_TASK_PREFIX = "Thu tiền:";
 
-/** Task này có phải mốc thu tiền do hệ thống sinh không. */
-export function isPaymentTask(task: Pick<ProjectTask, "title">): boolean {
-  return task.title.startsWith(PAYMENT_TASK_PREFIX);
+/** Task này có phải khoản thu tiền do hệ thống sinh không. */
+export function isPaymentTask(
+  task: Pick<ProjectTask, "title" | "billingAmount">
+): boolean {
+  // `!= null` bắt cả `undefined` (task từ endpoint cũ chưa có trường này) lẫn `null`, nhưng
+  // GIỮ số 0 — hạng mục 0 đồng vẫn là khoản phải thu, chỉ là đang thiếu số tiền.
+  return task.billingAmount != null || task.title.startsWith(PAYMENT_TASK_PREFIX);
 }
 
-/** Nhãn mốc, đã bỏ tiền tố — dùng khi đã có ngữ cảnh "đây là mốc thu tiền" rồi. */
+/** Nhãn khoản thu để hiển thị — bỏ tiền tố nếu là task cũ, còn task mới thì tên đã là nhãn. */
 export function paymentMilestoneLabel(task: Pick<ProjectTask, "title">): string {
+  if (!task.title.startsWith(PAYMENT_TASK_PREFIX)) return task.title;
   return task.title.slice(PAYMENT_TASK_PREFIX.length).trim() || task.title;
 }
 

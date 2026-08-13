@@ -37,7 +37,7 @@ import { getProposalPreview } from "@/services/proposalsService";
 import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
-import { PAYMENT_TASK_PREFIX, isPaymentTask, paymentMilestoneLabel } from "@/features/deals/paymentTasks";
+import { isPaymentTask, paymentMilestoneLabel } from "@/features/deals/paymentTasks";
 import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { DealReminderPanel } from "@/features/reminders/components/DealReminderPanel";
@@ -545,17 +545,19 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   function handleCompleteProject() {
     if (!deal) return;
-    // Từ Phase B: "thu đủ tiền" đo bằng các task "Thu tiền:" (tự sinh từ mốc thanh toán của
-    // báo giá đã chốt), thay cho hoá đơn. Còn mốc chưa tick xong thì chưa cho hoàn thành.
-    // Deal không có mốc thu tiền nào (báo giá cũ / không mốc) thì không chặn — khớp guard BE.
-    const paymentTasks = (taskQuery.data?.tasks ?? []).filter((task) =>
-      task.title.startsWith(PAYMENT_TASK_PREFIX)
-    );
+    // "Thu đủ tiền" đo bằng các task THU TIỀN (tự sinh từ hạng mục chi phí của báo giá đã
+    // chốt), thay cho hoá đơn. Còn khoản chưa tick xong thì chưa cho hoàn thành. Deal không
+    // có khoản thu nào (báo giá cũ / không hạng mục) thì không chặn — khớp guard BE.
+    //
+    // Đi qua `isPaymentTask` chứ KHÔNG tự gõ lại điều kiện: chỗ này từng dò tiền tố tên trực
+    // tiếp, nên khi dấu nhận biết đổi sang `billingAmount` là rất dễ sót đúng một mình nó —
+    // mà sót ở đây nghĩa là deal đóng lại được trong khi tiền chưa về.  #Huynh
+    const paymentTasks = (taskQuery.data?.tasks ?? []).filter(isPaymentTask);
     const unpaid = paymentTasks.filter((task) => task.status !== "done");
     if (unpaid.length > 0) {
       toast.error(
-        `Còn ${unpaid.length}/${paymentTasks.length} mốc thu tiền chưa hoàn tất. ` +
-          `Hãy tick xong các mốc "Thu tiền:" trong tab Công việc.`
+        `Còn ${unpaid.length}/${paymentTasks.length} khoản thu tiền chưa hoàn tất. ` +
+          `Hãy tick xong chúng trong tab Công việc.`
       );
       setTab("tasks");
       return;

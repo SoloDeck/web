@@ -341,13 +341,17 @@ describe("ProposalModal", () => {
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
 
-    // Hai ô sửa tiền bày sẵn — không còn nút gập nào chắn trước.
-    expect(await screen.findByText(/hạng mục chi phí/i)).toBeInTheDocument();
-    expect(screen.getByText(/mốc thanh toán/i)).toBeInTheDocument();
+    // Khu sửa tiền bày sẵn — không còn nút gập nào chắn trước. MỘT khu duy nhất từ khi mục 7
+    // và 8 gộp làm một; thời điểm thu nằm ngay trên từng hạng mục.
+    expect(await screen.findByText(/chi phí & thanh toán/i)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /thời điểm thu hạng mục 1/i })).toBeInTheDocument();
     // ...và tờ báo giá vẫn nằm đó cùng lúc, chứ không bị đẩy khỏi màn.
     expect(await screen.findByTitle(/bấm vào chữ để sửa/i)).toBeInTheDocument();
     // Nút gập cũ phải biến mất hẳn: còn nó là còn đường quay lại lỗi cũ.
     expect(screen.queryByRole("button", { name: /sửa chi phí/i })).toBeNull();
+    // Báo giá này CÓ hạng mục nên khu soạn mốc % không được hiện — hai khu tiền tách nhau
+    // chính là thứ đẻ ra cảnh panel nói một đằng, tờ giấy in một nẻo.
+    expect(screen.queryByText(/mốc thanh toán \(báo giá cũ\)/i)).toBeNull();
   });
 
   it("tổng mốc thanh toán ≠ 100% thì KHÔNG gửi được cho khách", async () => {
@@ -536,6 +540,10 @@ describe("ProposalModal", () => {
           pricing: "",
           payment_terms: "50% khi bắt đầu.",
           pricing_detail: null,
+          pricing_items: [
+            { label: "Dựng giao diện", amount: 30_000_000 },
+            { label: "Nối thanh toán", amount: 20_000_000 },
+          ],
         },
       })
     );
@@ -561,6 +569,14 @@ describe("ProposalModal", () => {
             // Lần thứ BA của cùng một cái bẫy (sau `pricing_detail` rồi `deliverables`):
             // DTO liệt kê từng khoá, khoá nào không có tên là bị vứt im lặng.
             valid_until: "2026-08-31",
+            // Lần thứ TƯ, và là lần đã sập thật: hạng mục chi phí mục 7 kèm SỐ TIỀN
+            // freelancer gõ tay. Không ai thấy vì backend thiếu khoá thì rơi về
+            // `pricing_detail.line_items` chia lại theo giá chốt — trùng số y hệt chừng nào
+            // freelancer chưa sửa. Gõ một ô tiền rồi lưu là số quay về như cũ, im lặng.
+            pricing_items: [
+              { label: "Dựng giao diện", amount: 30_000_000 },
+              { label: "Nối thanh toán", amount: 20_000_000 },
+            ],
           }),
         }),
       }),

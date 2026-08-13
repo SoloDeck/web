@@ -66,16 +66,13 @@ export type PaymentMilestone = {
 /**
  * Tổng tỷ lệ các đợt thanh toán có hợp lệ không. `null` = không có gì để nói.
  *
- * Vì sao phải có: đo thật trên bản chạy, một báo giá ba đợt 50% + 50% + 30% = **130%** vẫn in
- * ra bảng "8. Điều Khoản Thanh Toán" và vẫn gửi được cho khách. Khách tự cộng ra 130% thì
- * hoặc mình mất uy tín, hoặc cãi nhau lúc đòi tiền — cả hai đều tệ.
+ * CHỈ CÒN DÙNG CHO BÁO GIÁ CŨ (báo giá chưa có hạng mục chi phí nào). Từ khi thu tiền theo
+ * hạng mục, mục 8 được SUY RA từ mục 7 (`pdf_content.payment_schedule`) chứ không ai gõ tay
+ * nữa, nên không còn cách nào cộng ra 130% — backend cũng đã bỏ cổng tương ứng. Giữ lại để
+ * bản nháp cũ trong DB vẫn hiện cảnh báo đúng.
  *
  * CHỈ xét khi MỌI đợt đều khai bằng %. Lịch hỗn hợp (có đợt ghi số tiền cụ thể) thì cộng %
- * không có nghĩa gì, báo lỗi là báo oan. Không có đợt nào cũng bỏ qua — báo giá cũ rơi về
- * lịch chuẩn 50/50 lúc backend sinh task.
- *
- * MỘT nguồn cho cả dòng cảnh báo lẫn việc khoá nút gửi, và khớp từng chữ với guard bên
- * backend (`ProposalsService.transition_status`, nhánh "sent").  #Huynh
+ * không có nghĩa gì, báo lỗi là báo oan.  #Huynh
  */
 export function paymentPercentIssue(
   milestones: PaymentMilestone[] | undefined | null
@@ -97,8 +94,15 @@ export function paymentPercentIssue(
   };
 }
 
-/** Một hạng mục chi phí ở mục 7 — nhãn kèm số tiền freelancer tự đặt. */
-export type CostItem = { label: string; amount: number };
+/**
+ * Một hạng mục chi phí ở mục 7 — và cũng là ĐƠN VỊ THU TIỀN: mỗi hạng mục sinh ra một công
+ * việc trên bảng việc và một hóa đơn riêng.
+ *
+ * `due` = thời điểm thu. Đây là chỗ freelancer giữ được khoản ĐẶT CỌC: đặt hạng mục đầu là
+ * "Khi ký hợp đồng" thì thu trước khi bắt tay làm. Bỏ trống thì backend điền "Khi hoàn thành
+ * hạng mục" (`pdf_content.DEFAULT_COST_ITEM_DUE`).  #Huynh
+ */
+export type CostItem = { label: string; amount: number; due?: string };
 
 /**
  * Chia đều `total` cho `n` hạng mục, làm tròn tới 1.000 ₫, dòng CUỐI gánh phần lẻ.
@@ -181,7 +185,21 @@ export function costItemsIssue(
   agreed: number
 ): { total: number; message: string } | null {
   const rows = items ?? [];
-  if (rows.length === 0 || agreed <= 0) return null;
+  if (rows.length === 0) return null;
+
+  // Hạng mục 0 đồng làm DEAL KẸT VĨNH VIỄN nếu lọt qua: nó thành một công việc thu tiền bắt
+  // buộc tick xong mới đóng được dự án, nhưng bấm xuất hóa đơn thì backend từ chối vì 0 đồng.
+  // Kiểm TRƯỚC cả điều kiện `agreed > 0` — chưa chốt giá thì vẫn phải báo dòng thiếu tiền.
+  const zero = rows.find((item) => !(item.amount > 0));
+  if (zero) {
+    const total = rows.reduce((sum, item) => sum + (item.amount || 0), 0);
+    return {
+      total,
+      message: `Hạng mục "${zero.label || "chưa đặt tên"}" đang là 0 đ. Mỗi hạng mục là một đợt thu tiền nên phải có số tiền cụ thể.`,
+    };
+  }
+
+  if (agreed <= 0) return null;
 
   const total = rows.reduce((sum, item) => sum + (item.amount || 0), 0);
   if (total === agreed) return null;
@@ -207,10 +225,12 @@ export type BackendProposalContent = {
   /** Các đợt thanh toán có cấu trúc — nguồn sinh task "Thu tiền:". */
   payment_milestones?: PaymentMilestone[];
   /**
-   * Danh sách NHÃN hạng mục chi phí do freelancer tự sửa ở màn review (mục 7). Chỉ chứa tên;
-   * số tiền do BE chia đều từ giá đã chốt. Rỗng/không có = dùng bảng của bộ định giá.  #Huynh
+   * Hạng mục chi phí do freelancer tự sửa ở màn review (mục 7).
+   *
+   * Dạng cũ `string[]` = chỉ nhãn, BE chia đều tiền theo giá chốt. Dạng mới `CostItem[]` =
+   * freelancer tự gõ tiền, BE dùng thẳng. Rỗng/không có = dùng bảng của bộ định giá.  #Huynh
    */
-  pricing_items?: string[];
+  pricing_items?: (string | CostItem)[];
   assumptions?: string;
   /** Phạm vi KHÔNG bao gồm — dòng phòng thủ chống scope creep, mục "10. Điều Khoản Bổ Sung". */
   out_of_scope?: string[];

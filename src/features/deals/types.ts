@@ -41,7 +41,12 @@ export type ProjectTask = {
   completed: boolean;
   createdAt: string;
   completedAt: string | null;
-  /** `null`/vắng mặt = chưa xuất hóa đơn cho mốc này. */
+  /**
+   * Số tiền phải thu. KHÔNG `null` = đây là task THU TIỀN (sinh từ một hạng mục chi phí của
+   * báo giá đã chốt), và là dấu nhận biết CHÍNH THỨC — xem `paymentTasks.isPaymentTask`.
+   */
+  billingAmount?: number | null;
+  /** `null`/vắng mặt = chưa xuất hóa đơn cho khoản này. */
   invoice?: TaskInvoice | null;
 };
 

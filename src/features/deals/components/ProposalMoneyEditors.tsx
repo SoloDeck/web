@@ -55,36 +55,49 @@ export function LineItemsEditor({
 
   return (
     <div className="space-y-2">
-      <div className="space-y-1.5">
+      <div className="space-y-2.5">
         {items.map((item, index) => (
-          <div key={index} className="flex items-center gap-2">
+          <div key={index} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                value={item.label}
+                disabled={disabled}
+                placeholder={`Hạng mục ${index + 1}`}
+                onChange={(event) => patchAt(index, { label: event.target.value })}
+                className={inputClass}
+              />
+              {/* Ô tiền GÕ ĐƯỢC. Trước đây là <span> chỉ để đọc, hiện số chia đều mà số đó
+                không bao giờ được gửi đi — panel nói một đằng, tờ báo giá in một nẻo.  #Huynh */}
+              <input
+                value={item.amount ? item.amount.toLocaleString("vi-VN") : ""}
+                disabled={disabled}
+                inputMode="numeric"
+                placeholder="0"
+                aria-label={`Số tiền hạng mục ${index + 1}`}
+                onChange={(event) => patchAt(index, { amount: onlyDigits(event.target.value) })}
+                className="w-28 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-right text-sm tabular-nums outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                disabled={disabled || items.length <= 1}
+                onClick={() => onChange(items.filter((_, i) => i !== index))}
+                className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                aria-label="Xoá hạng mục"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {/* THỜI ĐIỂM THU — chỗ freelancer giữ được khoản đặt cọc. Mỗi hạng mục giờ là một
+              đợt thu tiền, mà mục 7 không có dòng nào tên "Đặt cọc"; đặt hạng mục đầu là "Khi
+              ký hợp đồng" thì vẫn thu được trước khi bắt tay làm.  #Huynh */}
             <input
-              value={item.label}
+              value={item.due ?? ""}
               disabled={disabled}
-              placeholder={`Hạng mục ${index + 1}`}
-              onChange={(event) => patchAt(index, { label: event.target.value })}
-              className={inputClass}
+              placeholder="Khi hoàn thành hạng mục"
+              aria-label={`Thời điểm thu hạng mục ${index + 1}`}
+              onChange={(event) => patchAt(index, { due: event.target.value })}
+              className="w-full rounded-md border border-dashed border-border bg-background px-2 py-1 text-xs text-muted-foreground outline-none focus:border-primary focus:text-foreground"
             />
-            {/* Ô tiền GÕ ĐƯỢC. Trước đây là <span> chỉ để đọc, hiện số chia đều mà số đó
-              không bao giờ được gửi đi — panel nói một đằng, tờ báo giá in một nẻo.  #Huynh */}
-            <input
-              value={item.amount ? item.amount.toLocaleString("vi-VN") : ""}
-              disabled={disabled}
-              inputMode="numeric"
-              placeholder="0"
-              aria-label={`Số tiền hạng mục ${index + 1}`}
-              onChange={(event) => patchAt(index, { amount: onlyDigits(event.target.value) })}
-              className="w-28 shrink-0 rounded-md border border-border bg-background px-2 py-1 text-right text-sm tabular-nums outline-none focus:border-primary"
-            />
-            <button
-              type="button"
-              disabled={disabled || items.length <= 1}
-              onClick={() => onChange(items.filter((_, i) => i !== index))}
-              className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
-              aria-label="Xoá hạng mục"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
           </div>
         ))}
       </div>
@@ -122,7 +135,37 @@ export function LineItemsEditor({
           </div>
         )
       )}
+
+      {/* Cảnh báo MỀM, không khoá nút gửi: thu tiền theo hạng mục nghĩa là chỉ được tiền sau
+        khi đã làm xong, nên nếu không hạng mục nào thu trước thì freelancer làm không công
+        suốt giai đoạn đầu — đúng cái rủi ro SoloDesk sinh ra để ngăn. Không chặn vì có
+        freelancer chấp nhận không cọc với khách quen; nhưng phải nói ra.  #Huynh */}
+      {!issue && items.length > 0 && !items.some((item) => isUpfront(item.due)) && (
+        <div className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <span>
+            Không hạng mục nào thu trước khi bắt đầu — bạn sẽ làm xong mới nhận được đồng đầu
+            tiên. Đặt "thời điểm thu" của một hạng mục thành <b>Khi ký hợp đồng</b> nếu muốn
+            giữ khoản đặt cọc.
+          </span>
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Thời điểm thu này có nghĩa là "trước khi bắt tay làm" không.
+ *
+ * Dò từ khoá thay vì bắt chọn từ danh sách cố định: ô này là chữ tự do in thẳng lên tờ báo
+ * giá gửi khách, ép thành dropdown là mất khả năng viết cho đúng giọng từng khách. Dò sót thì
+ * chỉ hiện thừa một dòng nhắc, không chặn gì.  #Huynh
+ */
+function isUpfront(due: string | undefined): boolean {
+  const text = (due ?? "").toLowerCase();
+  if (!text) return false;
+  return ["khi ký", "ký hợp đồng", "trước khi", "đặt cọc", "tạm ứng", "ứng trước"].some(
+    (keyword) => text.includes(keyword)
   );
 }
 

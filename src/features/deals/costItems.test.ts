@@ -124,4 +124,31 @@ describe("costItemsIssue", () => {
   it("chưa có hạng mục nào cũng bỏ qua", () => {
     expect(costItemsIssue([], 500_000_000)).toBeNull();
   });
+
+  /**
+   * Hạng mục 0 đồng làm DEAL KẸT VĨNH VIỄN.
+   *
+   * Mỗi hạng mục sinh ra một công việc thu tiền. Dòng 0 đồng thành một task bắt buộc tick
+   * xong mới đóng được dự án, nhưng bấm xuất hoá đơn thì backend từ chối vì 0 đồng. Không có
+   * lối ra. Cổng tổng không bắt được vì 0 không làm tổng lệch nếu các dòng khác đã bù.  #Huynh
+   */
+  it("hạng mục 0 đồng thì chặn, dù tổng vẫn khớp giá chào", () => {
+    const issue = costItemsIssue(
+      [item("Có tiền", 500_000_000), item("Quên điền", 0)],
+      500_000_000
+    );
+    expect(issue).not.toBeNull();
+    expect(issue?.message).toMatch(/Quên điền/);
+    expect(issue?.message).toMatch(/0 đ/);
+  });
+
+  it("hạng mục 0 đồng vẫn chặn khi chưa chốt giá", () => {
+    // Chưa chốt giá thì cổng tổng im lặng, nhưng dòng thiếu tiền vẫn phải nói ra.
+    expect(costItemsIssue([item("Quên điền", 0)], 0)).not.toBeNull();
+  });
+
+  it("hạng mục chưa đặt tên mà 0 đồng thì vẫn nêu được", () => {
+    const issue = costItemsIssue([item("", 0)], 500_000_000);
+    expect(issue?.message).toMatch(/chưa đặt tên/);
+  });
 });

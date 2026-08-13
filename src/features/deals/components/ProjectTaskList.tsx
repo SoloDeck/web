@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { cn } from "@/lib/utils";
+import { formatVND } from "@/utils/format";
 import type { ProjectTask } from "@/features/deals/types";
 
 type TaskSortMode = "newest" | "oldest";
@@ -534,9 +535,16 @@ function TaskRow({
           </span>
           <span>Tạo: {formatTaskDate(task.createdAt)}</span>
           {task.completed && <span>Hoàn thành: {formatTaskDate(task.completedAt)}</span>}
+          {/* Số tiền phải thu, ngay trên hàng: freelancer nhìn bảng việc là biết dòng nào
+              đáng bao nhiêu, khỏi mở báo giá ra dò.  #Huynh */}
+          {task.billingAmount != null && (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold tabular-nums text-primary">
+              {formatVND(task.billingAmount)}
+            </span>
+          )}
         </div>
 
-        {/* Chỉ mốc "Thu tiền:" mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
+        {/* Chỉ task thu tiền mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
             `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}
         {invoiceActions && isPaymentTask(task) && !editing && (
           <PaymentTaskInvoice task={task} actions={invoiceActions} />
@@ -546,9 +554,14 @@ function TaskRow({
         <button type="button" onClick={onStartEdit} aria-label={`Sửa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary">
           <Pencil className="h-4 w-4" />
         </button>
-        <button type="button" onClick={onDelete} aria-label={`Xóa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </button>
+        {/* KHÔNG cho xoá khoản phải thu: xoá là nó biến khỏi guard "hoàn thành dự án" lẫn
+            bảng doanh thu, và deal đóng lại được trong khi tiền chưa về. Backend cũng chặn
+            (409) — ẩn nút ở đây để freelancer khỏi bấm rồi ăn lỗi.  #Huynh */}
+        {!isPaymentTask(task) && (
+          <button type="button" onClick={onDelete} aria-label={`Xóa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   );

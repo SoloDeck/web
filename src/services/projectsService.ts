@@ -31,7 +31,13 @@ type TaskResponse = {
   status: "todo" | "in_progress" | "review" | "done";
   deadline: string | null;
   checklist_items: unknown[];
-  // Chỉ có với task "Thu tiền:" đã xuất hóa đơn. Backend trả sẵn để hàng task vẽ được nhãn
+  // Số tiền phải thu của task. KHÔNG NULL = đây là task THU TIỀN, sinh từ một hạng mục chi
+  // phí của báo giá đã chốt. Đây là dấu nhận biết CHÍNH THỨC, thay cho việc dò tiền tố tên
+  // `"Thu tiền:"` như trước — freelancer đổi tên task thì tiền vẫn còn nguyên.
+  //
+  // Chuỗi Decimal ("12000000.00") chứ không phải number, xem ghi chú ở `mapTask`.
+  billing_amount: string | number | null;
+  // Chỉ có với task thu tiền ĐÃ xuất hóa đơn. Backend trả sẵn để hàng task vẽ được nhãn
   // trạng thái mà không phải gọi thêm một vòng API cho từng dòng.
   invoice: {
     id: string;
@@ -76,6 +82,12 @@ function mapTask(t: TaskResponse): ProjectTask {
     // `Number()` chứ không tin kiểu sẵn: backend trả tiền dạng CHUỖI Decimal ("10000000.00").
     // Đây đúng cái bẫy đã làm gói 0đ hiện nút mua hồi 30/07 — khai `number` rồi so sánh trực
     // tiếp thì luôn sai.  #Huynh
+    //
+    // `?? null` chứ KHÔNG `Number(x) || null`: hạng mục 0 đồng vẫn là task thu tiền, mà
+    // `Number(0) || null` biến nó thành task thường — mất khỏi guard đóng dự án, im lặng.
+    billingAmount: t.billing_amount === null || t.billing_amount === undefined
+      ? null
+      : Number(t.billing_amount),
     invoice: t.invoice
       ? {
           id: t.invoice.id,

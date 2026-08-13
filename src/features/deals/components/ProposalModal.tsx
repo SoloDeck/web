@@ -97,6 +97,15 @@ function normalizeProposalContentForApi(
       // "Thu tiền:" khi báo giá được chốt. Không giữ là sửa MỘT chữ rồi lưu -> mất mốc thu
       // tiền -> chốt báo giá xong chẳng có task nào. Cùng lỗi với deliverables ở trên.  #Huynh
       payment_milestones: content.payment_milestones ?? [],
+      // Hạng mục chi phí mục 7 — LẦN THỨ BA của đúng cái bẫy trên. `editFieldsToContent` giữ
+      // khoá này tử tế (xem dòng ~296), rồi tới đây bị vứt vì hàm liệt kê tay từng khoá DTO.
+      // Chưa ai thấy vì BE thiếu khoá thì rơi về `pricing_detail.line_items` chia lại theo giá
+      // chốt — trùng số y hệt CHỪNG NÀO freelancer chưa gõ tay. Gõ một ô tiền rồi lưu là số
+      // quay về như cũ, im lặng. Và giờ BE còn sinh task thu tiền từ chính khoá này.
+      //
+      // Không dùng `?? []`: mảng rỗng có nghĩa "freelancer xoá sạch hạng mục", khác hẳn với
+      // "báo giá này chưa có hạng mục nào" — cái sau phải để BE tự dựng từ bộ định giá.  #Huynh
+      ...(Array.isArray(content.pricing_items) ? { pricing_items: content.pricing_items } : {}),
       valid_until: content.valid_until,
       // Tiền lấy từ bộ định giá của BE, KHÔNG lấy `deal.value` (ô "Giá trị dự kiến" —
       // freelancer không nhập thì bằng 0, và bản lưu lại ghi "Tổng báo giá: 0 ₫").  #Huynh
@@ -218,6 +227,9 @@ function deriveCostItems(
       return (saved as CostItem[]).map((x) => ({
         label: String(x.label ?? ""),
         amount: Number(x.amount) || 0,
+        // Mang theo thời điểm thu — không mang là mở lại báo giá thì ô "Khi ký hợp đồng" vừa
+        // gõ biến mất, và khoản đặt cọc lặng lẽ thành "thu khi xong".  #Huynh
+        ...(x.due ? { due: String(x.due) } : {}),
       }));
     }
     const labels = (saved as unknown[]).map(String).filter(Boolean);
@@ -936,10 +948,14 @@ export function ProposalModal({
 
   const costIssue = costItemsIssue(costItems, priceToSend);
   const milestoneRows: PaymentMilestone[] = proposalContent?.payment_milestones ?? [];
-  // Tổng các đợt không bằng 100% thì KHÔNG gửi được — backend cũng chặn (xem
-  // `ProposalsService.transition_status`), đây là lớp lịch sự để người dùng biết trước lý do
-  // thay vì bấm gửi rồi ăn một thông báo lỗi.  #Huynh
-  const milestoneIssue = paymentPercentIssue(milestoneRows);
+  // Mục 8 giờ SUY RA từ mục 7 (`pdf_content.payment_schedule`): mỗi hạng mục là một đợt thu,
+  // và hệ thống xuất đúng bấy nhiêu hoá đơn. Nên khi đã có hạng mục thì không còn khu soạn
+  // mốc nữa — hai bảng độc lập chính là thứ làm tờ giấy khách ký ghi "50/50" trong khi hệ
+  // thống đòi theo bốn hạng mục.
+  //
+  // Báo giá CŨ (chưa có hạng mục nào) vẫn giữ khu soạn mốc + cổng 100% như trước.  #Huynh
+  const usesCostItemBilling = costItems.length > 0;
+  const milestoneIssue = usesCostItemBilling ? null : paymentPercentIssue(milestoneRows);
 
   /** Một mục trong tờ báo giá vừa được sửa xong (người dùng rời khỏi ô). */
   const handleInlineFieldChange = (field: string, value: string) => {
@@ -1338,34 +1354,42 @@ export function ProposalModal({
                     />
                   )}
 
-                  {/* ①b CHI PHÍ & MỐC THANH TOÁN — LUÔN MỞ, không còn nút gập. Gập chỉ tồn tại
-                    hồi mọi thứ chen nhau trong một cột; giờ có cột riêng thì bắt bấm thêm một
-                    cái để thấy bảng điều khiển là phiền vô cớ. Sửa tới đâu tờ báo giá bên phải
-                    refetch vẽ lại mục 7/8 tới đó. */}
+                  {/* ①b CHI PHÍ & THANH TOÁN — LUÔN MỞ, không còn nút gập. Gập chỉ tồn tại hồi
+                    mọi thứ chen nhau trong một cột; giờ có cột riêng thì bắt bấm thêm một cái
+                    để thấy bảng điều khiển là phiền vô cớ. Sửa tới đâu tờ báo giá bên phải
+                    refetch vẽ lại mục 7 tới đó.
+
+                    MỘT khu duy nhất, không còn khu "mốc thanh toán" riêng: mục 7 và 8 trên tờ
+                    báo giá đã gộp làm một, và thời điểm thu giờ nằm ngay trên từng hạng mục.
+                    Hai khu tiền tách nhau chính là thứ đẻ ra cảnh panel nói một đằng, tờ giấy
+                    in một nẻo.  #Huynh */}
                   {proposalId && (
-                    <>
-                      <div className="border-t border-border pt-4">
-                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Hạng mục chi phí (mục 7)
-                        </div>
-                        <LineItemsEditor
-                          items={costItems}
-                          agreedTotal={priceToSend}
-                          onChange={(items) => patchMoneyContent({ pricing_items: items })}
-                        />
+                    <div className="border-t border-border pt-4">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Chi phí &amp; thanh toán (mục 7)
                       </div>
-                      <div className="border-t border-border pt-4">
-                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Mốc thanh toán (mục 8)
+                      <LineItemsEditor
+                        items={costItems}
+                        agreedTotal={priceToSend}
+                        onChange={(items) => patchMoneyContent({ pricing_items: items })}
+                      />
+
+                      {/* Báo giá CŨ (chưa có hạng mục nào) vẫn soạn mốc % như trước — bản nháp
+                        cũ trong DB không được mất chỗ sửa.  #Huynh */}
+                      {!usesCostItemBilling && (
+                        <div className="mt-4 border-t border-dashed border-border pt-4">
+                          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Mốc thanh toán (báo giá cũ)
+                          </div>
+                          <MilestonesEditor
+                            milestones={milestoneRows}
+                            onChange={(milestones) =>
+                              patchMoneyContent({ payment_milestones: milestones })
+                            }
+                          />
                         </div>
-                        <MilestonesEditor
-                          milestones={milestoneRows}
-                          onChange={(milestones) =>
-                            patchMoneyContent({ payment_milestones: milestones })
-                          }
-                        />
-                      </div>
-                    </>
+                      )}
+                    </div>
                   )}
                 </aside>
 
