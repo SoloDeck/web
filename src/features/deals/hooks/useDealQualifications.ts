@@ -36,7 +36,19 @@ export function useDealQualifications(dealId?: string) {
  * báo "đã lưu".  #Huynh
  */
 export function useSaveDealQualification() {
-  return useMutation({ mutationFn: (dealId: string) => saveDealQualification(dealId) });
+  return useMutation({
+    mutationFn: ({
+      dealId,
+      gapAcknowledged = false,
+      qualificationId,
+    }: {
+      dealId: string;
+      /** Người dùng đã đọc cảnh báo "chưa đủ 100 điểm" và vẫn chọn chốt. */
+      gapAcknowledged?: boolean;
+      /** Chốt ĐÚNG bản này. Bỏ trống thì BE chốt bản mới nhất. */
+      qualificationId?: string;
+    }) => saveDealQualification(dealId, { gapAcknowledged, qualificationId }),
+  });
 }
 
 /**
@@ -49,6 +61,51 @@ export function savedQualifications(rows: DealQualification[] | undefined): Deal
   return (rows ?? [])
     .filter((row) => Boolean(row.saved_at))
     .sort((a, b) => (b.saved_at ?? "").localeCompare(a.saved_at ?? ""));
+}
+
+export type ScoreDelta = {
+  previousScore: number;
+  /** Tiêu chí có điểm thay đổi, xếp theo mức thay đổi lớn nhất trước. */
+  changes: { label: string; diff: number }[];
+};
+
+/**
+ * So bản chấm mới nhất với bản liền trước — "27 → 72 (+45)".
+ *
+ * Đây là thứ chứng minh vòng bổ sung–chấm lại có tác dụng THẬT, thay vì một con số tĩnh
+ * người dùng phải tin. Bổ sung ngân sách rồi chấm lại mà thấy đúng "Ngân sách +25" thì họ
+ * hiểu ngay cơ chế, không cần ai giải thích.
+ *
+ * Trả `null` khi bản mới nhất trong lịch sử KHÔNG phải bản đang hiện trên màn hình (danh
+ * sách chưa kịp làm mới). Thà không hiện gì còn hơn hiện một mức chênh lệch sai — cả tính
+ * năng này sinh ra để người dùng tin con số.  #Huynh
+ */
+export function scoreDelta(
+  rows: DealQualification[] | undefined,
+  currentScore: number
+): ScoreDelta | null {
+  const sorted = [...(rows ?? [])].sort((a, b) =>
+    (b.generated_at ?? "").localeCompare(a.generated_at ?? "")
+  );
+  if (sorted.length < 2) return null;
+
+  const [latest, previous] = sorted;
+  if (latest.score !== currentScore) return null;
+
+  const before = new Map(
+    (previous.breakdown ?? []).map((item) => [item.key ?? item.label, item])
+  );
+  const changes = (latest.breakdown ?? [])
+    .map((item) => {
+      const prev = before.get(item.key ?? item.label);
+      if (!prev) return null;
+      const diff = item.points - prev.points;
+      return diff === 0 ? null : { label: item.label, diff };
+    })
+    .filter((change): change is { label: string; diff: number } => change !== null)
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+  return { previousScore: previous.score, changes };
 }
 
 /**
@@ -82,8 +139,9 @@ export function toQualificationView(row: DealQualification): QualificationView {
       impact: item.impact ?? null,
       evidence: item.evidence ?? null,
     })),
-    win: null,
+    // BE tính lại từ `breakdown` mỗi lần đọc, nên bản đánh giá CŨ mở lại vẫn đủ phần thiếu
+    // điểm. `null` chỉ xảy ra với bản quá cũ, không có cả bảng phân rã để suy ra.
+    gaps: row.score_gaps ?? null,
     redFlags: row.red_flags ?? [],
-    price: null,
   };
 }

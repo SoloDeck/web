@@ -18,6 +18,9 @@ type ApiDealResponse = {
   actual_value: number | null;
   currency: string;
   notes: string | null;
+  desired_timeline?: string | null;
+  /** Ngân sách KHÁCH nêu (được chấm điểm) — khác `estimated_value` là freelancer tự ước. */
+  client_budget?: string | null;
   project_type?: string | null;
   service_category?: string | null;
   pricing_tier?: string | null;
@@ -60,6 +63,10 @@ export type DealPayload = {
   estimated_value?: number;
   actual_value?: number;
   notes?: string;
+  /** Mốc thời gian KHÁCH nêu — vào khối chấm điểm của tiêu chí "Thời gian". */
+  desired_timeline?: string;
+  /** Ngân sách KHÁCH nêu — vào khối chấm điểm của tiêu chí "Ngân sách". */
+  client_budget?: string;
   source?: string;
   project_type?: string | null;
   service_category?: string | null;
@@ -142,6 +149,8 @@ export function mapDeal(d: ApiDealResponse, clientMap: Map<string, ClientHint>):
     createdAt: d.created_at.split("T")[0],
     updatedAt: d.updated_at,
     notes: d.notes ?? "",
+    desiredTimeline: d.desired_timeline ?? "",
+    clientBudget: d.client_budget ?? "",
     paymentStatus,
     paymentMethod: "—",
     history: [],
@@ -364,6 +373,44 @@ export type QualificationScoreItem = {
   evidence?: string | null;
 };
 
+/** Một nấc điểm CAO HƠN nấc hiện tại, kèm số điểm thu được nếu lên tới đó. */
+export type QualificationGapStep = {
+  points: number;
+  gain: number;
+  requirement: string;
+};
+
+/**
+ * Vì sao MỘT tiêu chí mất điểm, và cần gì để lên.
+ *
+ * BE tra từ bảng barem (`RUBRIC_LEVELS`), KHÔNG phải chữ do AI viết — nên nội dung này luôn
+ * có và luôn khớp với con số điểm bên cạnh. Đó cũng là lý do bản đánh giá cũ mở lại vẫn đầy
+ * đủ: BE tính lại lúc đọc từ (tiêu chí, điểm).
+ */
+export type QualificationGap = {
+  key: string;
+  label: string;
+  points: number;
+  max_points: number;
+  /** Câu hỏi gửi thẳng cho khách. AI viết cho bám dự án, hỏng thì BE rơi về câu mẫu. */
+  ask: string | null;
+  lost_points: number;
+  current_state: string;
+  steps: QualificationGapStep[];
+  /** Ô trên form bổ sung nhanh vá được tiêu chí này: notes | client_budget | desired_timeline. */
+  fill_field: string | null;
+};
+
+export type QualificationScoreGaps = {
+  lost_points: number;
+  /** Còn thiếu bao nhiêu điểm nữa mới đạt HOT (75). 0 = đã đạt. */
+  points_to_hot: number;
+  /** Tiêu chí thiết yếu (scope/budget/timeline) chưa đạt trần — còn cái nào thì chưa thể HOT. */
+  essential_missing: string[];
+  /** Sắp GIẢM DẦN theo `lost_points`: việc đáng làm nhất nằm đầu danh sách. */
+  gaps: QualificationGap[];
+};
+
 export type DealQualification = {
   id: string;
   score: number;
@@ -381,6 +428,8 @@ export type DealQualification = {
 
   /** Bản ghi CŨ (trước khi BE thêm cột) không có mấy trường này — phải chịu được `null`. */
   breakdown: QualificationScoreItem[] | null;
+  /** BE tính lại từ `breakdown` mỗi lần đọc — bản ghi cũ cũng có, không cần lưu xuống DB. */
+  score_gaps: QualificationScoreGaps | null;
   next_step: string | null;
   detected_signals: { text: string; is_positive: boolean }[] | null;
   prompt_version: string | null;
@@ -407,10 +456,23 @@ export async function getDealQualifications(dealId: string): Promise<DealQualifi
  *
  * Không gửi id: bảng đánh giá luôn hiển thị lần chấm vừa xong, nên "chốt cái đang xem"
  * chính là "chốt bản mới nhất". Chưa chấm lần nào thì BE trả 404.
+ *
+ * `gapAcknowledged` = giao diện đã cảnh báo bản này chưa đủ 100 điểm và người dùng vẫn chọn
+ * chốt. BE lưu lại để sau này nhìn một bản 27/100 đã chốt còn phân biệt được "hệ thống để
+ * lọt" với "người dùng biết rõ và tự chịu trách nhiệm".
  */
-export async function saveDealQualification(dealId: string): Promise<DealQualification> {
+export async function saveDealQualification(
+  dealId: string,
+  options: { gapAcknowledged?: boolean; qualificationId?: string } = {}
+): Promise<DealQualification> {
   const { data } = await axiosClient.post<ApiResponse<DealQualification>>(
-    `/deals/${dealId}/qualifications/save`
+    `/deals/${dealId}/qualifications/save`,
+    {
+      gap_acknowledged: options.gapAcknowledged ?? false,
+      // Bỏ trống thì BE chốt bản mới nhất. Chỉ gửi id khi chốt một bản CỤ THỂ mở lại từ tab
+      // Lịch sử — lúc đó bản đang xem không còn là bản mới nhất.
+      qualification_id: options.qualificationId ?? null,
+    }
   );
   return data.data;
 }
