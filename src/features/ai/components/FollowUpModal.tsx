@@ -8,6 +8,7 @@ import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import type { Deal } from "@/features/deals/types";
 import { useApproveAndSend, useCreateReminder } from "@/features/reminders/hooks/useReminders";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { gmailComposeLink, zaloLink } from "@/lib/contact-links";
 import { cn } from "@/lib/utils";
 import type { ReminderType } from "@/services/followupsService";
 
@@ -164,13 +165,18 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
     if (payload) scheduleReminder.mutate(payload, { onSuccess: () => onClose() });
   }
 
-  // Vẫn giữ đường thủ công: mở sẵn Zalo/email với nội dung đã soạn để người dùng tự gửi
-  // từ ứng dụng của họ. Zalo chưa nối được vào hệ thống nên đây là đường duy nhất.
-  const zaloUrl = deal.clientPhone ? `https://zalo.me/${deal.clientPhone.replace(/\D/g, "")}` : null;
+  // Vẫn giữ đường thủ công: mở sẵn Zalo/Gmail với nội dung đã soạn để người dùng tự gửi.
+  // Zalo chưa nối được vào hệ thống nên đây là đường duy nhất.
+  //
+  // Nút thư từng dùng `mailto:` và IM LẶNG không làm gì trên máy không có ứng dụng thư —
+  // trường hợp rất phổ biến sau khi Windows gỡ app Mail. Xem `src/lib/contact-links.ts`.
+  const zaloUrl = zaloLink(deal.clientPhone);
   const emailSubject = subject || `Về dự án ${deal.projectType}`;
-  const mailUrl = deal.clientEmail
-    ? `mailto:${deal.clientEmail}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(message)}`
-    : null;
+  const mailUrl = gmailComposeLink({
+    to: deal.clientEmail,
+    subject: emailSubject,
+    body: message,
+  });
 
   const isEmpty = !message.trim();
 
@@ -348,7 +354,9 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
           {mailUrl && (
             <a
               href={mailUrl}
-              title="Mở ứng dụng email của bạn với nội dung đã soạn sẵn"
+              target="_blank"
+              rel="noreferrer"
+              title="Mở Gmail ở tab mới với nội dung đã soạn sẵn"
               className={cn(
                 "inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary",
                 isEmpty && "pointer-events-none opacity-50"
