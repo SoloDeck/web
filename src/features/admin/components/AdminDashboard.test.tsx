@@ -361,18 +361,25 @@ describe("<AdminAiConfigPage />", () => {
   it("cho phép chọn đúng ba nhà cung cấp AI", () => {
     render(<AdminAiConfigPage />);
 
-    const select = screen.getByLabelText(/nhà cung cấp ai/i);
-    const options = within(select)
-      .getAllByRole("option")
-      .map((option) => option.textContent);
+    expect(
+      screen.getByRole("button", { name: /groq/i }),
+    ).toBeInTheDocument();
 
-    expect(options).toEqual(["Groq", "Gemini", "Ollama"]);
+    expect(
+      screen.getByRole("button", { name: /gemini/i }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", { name: /ollama/i }),
+    ).toBeInTheDocument();
   });
 
   it("hiển thị ô chọn Model", () => {
     render(<AdminAiConfigPage />);
 
-    expect(screen.getByLabelText(/^model$/i)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^model$/i),
+    ).toBeInTheDocument();
   });
 
   it("hiển thị model hiện tại từ backend", () => {
@@ -380,16 +387,19 @@ describe("<AdminAiConfigPage />", () => {
 
     const modelSelect = screen.getByLabelText(/^model$/i);
 
-    expect(modelSelect).toHaveValue("llama-3.3-70b-versatile");
+    expect(modelSelect).toHaveValue(
+      "llama-3.3-70b-versatile",
+    );
   });
 
-  it("đổi provider và cập nhật danh sách model", async () => {
+  it("đổi provider và cập nhật model mặc định", async () => {
     render(<AdminAiConfigPage />);
 
-    const providerSelect = screen.getByLabelText(/nhà cung cấp ai/i);
     const modelSelect = screen.getByLabelText(/^model$/i);
 
-    await userEvent.selectOptions(providerSelect, "gemini");
+    await userEvent.click(
+      screen.getByRole("button", { name: /gemini/i }),
+    );
 
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
 
@@ -406,10 +416,11 @@ describe("<AdminAiConfigPage />", () => {
   it("đổi provider và model rồi gửi cả hai giá trị khi lưu", async () => {
     render(<AdminAiConfigPage />);
 
-    const providerSelect = screen.getByLabelText(/nhà cung cấp ai/i);
     const modelSelect = screen.getByLabelText(/^model$/i);
 
-    await userEvent.selectOptions(providerSelect, "ollama");
+    await userEvent.click(
+      screen.getByRole("button", { name: /ollama/i }),
+    );
 
     expect(modelSelect).toHaveValue("qwen3:4b");
 
@@ -429,8 +440,59 @@ describe("<AdminAiConfigPage />", () => {
     render(<AdminAiConfigPage />);
 
     expect(screen.getByText("groq")).toBeInTheDocument();
+
     expect(
-      screen.getByText("llama-3.3-70b-versatile"),
-    ).toBeInTheDocument();
+      screen.getAllByText("llama-3.3-70b-versatile").length,
+    ).toBeGreaterThan(0);
+  });
+  it("vô hiệu hóa nút lưu khi chưa có thay đổi", () => {
+  render(<AdminAiConfigPage />);
+
+  expect(
+    screen.getByRole("button", { name: /lưu cấu hình/i }),
+  ).toBeDisabled();
+});
+
+it("hiển thị thay đổi chưa lưu khi đổi provider", async () => {
+  render(<AdminAiConfigPage />);
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /gemini/i }),
+  );
+
+  expect(
+    screen.getByText(/có thay đổi chưa lưu/i),
+  ).toBeInTheDocument();
+
+  expect(
+    screen.getByRole("button", { name: /lưu cấu hình/i }),
+  ).toBeEnabled();
+
+  expect(
+    screen.getByRole("button", { name: /hủy thay đổi/i }),
+  ).toBeEnabled();
+  });
+  it("hủy thay đổi và khôi phục cấu hình hiện tại", async () => {
+  render(<AdminAiConfigPage />);
+
+  const modelSelect = screen.getByLabelText(/^model$/i);
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /ollama/i }),
+  );
+
+  expect(modelSelect).toHaveValue("qwen3:4b");
+
+  await userEvent.click(
+    screen.getByRole("button", { name: /hủy thay đổi/i }),
+  );
+
+  expect(modelSelect).toHaveValue(
+    "llama-3.3-70b-versatile",
+  );
+
+  expect(
+    screen.queryByText(/có thay đổi chưa lưu/i),
+  ).not.toBeInTheDocument();
   });
 });

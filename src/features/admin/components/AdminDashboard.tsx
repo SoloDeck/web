@@ -1522,10 +1522,23 @@ export function AdminAiConfigPage() {
   const AI_PROVIDER_OPTIONS: {
     value: LLMProvider;
     label: string;
+    description: string;
   }[] = [
-    { value: "groq", label: "Groq" },
-    { value: "gemini", label: "Gemini" },
-    { value: "ollama", label: "Ollama" },
+    {
+      value: "groq",
+      label: "Groq",
+      description: "Cloud inference",
+    },
+    {
+      value: "gemini",
+      label: "Gemini",
+      description: "Google AI",
+    },
+    {
+      value: "ollama",
+      label: "Ollama",
+      description: "Local inference",
+    },
   ];
 
   const AI_MODELS_BY_PROVIDER: Record<LLMProvider, string[]> = {
@@ -1559,11 +1572,21 @@ export function AdminAiConfigPage() {
     setSelectedModel(data.llm_model);
   }, [data]);
 
-  const availableModels = AI_MODELS_BY_PROVIDER[selectedProvider];
+  const availableModels = AI_MODELS_BY_PROVIDER[selectedProvider] ?? [];
+
+  const hasUnsavedChanges =
+    !!data &&
+    (selectedProvider !== data.llm_provider ||
+      selectedModel !== data.llm_model);
+
+  const currentProviderLabel =
+    AI_PROVIDER_OPTIONS.find(
+      (provider) => provider.value === data?.llm_provider,
+    )?.label ?? data?.llm_provider;
 
   function handleProviderChange(provider: LLMProvider) {
     setSelectedProvider(provider);
-    setSelectedModel(AI_MODELS_BY_PROVIDER[provider][0]);
+    setSelectedModel(AI_MODELS_BY_PROVIDER[provider]?.[0] ?? "");
   }
 
   function handleSave() {
@@ -1573,16 +1596,21 @@ export function AdminAiConfigPage() {
     });
   }
 
+  function handleReset() {
+    if (!data) return;
+
+    setSelectedProvider(data.llm_provider);
+    setSelectedModel(data.llm_model);
+  }
+
   if (isLoading) {
     return (
-      <PanelShell
-        title="Cấu hình AI"
-        icon={Settings}
-      >
-        <div className="flex items-center justify-center py-12">
-          <p className="text-sm text-muted-foreground">
+      <PanelShell title="Cấu hình AI" icon={Settings}>
+        <div className="flex items-center justify-center py-16">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
             Đang tải cấu hình AI...
-          </p>
+          </div>
         </div>
       </PanelShell>
     );
@@ -1590,135 +1618,298 @@ export function AdminAiConfigPage() {
 
   if (isError || !data) {
     return (
-      <PanelShell
-        title="Cấu hình AI"
-        icon={Settings}
-      >
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-          <p className="text-sm text-destructive">
-            Không thể tải cấu hình AI.
-          </p>
+      <PanelShell title="Cấu hình AI" icon={Settings}>
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-destructive/10 p-2">
+              <Settings className="size-4 text-destructive" />
+            </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-3"
-            onClick={() => refetch()}
-          >
-            Thử lại
-          </Button>
+            <div>
+              <p className="text-sm font-semibold">
+                Không thể tải cấu hình AI
+              </p>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                Đã xảy ra lỗi khi tải cấu hình nhà cung cấp và model.
+              </p>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => refetch()}
+              >
+                Thử lại
+              </Button>
+            </div>
+          </div>
         </div>
       </PanelShell>
     );
   }
 
   return (
-    <PanelShell
-      title="Cấu hình AI"
-      icon={Settings}
-    >
-      <div className="max-w-2xl space-y-6">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-provider"
-              className="text-sm font-semibold"
-            >
-              Nhà cung cấp AI
-            </label>
-
-            <select
-              id="ai-provider"
-              value={selectedProvider}
-              onChange={(event) =>
-                handleProviderChange(
-                  event.target.value as LLMProvider,
-                )
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              {AI_PROVIDER_OPTIONS.map((provider) => (
-                <option
-                  key={provider.value}
-                  value={provider.value}
-                >
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-model"
-              className="text-sm font-semibold"
-            >
-              Model
-            </label>
-
-            <select
-              id="ai-model"
-              value={selectedModel}
-              onChange={(event) =>
-                setSelectedModel(event.target.value)
-              }
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              disabled={availableModels.length === 0}
-            >
-              {availableModels.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-
-            {availableModels.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Chưa có model được cấu hình cho nhà cung cấp này.
-              </p>
-            )}
-          </div>
+    <PanelShell title="Cấu hình AI" icon={Settings}>
+      <div className="max-w-4xl space-y-6">
+        {/* Page description */}
+        <div>
+          <p className="text-sm text-muted-foreground">
+            Quản lý nhà cung cấp và model AI được sử dụng bởi các
+            tính năng AI trong hệ thống.
+          </p>
         </div>
 
-        <div className="rounded-xl border border-border bg-muted/30 p-4">
-          <div className="flex items-start gap-3">
-            <Settings className="mt-0.5 size-5 text-muted-foreground" />
+        {/* Current configuration */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-primary/10 p-2.5">
+                <Bot className="size-5 text-primary" />
+              </div>
 
-            <div>
-              <p className="text-sm font-semibold">
-                Cấu hình hiện tại
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold">
+                    Cấu hình đang hoạt động
+                  </h2>
+
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    Đang sử dụng
+                  </span>
+                </div>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Cấu hình hiện tại của hệ thống
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Nhà cung cấp
               </p>
 
-              <p className="mt-1 text-sm text-muted-foreground">
-                Nhà cung cấp:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedProvider}
-                </span>
+              <p className="mt-2 text-base font-semibold">
+                {currentProviderLabel}
               </p>
 
-              <p className="text-sm text-muted-foreground">
-                Model:{" "}
-                <span className="font-medium text-foreground">
-                  {selectedModel}
-                </span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {data.llm_provider}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Model
+              </p>
+
+              <p className="mt-2 truncate text-base font-semibold">
+                {data.llm_model}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={
-              updateMutation.isPending ||
-              availableModels.length === 0
-            }
-          >
-            {updateMutation.isPending
-              ? "Đang lưu..."
-              : "Lưu cấu hình"}
-          </Button>
+        {/* Configuration form */}
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-sm font-semibold">
+              Thay đổi cấu hình
+            </h2>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              Chọn nhà cung cấp và model sẽ được sử dụng cho các yêu
+              cầu AI mới.
+            </p>
+          </div>
+
+          <div className="space-y-6 p-5">
+            {/* Provider */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-semibold">
+                  Nhà cung cấp AI
+                </label>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Chọn nền tảng cung cấp khả năng suy luận AI.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                {AI_PROVIDER_OPTIONS.map((provider) => {
+                  const isSelected =
+                    selectedProvider === provider.value;
+
+                  return (
+                    <button
+                      key={provider.value}
+                      type="button"
+                      onClick={() =>
+                        handleProviderChange(provider.value)
+                      }
+                      className={[
+                        "relative rounded-xl border p-4 text-left transition-colors",
+                        "hover:bg-muted/40",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isSelected
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border bg-background",
+                      ].join(" ")}
+                    >
+                      {isSelected && (
+                        <div className="absolute right-3 top-3">
+                          <CheckCircle2 className="size-5 text-primary" />
+                        </div>
+                      )}
+
+                      <div
+                        className={[
+                          "mb-3 flex size-9 items-center justify-center rounded-lg text-sm font-bold",
+                          isSelected
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground",
+                        ].join(" ")}
+                      >
+                        {provider.label.charAt(0)}
+                      </div>
+
+                      <p className="text-sm font-semibold">
+                        {provider.label}
+                      </p>
+
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {provider.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Model */}
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="ai-model"
+                  className="text-sm font-semibold"
+                >
+                  Model
+                </label>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Chọn model thuộc nhà cung cấp đã chọn.
+                </p>
+              </div>
+
+              {availableModels.length > 0 ? (
+                <select
+                  id="ai-model"
+                  value={selectedModel}
+                  onChange={(event) =>
+                    setSelectedModel(event.target.value)
+                  }
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+                >
+                  {availableModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Chưa có model được cấu hình cho nhà cung cấp này.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Unsaved changes */}
+            {hasUnsavedChanges && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 rounded-full bg-amber-500/10 p-1.5">
+                    <Settings className="size-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">
+                      Có thay đổi chưa lưu
+                    </p>
+
+                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                      <div>
+                        <span className="text-muted-foreground">
+                          Nhà cung cấp:
+                        </span>{" "}
+                        <span className="font-medium">
+                          {selectedProvider}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">
+                          Model:
+                        </span>{" "}
+                        <span className="font-medium">
+                          {selectedModel}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Thay đổi sẽ áp dụng cho các yêu cầu AI mới.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              {hasUnsavedChanges && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleReset}
+                  disabled={updateMutation.isPending}
+                >
+                  Hủy thay đổi
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={
+                  updateMutation.isPending ||
+                  availableModels.length === 0 ||
+                  !hasUnsavedChanges
+                }
+              >
+                {updateMutation.isPending ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Đang lưu...
+                  </>
+                ) : (
+                  <>
+                    <Save className="size-4" />
+                    Lưu cấu hình
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </PanelShell>
