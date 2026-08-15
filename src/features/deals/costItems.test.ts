@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DUE_ON_COMPLETION,
+  DUE_ON_SIGNING,
   costItemsIssue,
+  dueLabel,
   rescaleToTotal,
   splitEqually,
   type CostItem,
@@ -150,5 +153,30 @@ describe("costItemsIssue", () => {
   it("hạng mục chưa đặt tên mà 0 đồng thì vẫn nêu được", () => {
     const issue = costItemsIssue([item("", 0)], 500_000_000);
     expect(issue?.message).toMatch(/chưa đặt tên/);
+  });
+});
+
+describe("dueLabel", () => {
+  /**
+   * Thời điểm thu là LOẠI có sẵn, kèm ghi chú tự do tuỳ chọn.
+   *
+   * Bản đầu chỉ có chữ tự do, và giao diện phải ĐOÁN xem câu đó có nghĩa "thu trước" không
+   * bằng cách dò từ khoá tiếng Việt — gõ "Ngay sau khi hai bên xác nhận" là đoán trượt, cảnh
+   * báo hiện sai. Nhãn phải khớp `pdf_content.DUE_TYPE_LABELS` bên backend.  #Huynh
+   */
+  it("chưa chọn thì coi như thu khi hoàn thành", () => {
+    expect(dueLabel({})).toBe("Khi hoàn thành hạng mục");
+  });
+
+  it("nhãn chuẩn theo loại", () => {
+    expect(dueLabel({ due_type: DUE_ON_SIGNING })).toBe("Khi ký hợp đồng");
+    expect(dueLabel({ due_type: DUE_ON_COMPLETION })).toBe("Khi hoàn thành hạng mục");
+  });
+
+  it("ghi chú riêng in ĐÈ lên nhãn chuẩn", () => {
+    // Hợp đồng thật hay có điều kiện riêng — ép về hai câu cố định là làm nghèo tờ giấy.
+    expect(
+      dueLabel({ due_type: DUE_ON_COMPLETION, due_note: "Sau khi bên A duyệt demo" })
+    ).toBe("Sau khi bên A duyệt demo");
   });
 });

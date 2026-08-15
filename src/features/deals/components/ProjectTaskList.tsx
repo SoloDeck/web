@@ -542,6 +542,18 @@ function TaskRow({
               {formatVND(task.billingAmount)}
             </span>
           )}
+          {/* Đòi được NGAY hay phải làm xong đã. `null` (task cũ, task tự thêm) thì im lặng —
+              thà thiếu một nhãn còn hơn đoán sai rồi nhắc freelancer đi đòi nhầm.  #Huynh */}
+          {task.billingDueType === "on_signing" && (
+            <span className="rounded-full bg-success/10 px-2 py-0.5 font-medium text-success">
+              Thu ngay
+            </span>
+          )}
+          {task.billingDueType === "on_completion" && (
+            <span className="rounded-full bg-secondary px-2 py-0.5 font-medium">
+              Thu khi xong
+            </span>
+          )}
         </div>
 
         {/* Chỉ task thu tiền mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên

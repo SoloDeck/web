@@ -180,4 +180,31 @@ describe("<ProjectTaskPanel />", () => {
 
     expect(screen.queryByRole("button", { name: /Xóa Thu tiền/ })).not.toBeInTheDocument();
   });
+
+  it("phân biệt khoản đòi được NGAY với khoản phải làm xong đã", () => {
+    // Freelancer nhìn bảng việc là biết dòng nào đi đòi được luôn.
+    render(
+      <TaskHarness
+        initialTasks={[
+          makeTask({ id: "a", title: "Phân tích yêu cầu", billingAmount: 39_000_000, billingDueType: "on_signing" }),
+          makeTask({ id: "b", title: "Thiết kế hệ thống", billingAmount: 39_000_000, billingDueType: "on_completion" }),
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Thu ngay")).toBeInTheDocument();
+    expect(screen.getByText("Thu khi xong")).toBeInTheDocument();
+  });
+
+  it("không đoán bừa nhãn cho task cũ chưa rõ thời điểm thu", () => {
+    // `billingDueType` null = chưa rõ. Thà thiếu một nhãn còn hơn nhắc freelancer đi đòi nhầm.
+    render(
+      <TaskHarness
+        initialTasks={[makeTask({ title: "Thu tiền: Đợt 1", billingAmount: 10_000_000 })]}
+      />
+    );
+
+    expect(screen.queryByText("Thu ngay")).not.toBeInTheDocument();
+    expect(screen.queryByText("Thu khi xong")).not.toBeInTheDocument();
+  });
 });

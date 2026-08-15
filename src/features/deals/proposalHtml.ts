@@ -94,15 +94,41 @@ export function paymentPercentIssue(
   };
 }
 
+/** Thu TRƯỚC khi bắt tay làm — chỗ freelancer giữ được khoản đặt cọc. */
+export const DUE_ON_SIGNING = "on_signing";
+/** Thu KHI hạng mục hoàn thành. */
+export const DUE_ON_COMPLETION = "on_completion";
+
+export type DueType = typeof DUE_ON_SIGNING | typeof DUE_ON_COMPLETION;
+
+/** Nhãn chuẩn in lên tờ báo giá. Phải khớp `pdf_content.DUE_TYPE_LABELS` bên backend. */
+export const DUE_TYPE_LABELS: Record<DueType, string> = {
+  [DUE_ON_SIGNING]: "Khi ký hợp đồng",
+  [DUE_ON_COMPLETION]: "Khi hoàn thành hạng mục",
+};
+
 /**
  * Một hạng mục chi phí ở mục 7 — và cũng là ĐƠN VỊ THU TIỀN: mỗi hạng mục sinh ra một công
  * việc trên bảng việc và một hóa đơn riêng.
  *
- * `due` = thời điểm thu. Đây là chỗ freelancer giữ được khoản ĐẶT CỌC: đặt hạng mục đầu là
- * "Khi ký hợp đồng" thì thu trước khi bắt tay làm. Bỏ trống thì backend điền "Khi hoàn thành
- * hạng mục" (`pdf_content.DEFAULT_COST_ITEM_DUE`).  #Huynh
+ * `due_type` là thứ MÁY đọc, `due_note` là thứ KHÁCH đọc (in đè lên nhãn chuẩn nếu có).
+ * Trước đây chỉ có một ô chữ tự do, và giao diện phải ĐOÁN xem câu đó có nghĩa "thu trước"
+ * không bằng cách dò từ khoá tiếng Việt — gõ "Ngay sau khi hai bên xác nhận" là đoán trượt.
+ *
+ * Tên trường theo đúng JSON gửi backend (`content.pricing_items`), không camelCase: chỗ này
+ * đi thẳng vào `content` chứ không qua tầng map nào.  #Huynh
  */
-export type CostItem = { label: string; amount: number; due?: string };
+export type CostItem = {
+  label: string;
+  amount: number;
+  due_type?: DueType;
+  due_note?: string;
+};
+
+/** Chữ hiện cho người đọc: ghi chú riêng nếu có, không thì nhãn chuẩn của loại. */
+export function dueLabel(item: Pick<CostItem, "due_type" | "due_note">): string {
+  return item.due_note || DUE_TYPE_LABELS[item.due_type ?? DUE_ON_COMPLETION];
+}
 
 /**
  * Chia đều `total` cho `n` hạng mục, làm tròn tới 1.000 ₫, dòng CUỐI gánh phần lẻ.

@@ -17,6 +17,8 @@ import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
 import {
+  DUE_ON_COMPLETION,
+  DUE_ON_SIGNING,
   costItemsIssue,
   paymentPercentIssue,
   rescaleToTotal,
@@ -224,26 +226,52 @@ function deriveCostItems(
 ): CostItem[] {
   if (Array.isArray(saved) && saved.length > 0) {
     if (saved.every((x) => typeof x === "object" && x !== null)) {
-      return (saved as CostItem[]).map((x) => ({
+      return (saved as CostItem[]).map((x, index) => ({
         label: String(x.label ?? ""),
         amount: Number(x.amount) || 0,
-        // Mang theo thời điểm thu — không mang là mở lại báo giá thì ô "Khi ký hợp đồng" vừa
-        // gõ biến mất, và khoản đặt cọc lặng lẽ thành "thu khi xong".  #Huynh
-        ...(x.due ? { due: String(x.due) } : {}),
+        // Mang theo thời điểm thu — không mang là mở lại báo giá thì lựa chọn "Khi ký hợp
+        // đồng" biến mất, và khoản đặt cọc lặng lẽ thành "thu khi xong".
+        //
+        // Chưa dòng nào chọn thì dòng ĐẦU mặc định thu khi ký — KHỚP với backend
+        // (`pdf_content._typed_cost_items`). Lệch nhau ở đây là panel hiện một đằng, tờ báo
+        // giá in một nẻo, đúng loại lỗi cả module này sinh ra để chặn.  #Huynh
+        due_type:
+          x.due_type ??
+          (saved.some((y) => (y as CostItem).due_type) || index > 0
+            ? DUE_ON_COMPLETION
+            : DUE_ON_SIGNING),
+        ...(x.due_note ? { due_note: String(x.due_note) } : {}),
       }));
     }
     const labels = (saved as unknown[]).map(String).filter(Boolean);
     const amounts = splitEqually(agreedTotal, labels.length);
-    return labels.map((label, i) => ({ label, amount: amounts[i] ?? 0 }));
+    return withDepositDefault(labels.map((label, i) => ({ label, amount: amounts[i] ?? 0 })));
   }
 
   const items = detailItems ?? [];
   if (items.length === 0) return [];
-  return rescaleToTotal(
-    items.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
-    agreedTotal,
-    suggested
+  return withDepositDefault(
+    rescaleToTotal(
+      items.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
+      agreedTotal,
+      suggested
+    )
   );
+}
+
+/**
+ * Dòng ĐẦU thu khi ký hợp đồng — cho các bảng SUY RA (bộ định giá, nhãn-only), nơi chưa ai
+ * kịp chọn thời điểm thu.
+ *
+ * Không có bước này thì mặc định là "thu khi hoàn thành" cho tất cả, tức freelancer làm xong
+ * sạch dự án mới nhận đồng đầu tiên — tệ hơn hẳn lịch 50/50 của bản cũ. Khớp từng chữ với
+ * `pdf_content._with_deposit_default` bên backend.  #Huynh
+ */
+function withDepositDefault(items: CostItem[]): CostItem[] {
+  return items.map((item, index) => ({
+    ...item,
+    due_type: index === 0 ? DUE_ON_SIGNING : DUE_ON_COMPLETION,
+  }));
 }
 
 function deriveEditFields(content: unknown): EditFields {

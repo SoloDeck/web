@@ -268,6 +268,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [invoiceBusyTaskId, setInvoiceBusyTaskId] = useState<string | null>(null);
   // Mốc vừa được tick, đang chờ trả lời "gửi hóa đơn / ghi nhận thanh toán / để sau".
   const [paymentTaskPrompt, setPaymentTaskPrompt] = useState<ProjectTask | null>(null);
+  // Khoản "thu khi xong" bị bấm xuất hóa đơn lúc công việc chưa tick xong — đang chờ xác nhận.
+  const [earlyInvoiceTask, setEarlyInvoiceTask] = useState<ProjectTask | null>(null);
 
   const proposalItems = proposals.data?.data ?? [];
   // Tài liệu chỉ kể bản đánh giá ĐÃ CHỐT; tab Lịch sử vẫn kể hết mọi lần chấm. Dùng chung
@@ -846,6 +848,21 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     return getApiErrorMessage(err, fallback);
   }
 
+  /**
+   * Bấm "Tạo & gửi hóa đơn" cho một khoản THU KHI XONG mà công việc chưa tick xong.
+   *
+   * CẢNH BÁO chứ không CHẶN. Chặn cứng nghe hợp lý nhưng cắn ngược: freelancer làm xong hôm
+   * nay, xuất hóa đơn luôn, tick task sau — chuyện rất thường. Chặn là biến thao tác đúng
+   * thành lỗi. Còn gửi khách hóa đơn cho việc chưa làm thì đáng hỏi lại một câu.  #Huynh
+   */
+  function requestCreateAndSendInvoice(task: ProjectTask) {
+    if (task.billingDueType === "on_completion" && task.status !== "done") {
+      setEarlyInvoiceTask(task);
+      return;
+    }
+    createAndSendInvoice(task);
+  }
+
   function createAndSendInvoice(task: ProjectTask) {
     setInvoiceBusyTaskId(task.id);
     createTaskInvoice.mutate(task.id, {
@@ -1224,7 +1241,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                          danh sách trải hết và trang cuộn, đúng thứ mình muốn ở màn nhỏ. */
                       height="fill"
                       invoiceActions={{
-                        onCreateAndSend: createAndSendInvoice,
+                        onCreateAndSend: requestCreateAndSendInvoice,
                         onSend: sendExistingInvoice,
                         onRecordPayment: recordFullPayment,
                         pendingTaskId: invoiceBusyTaskId,
@@ -1514,6 +1531,29 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             })()}
         </DialogContent>
       </Dialog>
+      {/* Xuất hóa đơn cho một khoản "thu khi xong" mà công việc chưa tick xong.
+          HỎI chứ không CHẶN — freelancer làm xong hôm nay rồi xuất hóa đơn luôn, tick task
+          sau, là chuyện rất thường; chặn cứng biến thao tác đúng thành lỗi.  #Huynh */}
+      <ConfirmDialog
+        open={Boolean(earlyInvoiceTask)}
+        onOpenChange={(open) => {
+          if (!open) setEarlyInvoiceTask(null);
+        }}
+        title="Công việc chưa xong — vẫn gửi hóa đơn?"
+        description={
+          earlyInvoiceTask
+            ? `"${earlyInvoiceTask.title}" được thoả thuận thu khi hoàn thành, mà công việc này ` +
+              "chưa tick xong. Khách sẽ nhận hóa đơn cho phần chưa bàn giao."
+            : undefined
+        }
+        confirmLabel="Vẫn gửi"
+        cancelLabel="Để sau"
+        onConfirm={() => {
+          const task = earlyInvoiceTask;
+          setEarlyInvoiceTask(null);
+          if (task) createAndSendInvoice(task);
+        }}
+      />
       <ConfirmDialog
         open={Boolean(deleteProposalId)}
         onOpenChange={(open) => {

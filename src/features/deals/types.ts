@@ -46,6 +46,11 @@ export type ProjectTask = {
    * báo giá đã chốt), và là dấu nhận biết CHÍNH THỨC — xem `paymentTasks.isPaymentTask`.
    */
   billingAmount?: number | null;
+  /**
+   * `"on_signing"` = đòi được NGAY (khoản đặt cọc); `"on_completion"` = đòi khi công việc
+   * xong. `null` với task cũ và task freelancer tự thêm — giao diện im lặng chứ không đoán.
+   */
+  billingDueType?: "on_signing" | "on_completion" | null;
   /** `null`/vắng mặt = chưa xuất hóa đơn cho khoản này. */
   invoice?: TaskInvoice | null;
 };

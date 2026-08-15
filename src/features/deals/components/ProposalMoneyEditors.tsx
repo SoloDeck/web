@@ -1,10 +1,15 @@
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { formatVND } from "@/utils/format";
+import { cn } from "@/lib/utils";
 import {
+  DUE_ON_COMPLETION,
+  DUE_ON_SIGNING,
+  DUE_TYPE_LABELS,
   costItemsIssue,
   paymentPercentIssue,
   splitEqually,
   type CostItem,
+  type DueType,
   type PaymentMilestone,
 } from "@/features/deals/proposalHtml";
 
@@ -89,13 +94,47 @@ export function LineItemsEditor({
             </div>
             {/* THỜI ĐIỂM THU — chỗ freelancer giữ được khoản đặt cọc. Mỗi hạng mục giờ là một
               đợt thu tiền, mà mục 7 không có dòng nào tên "Đặt cọc"; đặt hạng mục đầu là "Khi
-              ký hợp đồng" thì vẫn thu được trước khi bắt tay làm.  #Huynh */}
-            <input
-              value={item.due ?? ""}
-              disabled={disabled}
-              placeholder="Khi hoàn thành hạng mục"
+              ký hợp đồng" thì vẫn thu được trước khi bắt tay làm.
+
+              LOẠI có sẵn chứ không phải chữ tự do: bản trước để gõ chữ, và giao diện phải đoán
+              xem câu đó có nghĩa "thu trước" không bằng cách dò từ khoá tiếng Việt — gõ "Ngay
+              sau khi hai bên xác nhận" là đoán trượt, cảnh báo hiện sai.  #Huynh */}
+            <div
+              role="radiogroup"
               aria-label={`Thời điểm thu hạng mục ${index + 1}`}
-              onChange={(event) => patchAt(index, { due: event.target.value })}
+              className="flex gap-1"
+            >
+              {(Object.keys(DUE_TYPE_LABELS) as DueType[]).map((type) => {
+                const active = (item.due_type ?? DUE_ON_COMPLETION) === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    disabled={disabled}
+                    onClick={() => patchAt(index, { due_type: type })}
+                    className={cn(
+                      "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-40",
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-secondary"
+                    )}
+                  >
+                    {DUE_TYPE_LABELS[type]}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Ghi chú tự do — KHÔNG bỏ chữ tự do đi hẳn: hợp đồng thật hay có điều kiện riêng
+              ("khi bên A duyệt bản demo"), ép về hai câu cố định là làm nghèo tờ giấy. Câu này
+              in ĐÈ lên nhãn chuẩn, còn máy vẫn đọc `due_type`.  #Huynh */}
+            <input
+              value={item.due_note ?? ""}
+              disabled={disabled}
+              placeholder="Ghi chú thời điểm thu (tuỳ chọn) — in đè lên nhãn trên"
+              aria-label={`Ghi chú thời điểm thu hạng mục ${index + 1}`}
+              onChange={(event) => patchAt(index, { due_note: event.target.value })}
               className="w-full rounded-md border border-dashed border-border bg-background px-2 py-1 text-xs text-muted-foreground outline-none focus:border-primary focus:text-foreground"
             />
           </div>
@@ -140,32 +179,16 @@ export function LineItemsEditor({
         khi đã làm xong, nên nếu không hạng mục nào thu trước thì freelancer làm không công
         suốt giai đoạn đầu — đúng cái rủi ro SoloDesk sinh ra để ngăn. Không chặn vì có
         freelancer chấp nhận không cọc với khách quen; nhưng phải nói ra.  #Huynh */}
-      {!issue && items.length > 0 && !items.some((item) => isUpfront(item.due)) && (
+      {!issue && items.length > 0 && !items.some((item) => item.due_type === DUE_ON_SIGNING) && (
         <div className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <span>
             Không hạng mục nào thu trước khi bắt đầu — bạn sẽ làm xong mới nhận được đồng đầu
-            tiên. Đặt "thời điểm thu" của một hạng mục thành <b>Khi ký hợp đồng</b> nếu muốn
-            giữ khoản đặt cọc.
+            tiên. Chọn <b>Khi ký hợp đồng</b> cho một hạng mục nếu muốn giữ khoản đặt cọc.
           </span>
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * Thời điểm thu này có nghĩa là "trước khi bắt tay làm" không.
- *
- * Dò từ khoá thay vì bắt chọn từ danh sách cố định: ô này là chữ tự do in thẳng lên tờ báo
- * giá gửi khách, ép thành dropdown là mất khả năng viết cho đúng giọng từng khách. Dò sót thì
- * chỉ hiện thừa một dòng nhắc, không chặn gì.  #Huynh
- */
-function isUpfront(due: string | undefined): boolean {
-  const text = (due ?? "").toLowerCase();
-  if (!text) return false;
-  return ["khi ký", "ký hợp đồng", "trước khi", "đặt cọc", "tạm ứng", "ứng trước"].some(
-    (keyword) => text.includes(keyword)
   );
 }
 
