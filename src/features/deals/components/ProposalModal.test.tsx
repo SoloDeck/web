@@ -344,7 +344,7 @@ describe("ProposalModal", () => {
     // Khu sửa tiền bày sẵn — không còn nút gập nào chắn trước. MỘT khu duy nhất từ khi mục 7
     // và 8 gộp làm một; thời điểm thu nằm ngay trên từng hạng mục.
     expect(await screen.findByText(/chi phí & thanh toán/i)).toBeInTheDocument();
-    expect(screen.getByRole("radiogroup", { name: /thời điểm thu hạng mục 1/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /thời điểm thu hạng mục 1/i })).toBeInTheDocument();
     // ...và tờ báo giá vẫn nằm đó cùng lúc, chứ không bị đẩy khỏi màn.
     expect(await screen.findByTitle(/bấm vào chữ để sửa/i)).toBeInTheDocument();
     // Nút gập cũ phải biến mất hẳn: còn nó là còn đường quay lại lỗi cũ.

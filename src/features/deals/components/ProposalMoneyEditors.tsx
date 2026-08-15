@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { formatVND } from "@/utils/format";
-import { cn } from "@/lib/utils";
 import {
+  DUE_CUSTOM,
   DUE_ON_COMPLETION,
   DUE_ON_SIGNING,
   DUE_TYPE_LABELS,
@@ -99,44 +99,36 @@ export function LineItemsEditor({
               LOẠI có sẵn chứ không phải chữ tự do: bản trước để gõ chữ, và giao diện phải đoán
               xem câu đó có nghĩa "thu trước" không bằng cách dò từ khoá tiếng Việt — gõ "Ngay
               sau khi hai bên xác nhận" là đoán trượt, cảnh báo hiện sai.  #Huynh */}
-            <div
-              role="radiogroup"
-              aria-label={`Thời điểm thu hạng mục ${index + 1}`}
-              className="flex gap-1"
-            >
-              {(Object.keys(DUE_TYPE_LABELS) as DueType[]).map((type) => {
-                const active = (item.due_type ?? DUE_ON_COMPLETION) === type;
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    disabled={disabled}
-                    onClick={() => patchAt(index, { due_type: type })}
-                    className={cn(
-                      "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-40",
-                      active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:bg-secondary"
-                    )}
-                  >
-                    {DUE_TYPE_LABELS[type]}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Ghi chú tự do — KHÔNG bỏ chữ tự do đi hẳn: hợp đồng thật hay có điều kiện riêng
-              ("khi bên A duyệt bản demo"), ép về hai câu cố định là làm nghèo tờ giấy. Câu này
-              in ĐÈ lên nhãn chuẩn, còn máy vẫn đọc `due_type`.  #Huynh */}
-            <input
-              value={item.due_note ?? ""}
+            <select
+              value={item.due_type ?? DUE_ON_COMPLETION}
               disabled={disabled}
-              placeholder="Ghi chú thời điểm thu (tuỳ chọn) — in đè lên nhãn trên"
-              aria-label={`Ghi chú thời điểm thu hạng mục ${index + 1}`}
-              onChange={(event) => patchAt(index, { due_note: event.target.value })}
-              className="w-full rounded-md border border-dashed border-border bg-background px-2 py-1 text-xs text-muted-foreground outline-none focus:border-primary focus:text-foreground"
-            />
+              aria-label={`Thời điểm thu hạng mục ${index + 1}`}
+              onChange={(event) =>
+                patchAt(index, { due_type: event.target.value as DueType })
+              }
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+            >
+              {(Object.keys(DUE_TYPE_LABELS) as DueType[]).map((type) => (
+                <option key={type} value={type}>
+                  {type === DUE_CUSTOM ? "Khác…" : DUE_TYPE_LABELS[type]}
+                </option>
+              ))}
+            </select>
+            {/* Ô ghi chú CHỈ hiện khi chọn "Khác" — hợp đồng thật hay có điều kiện riêng ("khi
+              bên A duyệt bản demo"), ép về hai câu cố định là làm nghèo tờ giấy. Nhưng bày sẵn
+              một ô trống cho mọi dòng thì panel tốn ba dòng mỗi hạng mục mà hầu như không ai
+              điền.  #Huynh */}
+            {item.due_type === DUE_CUSTOM && (
+              <input
+                value={item.due_note ?? ""}
+                disabled={disabled}
+                autoFocus
+                placeholder="Ghi rõ khi nào thu, vd: Sau khi bên A duyệt bản demo"
+                aria-label={`Ghi rõ thời điểm thu hạng mục ${index + 1}`}
+                onChange={(event) => patchAt(index, { due_note: event.target.value })}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+              />
+            )}
           </div>
         ))}
       </div>

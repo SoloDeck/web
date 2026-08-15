@@ -98,13 +98,27 @@ export function paymentPercentIssue(
 export const DUE_ON_SIGNING = "on_signing";
 /** Thu KHI hạng mục hoàn thành. */
 export const DUE_ON_COMPLETION = "on_completion";
+/**
+ * "Khác" — freelancer tự ghi thời điểm thu.
+ *
+ * MÁY COI NHƯ KHÔNG BIẾT: không gắn nhãn "Thu ngay"/"Thu khi xong" trên bảng việc, không hỏi
+ * lại khi xuất hoá đơn sớm. Vì "Sau 30 ngày kể từ ngày ký" là thu TRƯỚC còn "Khi khách duyệt
+ * demo" là thu SAU — cùng rơi vào ô này mà ý nghĩa ngược nhau, đoán một trong hai là có ngày
+ * nhắc freelancer đi đòi tiền chưa tới hạn.  #Huynh
+ */
+export const DUE_CUSTOM = "custom";
 
-export type DueType = typeof DUE_ON_SIGNING | typeof DUE_ON_COMPLETION;
+export type DueType =
+  | typeof DUE_ON_SIGNING
+  | typeof DUE_ON_COMPLETION
+  | typeof DUE_CUSTOM;
 
 /** Nhãn chuẩn in lên tờ báo giá. Phải khớp `pdf_content.DUE_TYPE_LABELS` bên backend. */
 export const DUE_TYPE_LABELS: Record<DueType, string> = {
   [DUE_ON_SIGNING]: "Khi ký hợp đồng",
   [DUE_ON_COMPLETION]: "Khi hoàn thành hạng mục",
+  // Lưới an toàn — cổng gửi chặn "Khác" mà bỏ trống ghi chú, nên khách không bao giờ đọc câu này.
+  [DUE_CUSTOM]: "Theo thoả thuận riêng",
 };
 
 /**
@@ -216,12 +230,25 @@ export function costItemsIssue(
   // Hạng mục 0 đồng làm DEAL KẸT VĨNH VIỄN nếu lọt qua: nó thành một công việc thu tiền bắt
   // buộc tick xong mới đóng được dự án, nhưng bấm xuất hóa đơn thì backend từ chối vì 0 đồng.
   // Kiểm TRƯỚC cả điều kiện `agreed > 0` — chưa chốt giá thì vẫn phải báo dòng thiếu tiền.
+  const total0 = rows.reduce((sum, item) => sum + (item.amount || 0), 0);
+
   const zero = rows.find((item) => !(item.amount > 0));
   if (zero) {
-    const total = rows.reduce((sum, item) => sum + (item.amount || 0), 0);
     return {
-      total,
+      total: total0,
       message: `Hạng mục "${zero.label || "chưa đặt tên"}" đang là 0 đ. Mỗi hạng mục là một đợt thu tiền nên phải có số tiền cụ thể.`,
+    };
+  }
+
+  // Chọn "Khác" mà bỏ trống: tờ giấy khách KÝ sẽ có ô "thời điểm thu" mơ hồ, đúng thứ đẻ ra
+  // cãi nhau lúc đòi tiền. Cùng lý do với cổng 0 đ ngay trên.  #Huynh
+  const vague = rows.find(
+    (item) => item.due_type === DUE_CUSTOM && !(item.due_note ?? "").trim()
+  );
+  if (vague) {
+    return {
+      total: total0,
+      message: `Hạng mục "${vague.label || "chưa đặt tên"}" chọn thời điểm thu "Khác" nhưng chưa ghi rõ là khi nào.`,
     };
   }
 

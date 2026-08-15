@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DUE_CUSTOM,
   DUE_ON_COMPLETION,
   DUE_ON_SIGNING,
   costItemsIssue,
@@ -154,6 +155,31 @@ describe("costItemsIssue", () => {
     const issue = costItemsIssue([item("", 0)], 500_000_000);
     expect(issue?.message).toMatch(/chưa đặt tên/);
   });
+
+  it('chọn "Khác" mà bỏ trống thì chặn — tờ giấy khách ký không được mơ hồ', () => {
+    const issue = costItemsIssue(
+      [{ label: "Giai đoạn 2", amount: 500_000_000, due_type: DUE_CUSTOM }],
+      500_000_000
+    );
+    expect(issue?.message).toMatch(/Giai đoạn 2/);
+    expect(issue?.message).toMatch(/Khác/);
+  });
+
+  it('chọn "Khác" và có ghi rõ thì qua', () => {
+    expect(
+      costItemsIssue(
+        [
+          {
+            label: "Giai đoạn 2",
+            amount: 500_000_000,
+            due_type: DUE_CUSTOM,
+            due_note: "Sau khi bên A duyệt bản demo",
+          },
+        ],
+        500_000_000
+      )
+    ).toBeNull();
+  });
 });
 
 describe("dueLabel", () => {
@@ -176,7 +202,7 @@ describe("dueLabel", () => {
   it("ghi chú riêng in ĐÈ lên nhãn chuẩn", () => {
     // Hợp đồng thật hay có điều kiện riêng — ép về hai câu cố định là làm nghèo tờ giấy.
     expect(
-      dueLabel({ due_type: DUE_ON_COMPLETION, due_note: "Sau khi bên A duyệt demo" })
+      dueLabel({ due_type: DUE_CUSTOM, due_note: "Sau khi bên A duyệt demo" })
     ).toBe("Sau khi bên A duyệt demo");
   });
 });
