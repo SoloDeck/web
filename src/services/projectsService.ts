@@ -40,6 +40,9 @@ type TaskResponse = {
   // `on_signing` = đòi được NGAY; `on_completion` = đòi khi công việc xong. `null` với task cũ
   // và task freelancer tự thêm.
   billing_due_type: string | null;
+  // Thứ tự hiển thị trong dự án — với task thu tiền là thứ tự hạng mục trên tờ báo giá.
+  // Tuỳ chọn vì bản backend cũ chưa trả trường này.
+  position?: number;
   // Chỉ có với task thu tiền ĐÃ xuất hóa đơn. Backend trả sẵn để hàng task vẽ được nhãn
   // trạng thái mà không phải gọi thêm một vòng API cho từng dòng.
   invoice: {
@@ -95,6 +98,7 @@ function mapTask(t: TaskResponse): ProjectTask {
       t.billing_due_type === "on_signing" || t.billing_due_type === "on_completion"
         ? t.billing_due_type
         : null,
+    position: typeof t.position === "number" ? t.position : undefined,
     invoice: t.invoice
       ? {
           id: t.invoice.id,

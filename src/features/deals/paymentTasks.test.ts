@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPaymentTask, paymentMilestoneLabel } from "@/features/deals/paymentTasks";
+import {
+  invoiceReminderText,
+  isPaymentTask,
+  needsInvoiceReminder,
+  paymentMilestoneLabel,
+  shouldTickAfterInvoiceSent,
+} from "@/features/deals/paymentTasks";
 import type { ProjectTask } from "@/features/deals/types";
 
 /**
@@ -71,5 +77,91 @@ describe("paymentMilestoneLabel", () => {
 
   it("tiền tố mà không có gì phía sau thì trả nguyên tên, không trả chuỗi rỗng", () => {
     expect(paymentMilestoneLabel(task({ title: "Thu tiền:" }))).toBe("Thu tiền:");
+  });
+});
+
+
+describe("shouldTickAfterInvoiceSent", () => {
+  /**
+   * Gửi hóa đơn xong thì tick luôn mốc đó.
+   *
+   * Lỗi thật thấy trên màn hình: mốc "Thiết kế giao diện người dùng" còn nhãn "Chưa làm"
+   * trong khi ngay dưới nó hóa đơn đã "Đã thanh toán". Hai thứ vốn rời nhau nên freelancer
+   * phải nhớ tick tay, quên thì guard "Hoàn thành dự án" chặn dù tiền đã về đủ.  #Huynh
+   */
+  it("mốc chưa xong thì tick", () => {
+    expect(shouldTickAfterInvoiceSent(task({ status: "todo", completed: false }))).toBe(true);
+  });
+
+  it("mốc đang làm dở cũng tick — gửi hóa đơn là đã coi như xong", () => {
+    // Backend có 4 trạng thái (todo/in_progress/review/done) nhưng `mapTask` gộp về hai:
+    // mọi thứ chưa `done` đều thành `todo` phía web. Nên "đang làm dở" tới đây là `todo`.
+    expect(shouldTickAfterInvoiceSent(task({ status: "todo", completed: false }))).toBe(true);
+  });
+
+  it("mốc đã xong rồi thì thôi, đừng ghi thừa một lượt", () => {
+    // Gửi LẠI hóa đơn cho một mốc đã tick là chuyện thường; tick lại chỉ tổ bắn thêm một
+    // lượt ghi xuống server và làm bảng việc nháy một cái không vì lý do gì.
+    expect(shouldTickAfterInvoiceSent(task({ status: "done", completed: true }))).toBe(false);
+  });
+
+  it("hai trường lệch nhau thì coi như đã xong — thà thiếu một lượt ghi còn hơn ghi nhầm", () => {
+    // `mapTask` luôn giữ `status` và `completed` khớp nhau, nên cảnh này không xảy ra qua
+    // đường API. Khoá lại để nếu sau này có nguồn dữ liệu khác thì vẫn nghiêng về "đừng ghi".
+    expect(shouldTickAfterInvoiceSent(task({ status: "done", completed: false }))).toBe(false);
+    expect(shouldTickAfterInvoiceSent(task({ status: "todo", completed: true }))).toBe(false);
+  });
+});
+
+
+describe("needsInvoiceReminder", () => {
+  /**
+   * Mốc đã tick xong mà khách chưa nhận được hóa đơn nào.
+   *
+   * Cảnh này rơi ra từ chính lối thoát ở hộp thoại tick: bấm tick rồi chọn "Để sau". Không
+   * nhắc thì mốc đó nằm im giữa những mốc đã xong, trông y hệt các mốc đã thu tiền —
+   * freelancer làm xong việc rồi quên đòi tiền.  #Huynh
+   */
+  const inv = (status: string, over: Record<string, unknown> = {}) => ({
+    id: "inv-1",
+    invoiceNumber: "INV-1",
+    status,
+    total: 10_000_000,
+    amountPaid: 0,
+    ...over,
+  });
+
+  const moc = (over: Partial<ProjectTask> = {}) =>
+    task({ completed: true, status: "done", billingAmount: 10_000_000, ...over });
+
+  it("mốc xong mà chưa có hóa đơn thì nhắc", () => {
+    expect(needsInvoiceReminder(moc())).toBe(true);
+  });
+
+  it("hóa đơn mới ở bản nháp cũng nhắc — khách vẫn chưa nhận được gì", () => {
+    const t = moc({ invoice: inv("draft") as never });
+    expect(needsInvoiceReminder(t)).toBe(true);
+    expect(invoiceReminderText(t)).toMatch(/bản nháp/);
+  });
+
+  it("đã gửi rồi thì thôi", () => {
+    expect(needsInvoiceReminder(moc({ invoice: inv("sent") as never }))).toBe(false);
+  });
+
+  it("mốc chưa tick xong thì chưa nhắc — chưa tới lúc đòi tiền", () => {
+    expect(needsInvoiceReminder(moc({ completed: false, status: "todo" }))).toBe(false);
+  });
+
+  it("công việc thường (không phải mốc thu tiền) thì không dính", () => {
+    expect(
+      needsInvoiceReminder(
+        task({ completed: true, status: "done", title: "Họp với khách", billingAmount: null })
+      )
+    ).toBe(false);
+  });
+
+  it("câu nhắc gọi đúng tên mốc, bỏ tiền tố của task cũ", () => {
+    const t = moc({ title: "Thu tiền: Đặt cọc" });
+    expect(invoiceReminderText(t)).toBe("Đặt cọc — chưa tạo & gửi hóa đơn");
   });
 });

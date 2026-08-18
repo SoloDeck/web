@@ -60,7 +60,7 @@ describe("Mốc thu tiền — hóa đơn trong hàng task", () => {
   it("chưa có hóa đơn thì mời tạo", async () => {
     const { onCreateAndSend } = veRa(mocTask(null));
 
-    await userEvent.click(screen.getByRole("button", { name: /tạo & gửi hóa đơn/i }));
+    await userEvent.click(screen.getByRole("button", { name: /soạn & gửi hóa đơn/i }));
 
     expect(onCreateAndSend).toHaveBeenCalledTimes(1);
   }, 20_000);
@@ -70,7 +70,7 @@ describe("Mốc thu tiền — hóa đơn trong hàng task", () => {
     const { onSend, onCreateAndSend } = veRa(mocTask(hoaDon({ status: "draft" })));
 
     expect(screen.getByText(/hóa đơn nháp/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /gửi cho khách/i }));
+    await userEvent.click(screen.getByRole("button", { name: /xem lại & gửi/i }));
 
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onCreateAndSend).not.toHaveBeenCalled();
@@ -99,13 +99,13 @@ describe("Mốc thu tiền — hóa đơn trong hàng task", () => {
 
     expect(screen.getByText(/đã thanh toán/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ghi nhận đã thanh toán/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /gửi cho khách/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /xem lại & gửi/i })).not.toBeInTheDocument();
   }, 20_000);
 
   it("đang chạy thì khoá nút — bấm hai lần không đẻ hai hóa đơn", () => {
     veRa(mocTask(null), { pendingTaskId: "task-thu-tien" });
 
-    expect(screen.getByRole("button", { name: /tạo & gửi hóa đơn/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /soạn & gửi hóa đơn/i })).toBeDisabled();
   }, 20_000);
 
   it("task thường KHÔNG có khối hóa đơn nào", () => {

@@ -25,6 +25,20 @@ export type PaymentInvoiceActions = {
   pendingTaskId?: string | null;
 };
 
+/**
+ * Hai loại nút, hai màu — vì chúng là HAI VIỆC khác hẳn nhau mà lại đứng cùng một chỗ.
+ *
+ * "Tạo & gửi hóa đơn" là việc GỬI ĐI: bấm xong khách nhận thư, chặng thu tiền mới bắt đầu.
+ * "Ghi nhận đã thanh toán" là việc TIỀN VỀ: bấm xong mốc đó khép lại. Để chung một kiểu viền
+ * xám thì lướt qua bảng việc chỉ thấy một dãy nút giống nhau, phải đọc chữ mới biết cái nào
+ * là cái nào — mà một cái gửi thư ra ngoài cho khách, cái kia đụng vào sổ tiền.
+ *
+ * Xanh của nút thu tiền lấy đúng màu nhãn "Đã thanh toán" mà chính nó sinh ra, để bấm xong
+ * thấy màu ấy là biết đã ăn.  #Huynh
+ */
+const NUT_GUI_DI = "border-border hover:bg-secondary";
+const NUT_TIEN_VE = "border-success/40 bg-success/10 text-success hover:bg-success/20";
+
 const NHAN: Record<string, { chu: string; mau: string }> = {
   draft: { chu: "Hóa đơn nháp", mau: "bg-secondary text-muted-foreground" },
   sent: { chu: "Đã gửi hóa đơn", mau: "bg-info/10 text-info" },
@@ -47,11 +61,21 @@ export function PaymentTaskInvoice({
   // Nút hành động của từng trạng thái. `paid` và `void` không có nút — đã xong hoặc đã bỏ.
   const nut =
     state === "none"
-      ? { chu: "Tạo & gửi hóa đơn", Icon: FileText, chay: () => actions.onCreateAndSend(task) }
+      ? {
+          chu: "Soạn & gửi hóa đơn",
+          Icon: FileText,
+          chay: () => actions.onCreateAndSend(task),
+          mau: NUT_GUI_DI,
+        }
       : state === "draft"
-        ? { chu: "Gửi cho khách", Icon: Mail, chay: () => actions.onSend(task) }
+        ? { chu: "Xem lại & gửi", Icon: Mail, chay: () => actions.onSend(task), mau: NUT_GUI_DI }
         : state === "sent" || state === "partially_paid"
-          ? { chu: "Ghi nhận đã thanh toán", Icon: Wallet, chay: () => actions.onRecordPayment(task) }
+          ? {
+              chu: "Ghi nhận đã thanh toán",
+              Icon: Wallet,
+              chay: () => actions.onRecordPayment(task),
+              mau: NUT_TIEN_VE,
+            }
           : null;
 
   const nhan = state === "none" ? null : NHAN[state];
@@ -79,7 +103,10 @@ export function PaymentTaskInvoice({
           type="button"
           onClick={nut.chay}
           disabled={dangChay}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          className={cn(
+            "ml-auto inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+            nut.mau
+          )}
         >
           {dangChay ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -7,6 +7,7 @@ import {
   ChevronUp,
   ClipboardCheck,
   GripVertical,
+  AlertTriangle,
   Pencil,
   Plus,
   Trash2,
@@ -16,7 +17,16 @@ import {
   PaymentTaskInvoice,
   type PaymentInvoiceActions,
 } from "@/features/deals/components/PaymentTaskInvoice";
-import { isPaymentTask } from "@/features/deals/paymentTasks";
+import {
+  invoiceReminderText,
+  isPaymentTask,
+  needsInvoiceReminder,
+  paymentMilestoneLabel,
+} from "@/features/deals/paymentTasks";
+import {
+  dismissInvoiceReminder,
+  readDismissedReminders,
+} from "@/features/deals/invoiceReminderDismissals";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
 import type { ProjectTask } from "@/features/deals/types";
 
-type TaskSortMode = "newest" | "oldest";
+type TaskSortMode = "order" | "newest" | "oldest";
 
 const PHASE_RULES: { label: string; keywords: string[] }[] = [
   { label: "GIAI ĐOẠN 1: THIẾT KẾ", keywords: ["thiết kế", "wireframe", "mockup", "figma"] },
@@ -73,6 +83,14 @@ function getTaskCreatedTime(task: ProjectTask): number {
 function sortTasksForWork(tasks: ProjectTask[], sortMode: TaskSortMode): ProjectTask[] {
   return [...tasks].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    // "Theo thứ tự dự án" là mặc định MỚI: với task thu tiền, `position` chính là thứ tự hạng
+    // mục freelancer đã sắp trên tờ báo giá. Sắp theo thời điểm tạo không làm được việc này —
+    // cả lô task thu tiền sinh trong một transaction nên `createdAt` bằng nhau hết, và bản cũ
+    // còn để mặc định "mới nhất trước" nên bảng việc hiện ngược hẳn tờ báo giá.  #Huynh
+    if (sortMode === "order") {
+      const gap = (a.position ?? 0) - (b.position ?? 0);
+      if (gap !== 0) return gap;
+    }
     const diff = getTaskCreatedTime(a) - getTaskCreatedTime(b);
     return sortMode === "newest" ? -diff : diff;
   });
@@ -134,7 +152,10 @@ export function ProjectTaskPanel({
   const [editingNote, setEditingNote] = useState("");
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
   const [taskPendingDelete, setTaskPendingDelete] = useState<ProjectTask | null>(null);
-  const [sortMode, setSortMode] = useState<TaskSortMode>("newest");
+  const [sortMode, setSortMode] = useState<TaskSortMode>("order");
+  // Những mốc freelancer đã bấm bỏ nhắc — họ gửi hóa đơn riêng ngoài hệ thống là chuyện có
+  // thật, và nhắc mãi một việc người ta đã làm thì lần sau họ không đọc dòng nhắc nào nữa.
+  const [dismissedReminders, setDismissedReminders] = useState<string[]>(readDismissedReminders);
 
   function togglePhase(label: string) {
     setCollapsedPhases((prev) => {
@@ -229,6 +250,7 @@ export function ProjectTaskPanel({
                   aria-label="Sắp xếp công việc"
                   className="bg-transparent text-sm font-medium text-foreground outline-none"
                 >
+                  <option value="order">Theo thứ tự dự án</option>
                   <option value="newest">Mới tạo trước</option>
                   <option value="oldest">Cũ hơn trước</option>
                 </select>
@@ -293,6 +315,12 @@ export function ProjectTaskPanel({
                       onToggle={(completed) => onToggleTask(task.id, completed)}
                       onDelete={() => confirmDelete(task)}
                       invoiceActions={invoiceActions}
+                      showInvoiceReminder={
+                        needsInvoiceReminder(task) && !dismissedReminders.includes(task.id)
+                      }
+                      onDismissInvoiceReminder={() =>
+                        setDismissedReminders(dismissInvoiceReminder(task.id))
+                      }
                     />
                   ))}
                 </div>
@@ -337,6 +365,12 @@ export function ProjectTaskPanel({
                               onToggle={(completed) => onToggleTask(task.id, completed)}
                               onDelete={() => confirmDelete(task)}
                               invoiceActions={invoiceActions}
+                              showInvoiceReminder={
+                                needsInvoiceReminder(task) && !dismissedReminders.includes(task.id)
+                              }
+                              onDismissInvoiceReminder={() =>
+                                setDismissedReminders(dismissInvoiceReminder(task.id))
+                              }
                             />
                           ))}
                         </div>
@@ -462,6 +496,8 @@ function TaskRow({
   onToggle,
   onDelete,
   invoiceActions,
+  showInvoiceReminder,
+  onDismissInvoiceReminder,
 }: {
   task: ProjectTask;
   editing: boolean;
@@ -475,6 +511,9 @@ function TaskRow({
   onToggle: (completed: boolean) => void;
   onDelete: () => void;
   invoiceActions?: PaymentInvoiceActions;
+  /** Mốc đã tick xong mà khách chưa nhận được hóa đơn nào. */
+  showInvoiceReminder?: boolean;
+  onDismissInvoiceReminder?: () => void;
 }) {
   return (
     <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
@@ -555,6 +594,28 @@ function TaskRow({
             </span>
           )}
         </div>
+
+        {/* NHẮC NGAY TẠI MỐC, không gom lên đầu bảng: gom lên thì phải đọc tên rồi dò xuống
+            tìm đúng hàng, mà hai mốc chưa gửi là hai dòng chữ nằm cách xa chỗ cần bấm. Ở đây
+            lời nhắc và nút "Tạo & gửi hóa đơn" nằm cạnh nhau.
+
+            Vàng nhạt chứ không đỏ: đây là việc còn bỏ ngỏ, không phải lỗi. Và bỏ được, vì
+            freelancer hoàn toàn có thể đã gửi hóa đơn riêng ngoài hệ thống.  #Huynh */}
+        {showInvoiceReminder && !editing && (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span className="flex-1">{invoiceReminderText(task)}</span>
+            <button
+              type="button"
+              onClick={onDismissInvoiceReminder}
+              aria-label={`Bỏ nhắc hóa đơn cho ${paymentMilestoneLabel(task)}`}
+              title="Đã gửi hóa đơn riêng — bỏ dòng nhắc này"
+              className="shrink-0 rounded p-0.5 text-warning-foreground/70 hover:bg-warning/20 hover:text-warning-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Chỉ task thu tiền mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
             `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}

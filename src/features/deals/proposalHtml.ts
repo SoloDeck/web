@@ -137,7 +137,114 @@ export type CostItem = {
   amount: number;
   due_type?: DueType;
   due_note?: string;
+  /**
+   * Khoá ỔN ĐỊNH cho việc kéo đổi thứ tự. Bắt buộc phải có vì `key={index}` + ô nhập chữ là
+   * kéo xong con trỏ nhảy sang dòng khác.
+   *
+   * Đi thẳng vào `content.pricing_items` như mọi khoá khác — backend cố ý KHÔNG đọc (xem
+   * `pdf_content._typed_cost_items`), nên lưu kèm là vô hại và id sống qua các lần mở lại.
+   */
+  id?: string;
+  /**
+   * Dòng PHÍ TRẢ TRƯỚC. Cờ này CHỈ dành cho giao diện — nó quyết định dòng nào ghim trên
+   * cùng, khoá thời điểm thu và không cho kéo.
+   *
+   * Với backend thì đây vẫn là một hạng mục bình thường có `due_type = on_signing`: cùng sinh
+   * ra một công việc, một hoá đơn, cùng vào bảng doanh thu. Chính vì backend không cần biết
+   * khái niệm "cọc" mà cách làm này rẻ.  #Huynh
+   */
+  is_deposit?: boolean;
+  /** Tỷ lệ freelancer đã chọn. `amount` mới là sự thật; cái này lưu Ý ĐỊNH để hiện lại đúng ô %. */
+  deposit_percent?: number;
 };
+
+/**
+ * Phí trả trước mặc định. CẮT RA TỪ TỔNG chứ không cộng thêm — khách vẫn trả đúng giá đã chào.
+ *
+ * 30%: đủ để freelancer không làm không công giai đoạn đầu, mà chưa tới mức khách chùn tay như
+ * lịch 50/50 cũ. Phải khớp `pdf_content.DEPOSIT_DEFAULT_PERCENT` bên backend — backend cũng
+ * dựng sẵn hàng này cho các bảng SUY RA, vì tờ báo giá bên phải màn soạn do SERVER vẽ.  #Huynh
+ */
+export const DEPOSIT_DEFAULT_PERCENT = 30;
+/** Phải khớp `pdf_content.DEPOSIT_LABEL`. */
+export const DEPOSIT_LABEL = "Tạm ứng khi ký hợp đồng";
+/** Mọi số tiền làm tròn tới bội này — dưới ngưỡng đó không ai ghi vào báo giá. */
+const MONEY_STEP = 1000;
+
+/**
+ * Tiền cọc, làm tròn bội 1.000 ₫ và kẹp để mỗi hạng mục còn lại vẫn còn ít nhất 1.000 ₫.
+ *
+ * Kẹp trần vì hạng mục 0 đ làm DEAL KẸT VĨNH VIỄN nếu lọt qua cổng gửi — xem `costItemsIssue`.
+ *
+ * PHẢI khớp tuyệt đối `pdf_content.deposit_amount` bên backend: panel bên trái và tờ báo giá
+ * bên phải là hai bộ máy khác nhau cùng vẽ một bảng. Bên đó dùng `ROUND_HALF_UP` chứ không
+ * dùng `round()` của Python (làm tròn ngân hàng) đúng để khớp `Math.round` ở đây.  #Huynh
+ */
+export function depositAmount(total: number, percent: number, restCount: number): number {
+  if (total <= 0 || percent <= 0) return 0;
+  const raw = Math.round((total * percent) / 100 / MONEY_STEP) * MONEY_STEP;
+  const ceiling = total - restCount * MONEY_STEP;
+  return Math.max(0, Math.min(raw, ceiling));
+}
+
+/**
+ * Tỷ lệ tương ứng với một số tiền cọc — dùng khi freelancer gõ thẳng vào ô tiền.
+ *
+ * KHÔNG làm tròn ở đây, dù con số trả về xấu. Mọi thay đổi về cọc đi qua đúng một đường
+ * (`splitDeposit`), nên tỷ lệ này lập tức được quy ngược ra tiền; làm tròn tới 2 chữ số thì
+ * với giá 156 triệu, một phần trăm của phần trăm đã là 15.600 ₫ — gõ đúng 50.000.000 lại ra
+ * 49.998.000. Làm tròn là việc của chỗ HIỂN THỊ, xem `displayDepositPercent`.  #Huynh
+ */
+export function depositPercentOf(total: number, amount: number): number {
+  if (total <= 0) return 0;
+  return (amount / total) * 100;
+}
+
+/** Tỷ lệ rút gọn để bày lên ô nhập — 2 chữ số thập phân là đủ đọc, không dùng để tính tiền. */
+export function displayDepositPercent(percent: number): string {
+  return String(Math.round(percent * 100) / 100);
+}
+
+/**
+ * Đặt lại phí trả trước rồi giãn các hạng mục còn lại cho khớp phần dư.
+ *
+ * `percent <= 0` là BỎ HẲN dòng cọc, không phải đặt 0 đ: dòng 0 đ sẽ bị cổng gửi chặn.
+ *
+ * Mẫu số ở đây là tổng HIỆN CÓ của các hạng mục (khác `deriveCostItems`, chỗ đó lấy giá đề
+ * xuất của bộ định giá để mirror backend). Vì đây là hàm cho nút bấm: freelancer đã gõ tay
+ * từng dòng rồi, giãn phải giữ đúng tỷ lệ họ đang thấy chứ không quay về tỷ lệ máy đề xuất.
+ */
+export function splitDeposit(items: CostItem[], agreed: number, percent: number): CostItem[] {
+  const existing = items.find((item) => item.is_deposit);
+  const rest = items.filter((item) => !item.is_deposit);
+  if (rest.length === 0) {
+    return existing ? [{ ...existing, amount: agreed, deposit_percent: 100 }] : [];
+  }
+
+  const amount = depositAmount(agreed, percent, rest.length);
+  const base = rest.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const scaled = rescaleToTotal(rest, agreed - amount, base);
+  if (amount <= 0) return scaled;
+
+  return [makeDepositRow(amount, percent, existing), ...scaled];
+}
+
+/** Dựng dòng cọc. MỘT chỗ duy nhất biết dòng cọc trông thế nào. */
+export function makeDepositRow(
+  amount: number,
+  percent: number,
+  existing?: CostItem
+): CostItem {
+  return {
+    ...existing,
+    id: existing?.id ?? "deposit",
+    label: existing?.label || DEPOSIT_LABEL,
+    amount,
+    due_type: DUE_ON_SIGNING,
+    is_deposit: true,
+    deposit_percent: percent,
+  };
+}
 
 /** Chữ hiện cho người đọc: ghi chú riêng nếu có, không thì nhãn chuẩn của loại. */
 export function dueLabel(item: Pick<CostItem, "due_type" | "due_note">): string {
@@ -288,6 +395,11 @@ export type BackendProposalContent = {
   /** Phạm vi KHÔNG bao gồm — dòng phòng thủ chống scope creep, mục "10. Điều Khoản Bổ Sung". */
   out_of_scope?: string[];
   revision_policy?: string;
+  /**
+   * Điều khoản chuẩn lấy NGUYÊN VĂN từ mẫu trong thư viện admin, in ở mục 10 của tờ báo giá.
+   * Backend chèn khi freelancer chọn một mẫu; vắng mặt nghĩa là "AI tự viết".
+   */
+  standard_terms?: string;
   /** ISO "2026-08-31". Freelancer tự đặt hạn hiệu lực; trống thì backend tính mặc định. */
   valid_until?: string;
   /** `null` khi không neo được vào đâu (chưa chấm điểm deal, chưa có lịch sử). */

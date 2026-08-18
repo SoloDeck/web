@@ -506,6 +506,10 @@ export function ReminderComposerModal({
               <iframe
                 title="Xem trước thư nhắc"
                 srcDoc={preview}
+                // `sandbox` KHÔNG kèm `allow-scripts`: tờ giấy là HTML/CSS thuần (hai template
+                // Jinja không có thẻ <script> nào), nên chặn script trong khung là miễn phí. Giữ
+                // `allow-same-origin` để trang cha còn chạm được `contentDocument` cho sửa tại chỗ.
+                sandbox="allow-same-origin"
                 className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
               />
             ) : (
