@@ -756,8 +756,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode(null);
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error, "");
-        toast.error(message || "Không thể xóa hóa đơn. Vui lòng thử lại.");
+        toast.error(getApiErrorMessage(error, "Không thể xóa bản nháp. Vui lòng thử lại."));
       },
     });
   }
@@ -1676,9 +1675,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       {/* Tick một mốc thu tiền = tiền đã về. Hỏi ngay để chứng từ đi theo, thay vì bắt người
           dùng nhớ sang tab Tài liệu làm nốt — mà thường là không ai nhớ.
 
-          BA nút chứ không phải hai: "Để sau" vẫn tick xong task (người ta bấm tick là để
-          tick, đừng bắt trả lời câu hỏi khác mới cho làm việc mình định làm), còn "Huỷ" thì
-          không đụng gì tới task cả.  #Huynh */}
+          "Để sau" vẫn tick xong task — người ta bấm tick là để tick, đừng bắt trả lời câu
+          hỏi khác mới cho làm việc mình định làm.
+
+          Từng có nút "Huỷ" thứ ba (bỏ luôn việc tick), nay bỏ đi: dấu ✕ ở góc cửa sổ vốn đã
+          làm đúng việc đó rồi (onOpenChange -> setPaymentTaskPrompt(null)), nên nó chỉ là
+          một nút nói lại điều người dùng đã biết cách làm.  #Huynh */}
       <Dialog
         open={Boolean(paymentTaskPrompt)}
         onOpenChange={(open) => {
@@ -1718,35 +1720,26 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       </>
                     )}
                   </p>
-                  <DialogFooter className="gap-2 sm:justify-between">
+                  <DialogFooter className="gap-2">
                     <button
                       type="button"
-                      onClick={() => setPaymentTaskPrompt(null)}
-                      className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                      onClick={finishTogglingPaymentTask}
+                      className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
                     >
-                      Huỷ
+                      Để sau
                     </button>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={finishTogglingPaymentTask}
-                        className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
-                      >
-                        Để sau
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const task = paymentTaskPrompt;
-                          finishTogglingPaymentTask();
-                          if (chuaCoHoaDon) createInvoiceDraftForReview(task);
-                          else recordFullPayment(task);
-                        }}
-                        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-                      >
-                        {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const task = paymentTaskPrompt;
+                        finishTogglingPaymentTask();
+                        if (chuaCoHoaDon) createInvoiceDraftForReview(task);
+                        else recordFullPayment(task);
+                      }}
+                      className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                    >
+                      {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
+                    </button>
                   </DialogFooter>
                 </>
               );
@@ -2810,9 +2803,9 @@ export function InvoiceComposerModal({
         <ConfirmDialog
           open={deleteConfirmOpen}
           onOpenChange={setDeleteConfirmOpen}
-          title="Xóa hóa đơn nháp?"
-          description={`Hóa đơn ${invoice.invoice_number} sẽ bị xóa khỏi hồ sơ giao dịch. Thao tác này chỉ nên dùng khi tạo nhầm.`}
-          confirmLabel="Xóa hóa đơn"
+          title="Xóa bản nháp này?"
+          description={`Bạn có chắc chắn muốn xóa bản nháp ${invoice.invoice_number}? Bản nháp chưa gửi cho khách nên xóa đi không ảnh hưởng gì tới hồ sơ thu tiền.`}
+          confirmLabel="Xóa"
           cancelLabel="Giữ lại"
           tone="danger"
           isLoading={isLoading}
