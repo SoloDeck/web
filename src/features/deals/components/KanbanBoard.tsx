@@ -30,11 +30,22 @@ export function KanbanBoard({
   onCardClick,
   onDraft,
   onAddDeal,
+  archivedCount = 0,
+  onOpenArchive,
 }: {
   deals: Deal[];
   onCardClick: (d: Deal) => void;
   onDraft: (d: Deal) => void;
   onAddDeal?: () => void;
+  /**
+   * Số dự án đã vào kho lưu trữ — cho lối vào ở chân cột "Hoàn Thành".
+   *
+   * Nhận qua PROPS chứ bảng không tự gọi API: bảng này cố ý thuần trình bày (deal cũng do
+   * `WorkspaceScreen` truyền xuống). Gọi query ngay trong đây là buộc mọi bài test kéo-thả
+   * phải dựng thêm QueryClientProvider cho một con số chẳng liên quan.  #Huynh
+   */
+  archivedCount?: number;
+  onOpenArchive?: () => void;
 }) {
   const handleDragEnd = useDealStore((s) => s.handleDragEnd);
   const moveToStage = useDealStore((s) => s.moveToStage);
@@ -165,6 +176,10 @@ export function KanbanBoard({
             isDropTarget={overStage === stage.id}
             highlightedDealId={recentlyMovedId}
             unseenDealIds={unseenDeals}
+            archivedCount={stage.id === "completed_and_billed" ? archivedCount : undefined}
+            onOpenArchive={
+              stage.id === "completed_and_billed" ? onOpenArchive : undefined
+            }
           />
         ))}
       </div>

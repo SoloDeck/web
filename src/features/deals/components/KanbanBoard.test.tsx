@@ -47,7 +47,13 @@ vi.mock("./KanbanColumn", () => ({
   ),
 }));
 vi.mock("./DealCard", () => ({ DealCard: () => null }));
-vi.mock("@/services/dealsService", () => ({ updateDealStage: vi.fn() }));
+vi.mock("@/services/dealsService", () => ({
+  updateDealStage: vi.fn(),
+  // Chân cột "Hoàn Thành" đếm số dự án trong kho. Test này lo kéo-thả nên trả 0 — không có
+  // dự án nào trong kho thì lối vào kho cũng không hiện.
+  countArchivedDeals: vi.fn(async () => 0),
+  getArchivedDeals: vi.fn(async () => ({ deals: [], total: 0, totalPages: 1 })),
+}));
 
 // Bảng đọc thông báo chưa đọc để biết deal nào khách vừa gửi mà chưa ai xem. Ở tầng test
 // này chỉ quan tâm chuyện kéo-thả và highlight, nên trả về rỗng; test riêng cho phần "deal
