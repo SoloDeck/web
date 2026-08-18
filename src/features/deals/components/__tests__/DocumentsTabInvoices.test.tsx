@@ -35,6 +35,7 @@ function invoice(over: Partial<InvoiceResponse> = {}): InvoiceResponse {
 function renderTab(invoices: InvoiceResponse[], over: Partial<{
   attachments: DealAttachment[];
   onDeleteAttachment: (attachment: DealAttachment) => void;
+  pendingInvoiceId: string | null;
 }> = {}) {
   render(
     <DocumentsTab
@@ -60,7 +61,7 @@ function renderTab(invoices: InvoiceResponse[], over: Partial<{
       onSignContract={vi.fn()}
       onViewContract={vi.fn()}
       contractActionLoading={false}
-      invoiceActionLoading={false}
+      pendingInvoiceId={over.pendingInvoiceId ?? null}
     />
   );
 }
@@ -144,5 +145,45 @@ describe("xoá file đính kèm", () => {
     expect(onDeleteAttachment).toHaveBeenCalledWith(
       expect.objectContaining({ id: "att-1", filename: file.filename })
     );
+  });
+});
+
+/**
+ * Người dùng nêu: bấm gửi MỘT hoá đơn mà cả danh sách mờ theo, "nhìn giống như gửi đồng bộ
+ * một lúc". Nguyên nhân: một cờ boolean gộp sáu mutation rồi truyền xuống mọi hàng.
+ *
+ * Các hàng hoá đơn độc lập nhau, nên chỉ hàng đang có việc chạy được phép khoá.
+ */
+describe("<DocumentsTab /> — khoá đúng một hàng khi đang xử lý", () => {
+  const draftA = invoice({
+    id: "inv-a",
+    invoice_number: "INV-A",
+    status: "draft",
+    amount_paid: 0,
+  });
+  const draftB = invoice({
+    id: "inv-b",
+    invoice_number: "INV-B",
+    status: "draft",
+    amount_paid: 0,
+  });
+
+  function sendButtonIn(row: HTMLElement) {
+    return within(row).getByRole("button", { name: /Gửi hóa đơn/ });
+  }
+
+  it("hàng đang gửi thì khoá, hàng còn lại vẫn bấm được", () => {
+    renderTab([draftA, draftB], { pendingInvoiceId: "inv-a" });
+
+    expect(sendButtonIn(rowOf("INV-A"))).toBeDisabled();
+    // Đây là chỗ từng sai: hàng B chẳng liên quan gì mà cũng bị mờ.
+    expect(sendButtonIn(rowOf("INV-B"))).toBeEnabled();
+  });
+
+  it("không có việc nào chạy thì mọi hàng đều bấm được", () => {
+    renderTab([draftA, draftB], { pendingInvoiceId: null });
+
+    expect(sendButtonIn(rowOf("INV-A"))).toBeEnabled();
+    expect(sendButtonIn(rowOf("INV-B"))).toBeEnabled();
   });
 });

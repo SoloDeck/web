@@ -201,6 +201,24 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const sendInvoiceMutation = useSendInvoice(deal?.id);
   const voidInvoiceMutation = useVoidInvoice(deal?.id);
   const recordInvoicePaymentMutation = useRecordInvoicePayment(deal?.id);
+  /**
+   * Hoá đơn NÀO đang được xử lý — để khoá đúng một hàng thay vì khoá cả danh sách.
+   *
+   * Trước đây chỗ này là một cờ boolean gộp sáu mutation rồi truyền xuống mọi hàng: bấm gửi
+   * một hoá đơn là toàn bộ nút của mọi hàng mờ theo, trông y như hệ thống đang gửi hết một
+   * lượt. Vừa gây sợ, vừa che mất việc thật đang chạy là việc nào.
+   *
+   * Lấy id từ `variables` của mutation đang chạy nên không phải nuôi thêm state — mà state
+   * kiểu đó thì kiểu gì cũng có ngày quên dọn.  #Huynh
+   */
+  const pendingInvoiceId =
+    (sendInvoiceMutation.isPending ? sendInvoiceMutation.variables : null) ??
+    (voidInvoiceMutation.isPending ? voidInvoiceMutation.variables : null) ??
+    (deleteInvoiceMutation.isPending ? deleteInvoiceMutation.variables : null) ??
+    (recordInvoicePaymentMutation.isPending
+      ? recordInvoicePaymentMutation.variables?.invoiceId
+      : null) ??
+    null;
   const proposals = useProposalList({ deal_id: deal?.id, page_size: 10 });
   const contracts = useContractList({ deal_id: deal?.id, page_size: 10 });
   const reminders = useDealReminders(deal?.id);
@@ -1415,14 +1433,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     savedQualifications={savedQualificationDocs}
                     onViewQualification={setViewQualificationDoc}
                     contractActionLoading={sendContract.isPending}
-                    invoiceActionLoading={
-                      createInvoice.isPending ||
-                      updateInvoiceMutation.isPending ||
-                      deleteInvoiceMutation.isPending ||
-                      sendInvoiceMutation.isPending ||
-                      voidInvoiceMutation.isPending ||
-                      recordInvoicePaymentMutation.isPending
-                    }
+                    pendingInvoiceId={pendingInvoiceId}
                   />
                 </TabsContent>
 
@@ -2911,7 +2922,7 @@ export function DocumentsTab({
   onSignContract,
   onViewContract,
   contractActionLoading,
-  invoiceActionLoading,
+  pendingInvoiceId,
   savedQualifications: savedQualificationItems,
   onViewQualification,
 }: {
@@ -2944,7 +2955,8 @@ export function DocumentsTab({
   onSignContract: (contract: { id: string; share_token?: string | null; signed_by_freelancer_at?: string | null }) => void;
   onViewContract: (contractId: string) => void;
   contractActionLoading: boolean;
-  invoiceActionLoading: boolean;
+  /** Hoá đơn đang được xử lý — chỉ hàng của nó bị khoá, các hàng khác vẫn bấm được. */
+  pendingInvoiceId: string | null;
 }) {
   const proposalStatusLabel: Record<string, StatusBadge> = {
     draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
@@ -3018,6 +3030,8 @@ export function DocumentsTab({
         const total = Number(invoice.total ?? 0);
         const paid = Number(invoice.amount_paid ?? 0);
         const remaining = Math.max(total - paid, 0);
+        // Chỉ khoá hàng đang có việc chạy. Các hàng khác vẫn bấm được — chúng độc lập nhau.
+        const rowBusy = pendingInvoiceId === invoice.id;
         const canSendInvoice = invoice.status === "draft";
         const canRecordPayment = remaining > 0 && !["draft", "void", "cancelled"].includes(invoice.status);
         const canVoidInvoice = !["draft", "paid", "void", "cancelled"].includes(invoice.status) && paid <= 0;
@@ -3074,7 +3088,7 @@ export function DocumentsTab({
               {canSendInvoice && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onSendInvoice(invoice.id)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -3084,7 +3098,7 @@ export function DocumentsTab({
               {canRecordPayment && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onRecordInvoicePayment(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -3094,7 +3108,7 @@ export function DocumentsTab({
               {canVoidInvoice && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onVoidInvoice(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
                 >
