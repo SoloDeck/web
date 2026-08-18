@@ -119,7 +119,21 @@ export async function getMonthlyRevenue(
     "/analytics/revenue/monthly",
     { params }
   );
-  return data.data ?? [];
+  // ÉP KIỂU SỐ. Backend khai `invoiced`/`collected` là `Decimal`, mà pydantic v2 serialize
+  // Decimal thành CHUỖI JSON ("1000.00"). Kiểu TS ghi `number` nhưng TS không kiểm tra được
+  // dữ liệu chạy thật, nên `s + d.invoiced` NỐI CHUỖI thay vì cộng: tổng ra
+  // "01000.002000.00" rồi `Intl.NumberFormat` nhả ra "NaN ₫" ngay dưới tiêu đề biểu đồ.
+  //
+  // Cùng gốc, hai hệ quả lặng hơn: `Math.max` và phép trừ vẫn ép kiểu ngầm nên CỘT vẽ đúng
+  // (chỉ tổng sai — càng khó nghi), và `totalInvoiced === 0` so sánh strict với chuỗi nên
+  // trạng thái rỗng "Chưa có hoá đơn nào" không bao giờ hiện.
+  //
+  // Các service khác đã ép sẵn (projectsService, dealsService); chỗ này bị bỏ sót.  #Huynh
+  return (data.data ?? []).map((row) => ({
+    month: row.month,
+    invoiced: Number(row.invoiced) || 0,
+    collected: Number(row.collected) || 0,
+  }));
 }
 
 /** GET /analytics/win-rate — won / lost counts and win rate (0..1 fraction). */
@@ -139,7 +153,15 @@ export async function getTopClients(
     "/analytics/clients/top",
     { params }
   );
-  return data.data ?? [];
+  // Cùng cái bẫy Decimal-thành-chuỗi như `getMonthlyRevenue`. Ở đây nó chưa lộ ra vì
+  // `formatVND` và `> 0` đều ép kiểu ngầm — nhưng chỉ cần một phép CỘNG được thêm vào sau này
+  // là ra ngay chuỗi nối. Ép ngay tại cửa cho hết chuyện.  #Huynh
+  return (data.data ?? []).map((row) => ({
+    ...row,
+    revenue: Number(row.revenue) || 0,
+    outstanding: Number(row.outstanding) || 0,
+    deal_count: Number(row.deal_count) || 0,
+  }));
 }
 
 /** GET /analytics/ai-usage — generation count and estimated cost. */

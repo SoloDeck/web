@@ -5,6 +5,26 @@ import * as useAnalytics from "@/features/revenue/hooks/useAnalytics";
 
 vi.mock("@/features/revenue/hooks/useAnalytics");
 
+// Tên khách giờ là một <Link> sang hồ sơ khách đó, mà Link thật đòi router context. Test này
+// kiểm NỘI DUNG bảng doanh thu, không kiểm điều hướng — dựng một thẻ <a> giữ nguyên `to` và
+// `params` để vẫn khẳng định được nó trỏ đúng chỗ.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    params,
+    children,
+    ...rest
+  }: {
+    to: string;
+    params?: Record<string, string>;
+    children: React.ReactNode;
+  } & Record<string, unknown>) => (
+    <a href={to} data-params={JSON.stringify(params ?? {})} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 type QueryLike<T> = { data?: T; isLoading: boolean; isError: boolean };
 
 function ok<T>(data: T): QueryLike<T> {
@@ -126,5 +146,38 @@ describe("<RevenueDashboard />", () => {
     mockAll({ revenue: { isLoading: false, isError: true } });
     render(<RevenueDashboard />);
     expect(screen.getByText(/Không thể tải dữ liệu doanh thu/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Bấm tên khách ở "Khách hàng mang lại nhiều tiền nhất" là sang hồ sơ khách đó.
+ *
+ * Phải điều hướng bằng `client_id`, KHÔNG phải tên: một người thật có thể ứng với nhiều bản ghi
+ * khách (mỗi freelancer một bản riêng — `clients` có `owner_user_id`; và ngay trong cùng một
+ * freelancer cũng dễ trùng vì `ClientsService.create` không chống trùng). Tra theo tên là có
+ * ngày mở nhầm hồ sơ khách khác.  #Huynh
+ */
+describe("<RevenueDashboard /> — tên khách bấm được", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("mỗi khách là một liên kết tới ĐÚNG hồ sơ của họ", () => {
+    mockAll({
+      topClients: ok([
+        { client_id: "c-aaa", name: "Hoa Huynh", revenue: 1, outstanding: 0, deal_count: 1 },
+        { client_id: "c-bbb", name: "Hỏa Huynh", revenue: 2, outstanding: 0, deal_count: 2 },
+      ]),
+    });
+    render(<RevenueDashboard />);
+
+    const a = screen.getByTitle("Mở hồ sơ Hoa Huynh");
+    const b = screen.getByTitle("Mở hồ sơ Hỏa Huynh");
+
+    expect(a).toHaveAttribute("href", "/clients/$clientId");
+    // HAI khách TRÙNG TÊN gần như nhau vẫn ra hai id khác nhau — đây đúng là cảnh đang có
+    // trong dữ liệu thật, và là lý do không được tra theo tên.
+    expect(a).toHaveAttribute("data-params", JSON.stringify({ clientId: "c-aaa" }));
+    expect(b).toHaveAttribute("data-params", JSON.stringify({ clientId: "c-bbb" }));
   });
 });
