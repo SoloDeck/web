@@ -28,6 +28,27 @@ export function useMySubscription() {
   });
 }
 
+/**
+ * Gói hiện tại có dùng được AI không.
+ *
+ * `undefined` = CHƯA BIẾT (đang tải). Chỗ gọi phải coi đó là "chưa chặn gì" chứ không phải
+ * "không được" — khoá nhầm tính năng của người đã trả tiền còn tệ hơn để họ ăn một lần 402.
+ *
+ * Không có gói nào (`isError`, thường là 404) thì trả `false`: đó đúng là bước chặn ĐẦU TIÊN
+ * của `AiUsageService.consume()` bên backend — không subscription là 402 ngay.
+ *
+ * Ghép từ hai query đã có sẵn trong cache (trang Gói dịch vụ dùng chung), nên không đẻ thêm
+ * request nào trong luồng soạn tài liệu.  #Huynh
+ */
+export function useCanUseAi(): boolean | undefined {
+  const plans = usePlans();
+  const mine = useMySubscription();
+
+  if (mine.isError) return false;
+  if (!plans.data || !mine.data) return undefined;
+  return plans.data.find((plan) => plan.id === mine.data.plan_id)?.can_use_ai ?? false;
+}
+
 /** Mở một lần thanh toán. Chỗ gọi tự quyết định điều hướng sang MoMo. */
 export function useCreateCheckout() {
   return useMutation({ mutationFn: createCheckout });

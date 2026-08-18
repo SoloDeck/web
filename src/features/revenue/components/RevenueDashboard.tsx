@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Loader2, Sparkles, Users, Wallet } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import {
@@ -108,9 +109,20 @@ export function RevenueDashboard() {
               </div>
             ) : (
               (topClients.data ?? []).map((client, index) => (
-                <div
+                /* Bấm vào là sang ĐÚNG hồ sơ khách đó.
+                   Điều hướng bằng `client_id` chứ không phải tên: một người thật có thể ứng
+                   với NHIỀU bản ghi khách (mỗi freelancer một bản riêng — `clients` có
+                   `owner_user_id`; và ngay trong cùng một freelancer cũng dễ trùng vì
+                   `ClientsService.create` không chống trùng). Tra theo tên là có ngày mở nhầm
+                   hồ sơ của khách khác, hoặc của freelancer khác.
+                   `client_id` này lấy từ chính bộ số của freelancer đang đăng nhập nên luôn
+                   trỏ về bản ghi họ sở hữu.  #Huynh */
+                <Link
                   key={client.client_id}
-                  className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2"
+                  to="/clients/$clientId"
+                  params={{ clientId: client.client_id }}
+                  title={`Mở hồ sơ ${client.name}`}
+                  className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2 text-left transition-colors hover:border-primary/50 hover:bg-secondary/50"
                 >
                   <span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-[11px] font-bold">
                     {index + 1}
@@ -130,7 +142,7 @@ export function RevenueDashboard() {
                   <div className="shrink-0 text-sm font-semibold tabular-nums text-success">
                     {formatVND(client.revenue)}
                   </div>
-                </div>
+                </Link>
               ))
             )}
           </div>

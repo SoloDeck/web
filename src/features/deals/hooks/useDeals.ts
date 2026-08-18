@@ -14,7 +14,12 @@ import {
 } from "@/services/dealsService";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import type { Stage } from "@/features/deals/types";
-import { getDealHistory, subscribeDealHistory } from "@/features/deals/dealHistoryStorage";
+import {
+  getDealHistories,
+  getDealHistory,
+  subscribeAllDealHistory,
+  subscribeDealHistory,
+} from "@/features/deals/dealHistoryStorage";
 
 export const dealKeys = {
   all: ["deals"] as const,
@@ -69,6 +74,23 @@ export function useDealHistory(dealId: string | undefined) {
     (callback) => (dealId ? subscribeDealHistory(dealId, callback) : () => {}),
     () => (dealId ? getDealHistory(dealId) : EMPTY_HISTORY),
     () => EMPTY_HISTORY
+  );
+}
+
+const EMPTY_HISTORIES: Record<string, ReturnType<typeof getDealHistory>> = {};
+
+/**
+ * Lịch sử của NHIỀU deal — dùng ở hồ sơ khách hàng, nơi một khách có nhiều dự án.
+ *
+ * `dealIds` phải ổn định giữa các lần render (bọc `useMemo` ở nơi gọi), nếu không mỗi render
+ * lại dựng một mảng mới và `getSnapshot` phải tính lại từ đầu.
+ */
+export function useDealHistories(dealIds: string[]) {
+  const key = dealIds.join("|");
+  return useSyncExternalStore(
+    subscribeAllDealHistory,
+    () => (key ? getDealHistories(key.split("|")) : EMPTY_HISTORIES),
+    () => EMPTY_HISTORIES
   );
 }
 

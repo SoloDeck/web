@@ -7,6 +7,7 @@ import {
   ChevronUp,
   ClipboardCheck,
   GripVertical,
+  AlertTriangle,
   Pencil,
   Plus,
   Trash2,
@@ -16,7 +17,16 @@ import {
   PaymentTaskInvoice,
   type PaymentInvoiceActions,
 } from "@/features/deals/components/PaymentTaskInvoice";
-import { isPaymentTask } from "@/features/deals/paymentTasks";
+import {
+  invoiceReminderText,
+  isPaymentTask,
+  needsInvoiceReminder,
+  paymentMilestoneLabel,
+} from "@/features/deals/paymentTasks";
+import {
+  dismissInvoiceReminder,
+  readDismissedReminders,
+} from "@/features/deals/invoiceReminderDismissals";
 import {
   Dialog,
   DialogContent,
@@ -26,9 +36,10 @@ import {
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { cn } from "@/lib/utils";
+import { formatVND } from "@/utils/format";
 import type { ProjectTask } from "@/features/deals/types";
 
-type TaskSortMode = "newest" | "oldest";
+type TaskSortMode = "order" | "newest" | "oldest";
 
 const PHASE_RULES: { label: string; keywords: string[] }[] = [
   { label: "GIAI ĐOẠN 1: THIẾT KẾ", keywords: ["thiết kế", "wireframe", "mockup", "figma"] },
@@ -72,6 +83,14 @@ function getTaskCreatedTime(task: ProjectTask): number {
 function sortTasksForWork(tasks: ProjectTask[], sortMode: TaskSortMode): ProjectTask[] {
   return [...tasks].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    // "Theo thứ tự dự án" là mặc định MỚI: với task thu tiền, `position` chính là thứ tự hạng
+    // mục freelancer đã sắp trên tờ báo giá. Sắp theo thời điểm tạo không làm được việc này —
+    // cả lô task thu tiền sinh trong một transaction nên `createdAt` bằng nhau hết, và bản cũ
+    // còn để mặc định "mới nhất trước" nên bảng việc hiện ngược hẳn tờ báo giá.  #Huynh
+    if (sortMode === "order") {
+      const gap = (a.position ?? 0) - (b.position ?? 0);
+      if (gap !== 0) return gap;
+    }
     const diff = getTaskCreatedTime(a) - getTaskCreatedTime(b);
     return sortMode === "newest" ? -diff : diff;
   });
@@ -133,7 +152,10 @@ export function ProjectTaskPanel({
   const [editingNote, setEditingNote] = useState("");
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
   const [taskPendingDelete, setTaskPendingDelete] = useState<ProjectTask | null>(null);
-  const [sortMode, setSortMode] = useState<TaskSortMode>("newest");
+  const [sortMode, setSortMode] = useState<TaskSortMode>("order");
+  // Những mốc freelancer đã bấm bỏ nhắc — họ gửi hóa đơn riêng ngoài hệ thống là chuyện có
+  // thật, và nhắc mãi một việc người ta đã làm thì lần sau họ không đọc dòng nhắc nào nữa.
+  const [dismissedReminders, setDismissedReminders] = useState<string[]>(readDismissedReminders);
 
   function togglePhase(label: string) {
     setCollapsedPhases((prev) => {
@@ -228,6 +250,7 @@ export function ProjectTaskPanel({
                   aria-label="Sắp xếp công việc"
                   className="bg-transparent text-sm font-medium text-foreground outline-none"
                 >
+                  <option value="order">Theo thứ tự dự án</option>
                   <option value="newest">Mới tạo trước</option>
                   <option value="oldest">Cũ hơn trước</option>
                 </select>
@@ -292,6 +315,12 @@ export function ProjectTaskPanel({
                       onToggle={(completed) => onToggleTask(task.id, completed)}
                       onDelete={() => confirmDelete(task)}
                       invoiceActions={invoiceActions}
+                      showInvoiceReminder={
+                        needsInvoiceReminder(task) && !dismissedReminders.includes(task.id)
+                      }
+                      onDismissInvoiceReminder={() =>
+                        setDismissedReminders(dismissInvoiceReminder(task.id))
+                      }
                     />
                   ))}
                 </div>
@@ -336,6 +365,12 @@ export function ProjectTaskPanel({
                               onToggle={(completed) => onToggleTask(task.id, completed)}
                               onDelete={() => confirmDelete(task)}
                               invoiceActions={invoiceActions}
+                              showInvoiceReminder={
+                                needsInvoiceReminder(task) && !dismissedReminders.includes(task.id)
+                              }
+                              onDismissInvoiceReminder={() =>
+                                setDismissedReminders(dismissInvoiceReminder(task.id))
+                              }
                             />
                           ))}
                         </div>
@@ -461,6 +496,8 @@ function TaskRow({
   onToggle,
   onDelete,
   invoiceActions,
+  showInvoiceReminder,
+  onDismissInvoiceReminder,
 }: {
   task: ProjectTask;
   editing: boolean;
@@ -474,6 +511,9 @@ function TaskRow({
   onToggle: (completed: boolean) => void;
   onDelete: () => void;
   invoiceActions?: PaymentInvoiceActions;
+  /** Mốc đã tick xong mà khách chưa nhận được hóa đơn nào. */
+  showInvoiceReminder?: boolean;
+  onDismissInvoiceReminder?: () => void;
 }) {
   return (
     <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
@@ -534,9 +574,50 @@ function TaskRow({
           </span>
           <span>Tạo: {formatTaskDate(task.createdAt)}</span>
           {task.completed && <span>Hoàn thành: {formatTaskDate(task.completedAt)}</span>}
+          {/* Số tiền phải thu, ngay trên hàng: freelancer nhìn bảng việc là biết dòng nào
+              đáng bao nhiêu, khỏi mở báo giá ra dò.  #Huynh */}
+          {task.billingAmount != null && (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold tabular-nums text-primary">
+              {formatVND(task.billingAmount)}
+            </span>
+          )}
+          {/* Đòi được NGAY hay phải làm xong đã. `null` (task cũ, task tự thêm) thì im lặng —
+              thà thiếu một nhãn còn hơn đoán sai rồi nhắc freelancer đi đòi nhầm.  #Huynh */}
+          {task.billingDueType === "on_signing" && (
+            <span className="rounded-full bg-success/10 px-2 py-0.5 font-medium text-success">
+              Thu ngay
+            </span>
+          )}
+          {task.billingDueType === "on_completion" && (
+            <span className="rounded-full bg-secondary px-2 py-0.5 font-medium">
+              Thu khi xong
+            </span>
+          )}
         </div>
 
-        {/* Chỉ mốc "Thu tiền:" mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
+        {/* NHẮC NGAY TẠI MỐC, không gom lên đầu bảng: gom lên thì phải đọc tên rồi dò xuống
+            tìm đúng hàng, mà hai mốc chưa gửi là hai dòng chữ nằm cách xa chỗ cần bấm. Ở đây
+            lời nhắc và nút "Tạo & gửi hóa đơn" nằm cạnh nhau.
+
+            Vàng nhạt chứ không đỏ: đây là việc còn bỏ ngỏ, không phải lỗi. Và bỏ được, vì
+            freelancer hoàn toàn có thể đã gửi hóa đơn riêng ngoài hệ thống.  #Huynh */}
+        {showInvoiceReminder && !editing && (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span className="flex-1">{invoiceReminderText(task)}</span>
+            <button
+              type="button"
+              onClick={onDismissInvoiceReminder}
+              aria-label={`Bỏ nhắc hóa đơn cho ${paymentMilestoneLabel(task)}`}
+              title="Đã gửi hóa đơn riêng — bỏ dòng nhắc này"
+              className="shrink-0 rounded p-0.5 text-warning-foreground/70 hover:bg-warning/20 hover:text-warning-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Chỉ task thu tiền mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
             `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}
         {invoiceActions && isPaymentTask(task) && !editing && (
           <PaymentTaskInvoice task={task} actions={invoiceActions} />
@@ -546,9 +627,14 @@ function TaskRow({
         <button type="button" onClick={onStartEdit} aria-label={`Sửa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary">
           <Pencil className="h-4 w-4" />
         </button>
-        <button type="button" onClick={onDelete} aria-label={`Xóa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </button>
+        {/* KHÔNG cho xoá khoản phải thu: xoá là nó biến khỏi guard "hoàn thành dự án" lẫn
+            bảng doanh thu, và deal đóng lại được trong khi tiền chưa về. Backend cũng chặn
+            (409) — ẩn nút ở đây để freelancer khỏi bấm rồi ăn lỗi.  #Huynh */}
+        {!isPaymentTask(task) && (
+          <button type="button" onClick={onDelete} aria-label={`Xóa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   );

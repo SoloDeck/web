@@ -141,4 +141,70 @@ describe("<ProjectTaskPanel />", () => {
     await user.click(await screen.findByRole("button", { name: "Xóa công việc" }));
     expect(screen.queryByText("Chốt phạm vi dự án")).not.toBeInTheDocument();
   }, 20_000);
+
+  it("công việc thu tiền hiện số tiền ngay trên hàng", () => {
+    // Nhìn bảng việc là biết dòng nào đáng bao nhiêu, khỏi mở báo giá ra dò.
+    render(
+      <TaskHarness
+        initialTasks={[makeTask({ title: "Dựng giao diện", billingAmount: 12_000_000 })]}
+      />
+    );
+
+    expect(screen.getByText(/12\.000\.000/)).toBeInTheDocument();
+  });
+
+  it("KHÔNG cho xoá công việc thu tiền", () => {
+    /**
+     * Xoá một khoản phải thu là nó biến khỏi guard "hoàn thành dự án" lẫn bảng doanh thu,
+     * và deal đóng lại được trong khi tiền chưa về. Backend cũng chặn (409); ẩn nút ở đây
+     * để freelancer khỏi bấm rồi ăn lỗi.  #Huynh
+     */
+    render(
+      <TaskHarness
+        initialTasks={[
+          makeTask({ id: "a", title: "Dựng giao diện", billingAmount: 12_000_000 }),
+          makeTask({ id: "b", title: "Sửa lại logo" }),
+        ]}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Xóa Dựng giao diện/ })).not.toBeInTheDocument();
+    // Task thường thì vẫn xoá được như cũ.
+    expect(screen.getByRole("button", { name: /Xóa Sửa lại logo/ })).toBeInTheDocument();
+  });
+
+  it("task CŨ theo tiền tố cũng không xoá được, dù backfill bỏ sót", () => {
+    render(
+      <TaskHarness initialTasks={[makeTask({ title: "Thu tiền: Đặt cọc khi ký hợp đồng" })]} />
+    );
+
+    expect(screen.queryByRole("button", { name: /Xóa Thu tiền/ })).not.toBeInTheDocument();
+  });
+
+  it("phân biệt khoản đòi được NGAY với khoản phải làm xong đã", () => {
+    // Freelancer nhìn bảng việc là biết dòng nào đi đòi được luôn.
+    render(
+      <TaskHarness
+        initialTasks={[
+          makeTask({ id: "a", title: "Phân tích yêu cầu", billingAmount: 39_000_000, billingDueType: "on_signing" }),
+          makeTask({ id: "b", title: "Thiết kế hệ thống", billingAmount: 39_000_000, billingDueType: "on_completion" }),
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Thu ngay")).toBeInTheDocument();
+    expect(screen.getByText("Thu khi xong")).toBeInTheDocument();
+  });
+
+  it("không đoán bừa nhãn cho task cũ chưa rõ thời điểm thu", () => {
+    // `billingDueType` null = chưa rõ. Thà thiếu một nhãn còn hơn nhắc freelancer đi đòi nhầm.
+    render(
+      <TaskHarness
+        initialTasks={[makeTask({ title: "Thu tiền: Đợt 1", billingAmount: 10_000_000 })]}
+      />
+    );
+
+    expect(screen.queryByText("Thu ngay")).not.toBeInTheDocument();
+    expect(screen.queryByText("Thu khi xong")).not.toBeInTheDocument();
+  });
 });

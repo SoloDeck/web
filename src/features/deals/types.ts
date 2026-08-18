@@ -41,7 +41,26 @@ export type ProjectTask = {
   completed: boolean;
   createdAt: string;
   completedAt: string | null;
-  /** `null`/vắng mặt = chưa xuất hóa đơn cho mốc này. */
+  /**
+   * Số tiền phải thu. KHÔNG `null` = đây là task THU TIỀN (sinh từ một hạng mục chi phí của
+   * báo giá đã chốt), và là dấu nhận biết CHÍNH THỨC — xem `paymentTasks.isPaymentTask`.
+   */
+  billingAmount?: number | null;
+  /**
+   * `"on_signing"` = đòi được NGAY (khoản đặt cọc); `"on_completion"` = đòi khi công việc
+   * xong. `null` với task cũ và task freelancer tự thêm — giao diện im lặng chứ không đoán.
+   */
+  billingDueType?: "on_signing" | "on_completion" | null;
+  /**
+   * Thứ tự hiển thị trong dự án. Với task thu tiền, đây chính là thứ tự hạng mục chi phí trên
+   * tờ báo giá — freelancer kéo sắp lại ở mục 7 thì bảng việc phải theo.
+   *
+   * Không suy ra được từ `createdAt`: cả lô task thu tiền sinh trong một transaction nên
+   * `createdAt` bằng nhau tuyệt đối, sắp theo nó là thứ tự tuỳ lần truy vấn. Tuỳ chọn để các
+   * bản ghi cũ và fixture trong test không phải khai.  #Huynh
+   */
+  position?: number;
+  /** `null`/vắng mặt = chưa xuất hóa đơn cho khoản này. */
   invoice?: TaskInvoice | null;
 };
 
@@ -72,6 +91,13 @@ export type Deal = {
   aiQualificationRecommendation?: string | null;
   createdAt: string;
   updatedAt?: string;
+  /**
+   * Ngày deal vào giai đoạn cuối (hoàn thành / không chốt được).
+   *
+   * Cũng chính là mốc quyết định dự án đã vào KHO LƯU TRỮ hay chưa — kho là thứ suy ra từ
+   * ngày này, không phải một cột trạng thái riêng.  #Huynh
+   */
+  closedAt?: string | null;
   notes: string;
   /** Mốc thời gian KHÁCH nêu. Vào khối chấm điểm — tiêu chí "Thời gian". */
   desiredTimeline?: string;

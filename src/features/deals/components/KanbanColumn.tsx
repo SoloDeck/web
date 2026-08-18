@@ -1,6 +1,6 @@
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
-import { Inbox } from "lucide-react";
+import { Archive, Inbox } from "lucide-react";
 import { DealCard } from "./DealCard";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,8 @@ export function KanbanColumn({
   isDropTarget = false,
   highlightedDealId = null,
   unseenDealIds,
+  archivedCount,
+  onOpenArchive,
 }: {
   stage: Stage;
   title: string;
@@ -27,6 +29,9 @@ export function KanbanColumn({
   highlightedDealId?: string | null;
   /** Deal khách vừa gửi mà freelancer chưa mở xem (map dealId -> id thông báo). */
   unseenDealIds?: ReadonlyMap<string, string>;
+  /** Số dự án đã vào kho. Chỉ cột "Hoàn Thành" truyền — các cột khác bỏ trống. */
+  archivedCount?: number;
+  onOpenArchive?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const total = deals.reduce((sum, deal) => sum + deal.value, 0);
@@ -88,6 +93,23 @@ export function KanbanColumn({
           </div>
         )}
       </div>
+
+      {/* CHÂN CỘT — lối vào kho lưu trữ.
+        Nằm NGOÀI vùng cuộn để không trôi mất khi cột dài. Chỉ hiện khi thật sự có dự án trong
+        kho: cột trống trơn mà treo sẵn "0 dự án trong kho" thì chỉ tổ làm rối.
+
+        Đây cũng là câu trả lời cho thắc mắc "mấy dự án cũ đâu rồi" — đặt đúng chỗ người dùng
+        đang nhìn lúc thắc mắc, thay vì bắt họ đi tìm trong một tab khác.  #Huynh */}
+      {onOpenArchive && (archivedCount ?? 0) > 0 && (
+        <button
+          type="button"
+          onClick={onOpenArchive}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-[11px] font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+        >
+          <Archive className="h-3.5 w-3.5" />
+          {archivedCount} dự án cũ hơn trong kho →
+        </button>
+      )}
     </section>
   );
 }

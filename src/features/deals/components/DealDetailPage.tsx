@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bot,
@@ -31,13 +31,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
 import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
+import { fillContractFromTemplate } from "@/services/contractsService";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { proposalToHtml } from "@/features/deals/proposalHtml";
 import { getProposalPreview } from "@/services/proposalsService";
 import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
-import { PAYMENT_TASK_PREFIX, isPaymentTask, paymentMilestoneLabel } from "@/features/deals/paymentTasks";
+import {
+  isPaymentTask,
+  paymentMilestoneLabel,
+  shouldTickAfterInvoiceSent,
+} from "@/features/deals/paymentTasks";
+import {
+  buildInvoiceDraft,
+  composeInvoiceNotes,
+  buildDefaultInvoiceNotes,
+  getInvoiceDisplayTitle,
+  invoiceOrdinal,
+  type InvoiceComposerClient,
+  type InvoiceDraftState,
+  type InvoiceTone,
+} from "@/features/deals/invoiceComposer";
 import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { DealReminderPanel } from "@/features/reminders/components/DealReminderPanel";
@@ -49,7 +65,6 @@ import {
   useUpdateTask,
   useDeleteTask,
   useCreateTaskInvoice,
-  useSendTaskInvoice,
   useRecordTaskPayment,
   projectTaskKeys,
 } from "@/features/deals/hooks/useProjectTasks";
@@ -126,12 +141,6 @@ function toApiDateValue(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
 /**
  * Backend đặt recommendation = "qualify" nếu điểm >= 60, ngược lại "pass".
  * "pass" ở đây là thuật ngữ sales — nghĩa là "BỎ QUA deal này", KHÔNG phải "đạt".
@@ -203,9 +212,16 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const deleteProposalMutation = useDeleteProposal();
   const createContract = useCreateContract();
   const generateContract = useGenerateContractContent();
+  /** Đường soạn hợp đồng KHÔNG dùng AI — song sinh với `generateContract`, khác mỗi endpoint. */
+  const fillContractSkeleton = useMutation({
+    mutationFn: ({ contractId, templateId }: { contractId: string; templateId: string | null }) =>
+      fillContractFromTemplate(contractId, templateId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+  });
   const recordSignature = useRecordClientSignature();
   const sendContract = useSendContract();
   const contractTemplates = useTermTemplates("contract");
+  const canUseAi = useCanUseAi();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [newDealOpen, setNewDealOpen] = useState(false);
@@ -222,6 +238,16 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [viewAttachment, setViewAttachment] = useState<DealAttachment | null>(null);
   const [invoiceModalMode, setInvoiceModalMode] = useState<"create" | "view" | "edit" | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceResponse | null>(null);
+  /**
+   * Mốc thu tiền đang chờ gửi hóa đơn qua cửa sổ soạn.
+   *
+   * Cửa sổ soạn chỉ biết về HÓA ĐƠN, không biết nó thuộc mốc nào — mà gửi xong thì phải tick
+   * mốc đó. Giữ ở đây thay vì tra ngược từ `invoice_id`: freelancer có thể mở cùng hóa đơn ấy
+   * từ tab Tài liệu, và lúc đó không có mốc nào đang chờ cả.  #Huynh
+   */
+  const [invoiceTaskAwaitingSend, setInvoiceTaskAwaitingSend] = useState<ProjectTask | null>(null);
+  /** File đính kèm đang chờ xác nhận xoá. Xoá là mất hẳn, nên phải hỏi. */
+  const [attachmentPendingDelete, setAttachmentPendingDelete] = useState<DealAttachment | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
@@ -262,12 +288,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const updateTaskMutation = useUpdateTask(deal?.id ?? "");
   const deleteTaskMutation = useDeleteTask(deal?.id ?? "");
   const createTaskInvoice = useCreateTaskInvoice(deal?.id ?? "");
-  const sendTaskInvoice = useSendTaskInvoice(deal?.id ?? "");
   const recordTaskPayment = useRecordTaskPayment(deal?.id ?? "");
   // Mốc đang chạy thao tác hóa đơn — khoá nút để bấm hai lần không đẻ hai chứng từ.
   const [invoiceBusyTaskId, setInvoiceBusyTaskId] = useState<string | null>(null);
   // Mốc vừa được tick, đang chờ trả lời "gửi hóa đơn / ghi nhận thanh toán / để sau".
   const [paymentTaskPrompt, setPaymentTaskPrompt] = useState<ProjectTask | null>(null);
+  // Khoản "thu khi xong" bị bấm xuất hóa đơn lúc công việc chưa tick xong — đang chờ xác nhận.
+  const [earlyInvoiceTask, setEarlyInvoiceTask] = useState<ProjectTask | null>(null);
 
   const proposalItems = proposals.data?.data ?? [];
   // Tài liệu chỉ kể bản đánh giá ĐÃ CHỐT; tab Lịch sử vẫn kể hết mọi lần chấm. Dùng chung
@@ -425,23 +452,39 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     setContractChooserOpen(true);
   }
 
-  function runGenerateContract(templateId: string | null) {
+  function runGenerateContract(templateId: string | null, dungKhung = false) {
     if (!deal || !acceptedProposal) return;
 
     function fillContent(contractId: string) {
-      generateContract.mutate(
+      const mutation = dungKhung ? fillContractSkeleton : generateContract;
+      mutation.mutate(
         { contractId, templateId },
         {
           onSuccess: () => {
-            toast.success("Đã tạo nội dung hợp đồng bằng AI.");
+            toast.success(
+              dungKhung
+                ? "Đã mở hợp đồng từ khung. Bấm vào từng điều để điền nội dung."
+                : "Đã tạo nội dung hợp đồng bằng AI."
+            );
             addDealHistoryEntry(deal!.id, {
               date: new Date().toISOString(),
-              text: "Hợp đồng AI đã được tạo và điền nội dung.",
+              text: dungKhung
+                ? "Hợp đồng được soạn từ khung mẫu (không dùng AI)."
+                : "Hợp đồng AI đã được tạo và điền nội dung.",
               channel: "message",
             });
             setViewContractId(contractId);
           },
-          onError: (error) => toast.error(contractErrorMessage(error)),
+          // Đường AI hỏng vì gói/hạn mức thì CHỈ ĐƯỜNG sang khung, đừng bỏ người dùng ở ngõ cụt.
+          // Trước đây nhánh này chỉ có một dòng chữ nhắc tên mục "Gói dịch vụ" — không bấm được,
+          // và không mời lối nào khác. Freelancer gói Free đứng ở bước thương lượng là hết đường.
+          onError: (error) => {
+            const status = (error as { response?: { status?: number } })?.response?.status;
+            // 402/429 = gói/hạn mức. Mở lại màn chọn để họ bấm "Tôi tự soạn" — trước đây
+            // nhánh này là ngõ cụt, chỉ có một dòng chữ nhắc tên mục "Gói dịch vụ".
+            if (!dungKhung && (status === 402 || status === 429)) setContractChooserOpen(true);
+            toast.error(contractErrorMessage(error));
+          },
         }
       );
     }
@@ -545,17 +588,19 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   function handleCompleteProject() {
     if (!deal) return;
-    // Từ Phase B: "thu đủ tiền" đo bằng các task "Thu tiền:" (tự sinh từ mốc thanh toán của
-    // báo giá đã chốt), thay cho hoá đơn. Còn mốc chưa tick xong thì chưa cho hoàn thành.
-    // Deal không có mốc thu tiền nào (báo giá cũ / không mốc) thì không chặn — khớp guard BE.
-    const paymentTasks = (taskQuery.data?.tasks ?? []).filter((task) =>
-      task.title.startsWith(PAYMENT_TASK_PREFIX)
-    );
+    // "Thu đủ tiền" đo bằng các task THU TIỀN (tự sinh từ hạng mục chi phí của báo giá đã
+    // chốt), thay cho hoá đơn. Còn khoản chưa tick xong thì chưa cho hoàn thành. Deal không
+    // có khoản thu nào (báo giá cũ / không hạng mục) thì không chặn — khớp guard BE.
+    //
+    // Đi qua `isPaymentTask` chứ KHÔNG tự gõ lại điều kiện: chỗ này từng dò tiền tố tên trực
+    // tiếp, nên khi dấu nhận biết đổi sang `billingAmount` là rất dễ sót đúng một mình nó —
+    // mà sót ở đây nghĩa là deal đóng lại được trong khi tiền chưa về.  #Huynh
+    const paymentTasks = (taskQuery.data?.tasks ?? []).filter(isPaymentTask);
     const unpaid = paymentTasks.filter((task) => task.status !== "done");
     if (unpaid.length > 0) {
       toast.error(
-        `Còn ${unpaid.length}/${paymentTasks.length} mốc thu tiền chưa hoàn tất. ` +
-          `Hãy tick xong các mốc "Thu tiền:" trong tab Công việc.`
+        `Còn ${unpaid.length}/${paymentTasks.length} khoản thu tiền chưa hoàn tất. ` +
+          `Hãy tick xong chúng trong tab Công việc.`
       );
       setTab("tasks");
       return;
@@ -632,6 +677,50 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         onError: (error) => {
           const message = getApiErrorMessage(error, "");
           toast.error(message || "Không thể chỉnh sửa hóa đơn. Vui lòng thử lại.");
+        },
+      }
+    );
+  }
+
+  /**
+   * "Lưu & gửi cho khách" trong cửa sổ soạn: lưu nội dung TRƯỚC rồi mới gửi.
+   *
+   * Thứ tự này không đổi được. Gửi trước rồi lưu là thư đã ra khỏi máy chủ mang nội dung cũ,
+   * còn màn hình thì hiện nội dung mới — freelancer tin vào thứ khách không hề nhận được.
+   * Lưu hụt thì dừng hẳn, không gửi.  #Huynh
+   */
+  function handleSaveAndSendInvoice(invoiceId: string, payload: InvoiceUpdatePayload) {
+    if (!deal) return;
+    const task = invoiceTaskAwaitingSend;
+    updateInvoiceMutation.mutate(
+      { invoiceId, payload },
+      {
+        onSuccess: () => {
+          sendInvoiceMutation.mutate(invoiceId, {
+            onSuccess: (sent) => {
+              toast.success(`Đã gửi hóa đơn ${sent.invoice_number} cho khách.`);
+              addDealHistoryEntry(deal.id, {
+                date: new Date().toISOString(),
+                text: `Đã gửi hóa đơn ${sent.invoice_number}.`,
+                channel: "email",
+              });
+              if (task) markPaymentTaskDoneAfterSend(task);
+              setInvoiceTaskAwaitingSend(null);
+              setSelectedInvoice(null);
+              setInvoiceModalMode(null);
+            },
+            onError: (err) => {
+              // Nội dung ĐÃ lưu nhưng thư chưa đi. Nói rõ cả hai vế, không thì người dùng
+              // tưởng mất luôn thứ vừa gõ và ngồi soạn lại từ đầu.
+              toast.error(
+                "Đã lưu nội dung nhưng chưa gửi được: " +
+                  invoiceErrorMessage(err, "lỗi không rõ.")
+              );
+            },
+          });
+        },
+        onError: (err) => {
+          toast.error(invoiceErrorMessage(err, "Không lưu được nội dung nên chưa gửi."));
         },
       }
     );
@@ -780,8 +869,23 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
-  function handleDeleteAttachment(attachmentId: string) {
-    deleteAttachment.mutate(attachmentId);
+  /**
+   * HỎI trước khi xoá file đính kèm.
+   *
+   * Nút thùng rác nằm ngay cạnh nút "Tải PDF", cùng cỡ, cùng hàng — trượt tay một ô là file
+   * biến mất, mà file này thường là thứ KHÁCH gửi (mô tả yêu cầu, chứng từ chuyển khoản) nên
+   * không tự dựng lại được. Mọi hành động xoá khác trong trang đều đã hỏi; riêng chỗ này bị
+   * bỏ sót.  #Huynh
+   */
+  function handleDeleteAttachment(attachment: DealAttachment) {
+    setAttachmentPendingDelete(attachment);
+  }
+
+  function handleConfirmDeleteAttachment() {
+    const attachment = attachmentPendingDelete;
+    if (!attachment) return;
+    setAttachmentPendingDelete(null);
+    deleteAttachment.mutate(attachment.id);
   }
 
   function handleSignContract(contract: { id: string }) {
@@ -844,26 +948,62 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     return getApiErrorMessage(err, fallback);
   }
 
-  function createAndSendInvoice(task: ProjectTask) {
+  /**
+   * Bấm "Tạo & gửi hóa đơn" cho một khoản THU KHI XONG mà công việc chưa tick xong.
+   *
+   * CẢNH BÁO chứ không CHẶN. Chặn cứng nghe hợp lý nhưng cắn ngược: freelancer làm xong hôm
+   * nay, xuất hóa đơn luôn, tick task sau — chuyện rất thường. Chặn là biến thao tác đúng
+   * thành lỗi. Còn gửi khách hóa đơn cho việc chưa làm thì đáng hỏi lại một câu.  #Huynh
+   */
+  function requestCreateAndSendInvoice(task: ProjectTask) {
+    if (task.billingDueType === "on_completion" && task.status !== "done") {
+      setEarlyInvoiceTask(task);
+      return;
+    }
+    createInvoiceDraftForReview(task);
+  }
+
+  /**
+   * Gửi hóa đơn xong thì TICK LUÔN công việc đó.
+   *
+   * Trước đây hai thứ rời nhau, nên bảng việc hiện những hàng tự mâu thuẫn: mốc còn nhãn
+   * "Chưa làm" trong khi hóa đơn của chính nó đã "Đã thanh toán". Freelancer phải nhớ tick
+   * tay, mà quên thì guard "Hoàn thành dự án" chặn lại dù tiền đã về đủ.
+   *
+   * Đi thẳng vào mutation chứ KHÔNG qua `handleToggleTask`: hàm đó mở hộp thoại hỏi "gửi hóa
+   * đơn cho khách luôn?" — hỏi đúng thứ vừa làm xong.
+   *
+   * Bỏ qua khi task đã xong sẵn (gửi lại hóa đơn cho một mốc đã tick) để không bắn thêm một
+   * lượt ghi vô nghĩa.  #Huynh
+   */
+  function markPaymentTaskDoneAfterSend(task: ProjectTask) {
+    if (!shouldTickAfterInvoiceSent(task)) return;
+    toggleTaskMutation.mutate({ taskId: task.id, is_done: true });
+  }
+
+  /**
+   * Bấm "Soạn & gửi hóa đơn" ở một mốc thu tiền → tạo BẢN NHÁP rồi MỞ CỬA SỔ SOẠN.
+   *
+   * Bản trước tạo xong gửi thẳng, không cho xem lại một chữ. Hậu quả: thư khách nhận chỉ có
+   * số tiền và hạn thanh toán, không một dòng nào của freelancer — mà freelancer thì không hề
+   * biết, vì họ có được nhìn thấy nội dung ấy đâu. Gửi thư đứng tên mình ra ngoài cho khách
+   * là việc không được làm sau lưng người ta.
+   *
+   * Nháp tạo trước rồi mới mở cửa sổ, chứ không mở cửa sổ trống: số tiền và hạn thanh toán
+   * phải là con số CHỐT của mốc trong báo giá đã ký, do backend tính từ `billing_amount` —
+   * không phải thứ để gõ lại bằng tay. Freelancer chỉ sửa tên hóa đơn và lời nhắn.
+   *
+   * `POST /tasks/{id}/invoice` idempotent, nên bấm nhầm hai lần cũng chỉ ra một hóa đơn.  #Huynh
+   */
+  function createInvoiceDraftForReview(task: ProjectTask) {
     setInvoiceBusyTaskId(task.id);
     createTaskInvoice.mutate(task.id, {
       onSuccess: (invoice) => {
-        // Tạo xong gửi luôn — người dùng bấm "Tạo & gửi" là muốn một việc, không phải hai.
-        sendTaskInvoice.mutate(invoice.id, {
-          onSuccess: () => {
-            toast.success(`Đã gửi hóa đơn ${invoice.invoice_number} cho khách.`);
-            setInvoiceBusyTaskId(null);
-          },
-          onError: (err) => {
-            // Hóa đơn ĐÃ tạo nhưng thư chưa đi. Nói rõ cả hai vế, không thì người dùng bấm
-            // lại và tưởng mình vừa tạo thêm một hóa đơn nữa.
-            toast.error(
-              `Đã tạo hóa đơn ${invoice.invoice_number} nhưng chưa gửi được: ` +
-                invoiceErrorMessage(err, "lỗi không rõ.")
-            );
-            setInvoiceBusyTaskId(null);
-          },
-        });
+        setInvoiceBusyTaskId(null);
+        // Nhớ mốc lại: gửi xong còn phải tick nó, mà cửa sổ soạn không biết gì về task.
+        setInvoiceTaskAwaitingSend(task);
+        setSelectedInvoice(invoice);
+        setInvoiceModalMode("edit");
       },
       onError: (err) => {
         toast.error(invoiceErrorMessage(err, "Không tạo được hóa đơn cho mốc này."));
@@ -872,14 +1012,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
+  /**
+   * Mốc đã có bản nháp → mở lại cửa sổ soạn để xem trước khi gửi.
+   *
+   * Cùng lý do với `createInvoiceDraftForReview`: không có đường nào gửi thư ra ngoài mà
+   * freelancer chưa nhìn thấy nội dung.  #Huynh
+   */
   function sendExistingInvoice(task: ProjectTask) {
     if (!task.invoice) return;
-    setInvoiceBusyTaskId(task.id);
-    sendTaskInvoice.mutate(task.invoice.id, {
-      onSuccess: () => toast.success(`Đã gửi hóa đơn ${task.invoice?.invoiceNumber} cho khách.`),
-      onError: (err) => toast.error(invoiceErrorMessage(err, "Chưa gửi được hóa đơn.")),
-      onSettled: () => setInvoiceBusyTaskId(null),
-    });
+    const draft = (invoices.data ?? []).find((item) => item.id === task.invoice?.id);
+    if (!draft) {
+      toast.error("Không mở được hóa đơn của mốc này. Hãy tải lại trang.");
+      return;
+    }
+    setInvoiceTaskAwaitingSend(task);
+    setSelectedInvoice(draft);
+    setInvoiceModalMode("edit");
   }
 
   function recordFullPayment(task: ProjectTask) {
@@ -1222,7 +1370,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                          danh sách trải hết và trang cuộn, đúng thứ mình muốn ở màn nhỏ. */
                       height="fill"
                       invoiceActions={{
-                        onCreateAndSend: createAndSendInvoice,
+                        onCreateAndSend: requestCreateAndSendInvoice,
                         onSend: sendExistingInvoice,
                         onRecordPayment: recordFullPayment,
                         pendingTaskId: invoiceBusyTaskId,
@@ -1319,7 +1467,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                 onContract={handleGenerateContract}
                 onStartProject={handleStartProject}
                 onComplete={handleCompleteProject}
-                contractLoading={createContract.isPending || generateContract.isPending}
+                contractLoading={
+                  createContract.isPending ||
+                  generateContract.isPending ||
+                  fillContractSkeleton.isPending
+                }
                 stageTransitionLoading={transitionDealStage.isPending || completePending}
                 hasAcceptedProposal={Boolean(acceptedProposal)}
                 hasContract={contractItems.length > 0}
@@ -1357,13 +1509,30 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             </button>
             <button
               type="button"
+              title="Không gọi AI, không tốn lượt — bạn tự điền nội dung trên tờ hợp đồng"
+              onClick={() => {
+                setContractChooserOpen(false);
+                runGenerateContract(contractTemplateId, true);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
+            >
+              Tôi tự soạn
+            </button>
+            <button
+              type="button"
+              disabled={canUseAi === false}
+              title={
+                canUseAi === false
+                  ? "Gói hiện tại chưa dùng được AI — bạn vẫn soạn tay được"
+                  : "AI viết nội dung hợp đồng dựa trên báo giá đã chốt"
+              }
               onClick={() => {
                 setContractChooserOpen(false);
                 runGenerateContract(contractTemplateId);
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Tạo hợp đồng
+              Nhờ AI viết
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1403,9 +1572,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           onClose={() => {
             setInvoiceModalMode(null);
             setSelectedInvoice(null);
+            setInvoiceTaskAwaitingSend(null);
           }}
           onCreate={handleSubmitInvoiceDraft}
           onUpdate={handleUpdateInvoice}
+          onSaveAndSend={handleSaveAndSendInvoice}
           onDelete={handleDeleteInvoice}
         />
       )}
@@ -1424,6 +1595,24 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         isLoading={deleteDeal.isPending}
         onConfirm={confirmRemoveDeal}
       />
+      <ConfirmDialog
+        open={Boolean(attachmentPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentPendingDelete(null);
+        }}
+        title="Xoá file này?"
+        description={
+          attachmentPendingDelete
+            ? `"${attachmentPendingDelete.filename}" sẽ bị xoá khỏi hồ sơ giao dịch và không lấy lại được. Nếu là file khách gửi thì bạn sẽ phải xin lại.`
+            : undefined
+        }
+        confirmLabel="Xoá file"
+        cancelLabel="Giữ lại"
+        tone="danger"
+        isLoading={deleteAttachment.isPending}
+        onConfirm={handleConfirmDeleteAttachment}
+      />
+
       <ConfirmDialog
         open={completeDialogOpen}
         onOpenChange={setCompleteDialogOpen}
@@ -1464,9 +1653,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     {chuaCoHoaDon ? (
                       <>
                         {" "}
+                        {/* KHÔNG hứa mã QR ở đây: thư chỉ đính QR khi freelancer đã khai
+                          thông tin ngân hàng trong hồ sơ, mà phần lớn thì chưa. Hứa một thứ
+                          khách không thấy trong thư là tự tạo ra câu hỏi "QR đâu?".  #Huynh */}
                         — SoloDesk sẽ tạo hóa đơn theo đúng số tiền của mốc này trong báo giá đã
-                        chốt, rồi <b className="text-foreground">gửi email cho khách</b> kèm mã QR
-                        chuyển khoản.
+                        chốt, rồi <b className="text-foreground">gửi email cho khách</b>.
                       </>
                     ) : (
                       <>
@@ -1498,7 +1689,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                         onClick={() => {
                           const task = paymentTaskPrompt;
                           finishTogglingPaymentTask();
-                          if (chuaCoHoaDon) createAndSendInvoice(task);
+                          if (chuaCoHoaDon) createInvoiceDraftForReview(task);
                           else recordFullPayment(task);
                         }}
                         className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
@@ -1512,6 +1703,35 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             })()}
         </DialogContent>
       </Dialog>
+      {/* Xuất hóa đơn cho một khoản "thu khi xong" mà công việc chưa tick xong.
+          HỎI chứ không CHẶN — freelancer làm xong hôm nay rồi xuất hóa đơn luôn, tick task
+          sau, là chuyện rất thường; chặn cứng biến thao tác đúng thành lỗi.
+
+          HỎI THEO CHIỀU XUÔI, không dọa. Bản trước mở đầu bằng "Công việc chưa xong — vẫn
+          gửi hóa đơn?" và cảnh báo "khách sẽ nhận hóa đơn cho phần chưa bàn giao" — nghe như
+          người dùng sắp làm điều gì đó mờ ám, trong khi thực tế họ vừa làm xong việc và đang
+          đi thu tiền. Cái máy chưa biết là việc đã xong, chứ không phải người dùng đang sai.
+          Nay hỏi đúng thứ cần biết ("xong chưa?"), và gửi xong thì tự tick luôn.  #Huynh */}
+      <ConfirmDialog
+        open={Boolean(earlyInvoiceTask)}
+        onOpenChange={(open) => {
+          if (!open) setEarlyInvoiceTask(null);
+        }}
+        title="Công việc đã xong — gửi hóa đơn?"
+        description={
+          earlyInvoiceTask
+            ? `"${earlyInvoiceTask.title}" được thoả thuận thu khi hoàn thành, và mốc này chưa ` +
+              "được tick xong. Gửi hóa đơn sẽ đánh dấu luôn là đã hoàn thành."
+            : undefined
+        }
+        confirmLabel="Đã xong, gửi hóa đơn"
+        cancelLabel="Để sau"
+        onConfirm={() => {
+          const task = earlyInvoiceTask;
+          setEarlyInvoiceTask(null);
+          if (task) createInvoiceDraftForReview(task);
+        }}
+      />
       <ConfirmDialog
         open={Boolean(deleteProposalId)}
         onOpenChange={(open) => {
@@ -1836,7 +2056,13 @@ function EditableInfoRow({
   );
 }
 
-function ActionsPanel({
+/**
+ * Cột phải màn chi tiết deal — thuần trình bày, mọi thứ nhận qua props.
+ *
+ * `export` để kiểm riêng được luật "một việc tại một thời điểm" mà không phải dựng cả trang
+ * (trang này kéo theo router, hàng chục hook và service).  #Huynh
+ */
+export function ActionsPanel({
   deal,
   onEvaluate,
   onProposal,
@@ -1953,35 +2179,46 @@ function ActionsPanel({
         </div>
       )}
 
+      {/* MỘT việc tại một thời điểm, không bày cả hai.
+        Trước đây "Tạo Hợp Đồng AI" và "Bắt đầu triển khai" hiện cùng lúc, cái sau bị khoá cho
+        tới khi ghi nhận đã ký. Nhưng hai nút xếp chồng thì nút nào cũng trông như việc phải
+        làm, và cái đang khoá lại là cái sáng màu hơn về mặt bố cục — người dùng bấm vào rồi
+        tự hỏi vì sao không ăn. Ký xong thì việc tạo hợp đồng cũng hết nghĩa (backend chỉ cho
+        sinh nội dung khi hợp đồng còn ở nháp), nên THAY hẳn là đúng.  #Huynh */}
       {stage === "in_negotiation" && (
         <>
-          <button
-            onClick={onContract}
-            disabled={contractLoading || !hasAcceptedProposal}
-            title={!hasAcceptedProposal ? "Cần báo giá đã được chấp nhận trước" : "Tạo hợp đồng bằng AI"}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-            {contractLoading
-              ? "Đang tạo hợp đồng..."
-              : hasDraftContract
-                ? "Tạo Lại Hợp Đồng AI"
-                : "Tạo Hợp Đồng AI"}
-          </button>
-          {hasDraftContract && (
-            <p className="-mt-1 text-center text-xs text-muted-foreground">
-              Sẽ viết lại nội dung bản nháp hiện có, không tạo hợp đồng mới.
-            </p>
+          {hasActiveContract ? (
+            <button
+              onClick={onStartProject}
+              disabled={stageTransitionLoading}
+              title="Bắt đầu triển khai project"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {stageTransitionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {stageTransitionLoading ? "Đang xử lý..." : "Bắt đầu triển khai"}
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onContract}
+                disabled={contractLoading || !hasAcceptedProposal}
+                title={!hasAcceptedProposal ? "Cần báo giá đã được chấp nhận trước" : "Tạo hợp đồng bằng AI"}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                {contractLoading
+                  ? "Đang tạo hợp đồng..."
+                  : hasDraftContract
+                    ? "Tạo Lại Hợp Đồng AI"
+                    : "Tạo Hợp Đồng AI"}
+              </button>
+              {hasDraftContract && (
+                <p className="-mt-1 text-center text-xs text-muted-foreground">
+                  Sẽ viết lại nội dung bản nháp hiện có, không tạo hợp đồng mới.
+                </p>
+              )}
+            </>
           )}
-          <button
-            onClick={onStartProject}
-            disabled={stageTransitionLoading || !hasActiveContract}
-            title={!hasActiveContract ? "Cần ghi nhận khách đã ký hợp đồng trước khi triển khai" : "Bắt đầu triển khai project"}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {stageTransitionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {stageTransitionLoading ? "Đang xử lý..." : "Bắt đầu triển khai"}
-          </button>
           {!hasContract && (
             <p className="text-center text-xs text-muted-foreground">Cần tạo hợp đồng và gửi cho khách ký trước khi mở project triển khai.</p>
           )}
@@ -2111,96 +2348,7 @@ function ProjectLockedPanel({ deal, hasAcceptedProposal }: { deal: Deal; hasAcce
 }
 
 
-type InvoiceComposerClient = {
-  name: string;
-  email: string | null;
-  phone: string | null;
-};
-
-type InvoiceDraftState = {
-  title: string;
-  description: string;
-  amount: string;
-  taxRate: string;
-  dueDate: string;
-  notes: string;
-};
-
-type InvoiceTone = "formal" | "friendly";
-
-function extractInvoiceTitle(notes?: string | null): { title: string | null; body: string } {
-  const value = notes?.trim() ?? "";
-  const [firstLine = "", ...rest] = value.split(/\r?\n/);
-  const match = firstLine.match(/^Hóa đơn:\s*(.+)$/i);
-  if (!match) return { title: null, body: value };
-  return {
-    title: match[1].trim(),
-    body: rest.join("\n").replace(/^\s+/, ""),
-  };
-}
-
-function composeInvoiceNotes(title: string, body: string): string {
-  return `Hóa đơn: ${title.trim() || "Thanh toán dự án"}\n\n${body.trim()}`;
-}
-
-function getInvoiceDisplayTitle(invoice: InvoiceResponse, index: number): string {
-  const parsed = extractInvoiceTitle(invoice.notes);
-  return parsed.title ?? `Thanh toán đợt ${index + 1}`;
-}
-
-function buildDefaultInvoiceNotes(deal: Deal, client: InvoiceComposerClient, amount: number, tone: InvoiceTone): string {
-  if (tone === "friendly") {
-    return [
-      `Chào ${client.name},`,
-      "",
-      `Mình gửi bạn thông tin thanh toán cho dự án "${deal.projectType}".`,
-      `Số tiền cần thanh toán là ${formatVND(amount)}.`,
-      "",
-      "Nội dung:",
-      `- Hạng mục: ${deal.projectType}`,
-      "- Bạn vui lòng thanh toán theo thông tin đã thống nhất trước đó.",
-      "- Sau khi chuyển khoản xong, bạn gửi giúp mình biên nhận để mình đối soát và lưu hồ sơ nhé.",
-      "",
-      "Cảm ơn bạn nhiều.",
-    ].join("\n");
-  }
-
-  return [
-    `Kính gửi ${client.name},`,
-    "",
-    `Freelancer gửi quý khách thông tin thanh toán cho dự án "${deal.projectType}".`,
-    `Tổng số tiền cần thanh toán là ${formatVND(amount)}.`,
-    "",
-    "Nội dung thanh toán:",
-    `- Hạng mục: ${deal.projectType}`,
-    "- Quý khách vui lòng thanh toán theo đúng thông tin đã thống nhất giữa hai bên.",
-    "- Sau khi thanh toán, quý khách có thể gửi lại biên nhận để Freelancer đối soát và lưu vào hồ sơ giao dịch.",
-    "",
-    "Trân trọng cảm ơn quý khách đã hợp tác.",
-  ].join("\n");
-}
-
-function buildInvoiceDraft(
-  deal: Deal,
-  client: InvoiceComposerClient,
-  tone: InvoiceTone,
-  suggestedInvoiceIndex: number,
-  invoice?: InvoiceResponse | null
-): InvoiceDraftState {
-  const amount = invoice ? Number(invoice.subtotal ?? invoice.total ?? deal.value) : deal.value;
-  const parsedNotes = extractInvoiceTitle(invoice?.notes);
-  const title = parsedNotes.title ?? `Thanh toán đợt ${suggestedInvoiceIndex}`;
-  return {
-    title,
-    description: deal.projectType,
-    amount: String(amount),
-    taxRate: String(Number(invoice?.tax_rate ?? 0) * 100),
-    dueDate: invoice?.due_date ? toDateInputValue(invoice.due_date) : toApiDateValue(addDays(new Date(), 7)),
-    notes: invoice?.notes ? parsedNotes.body : buildDefaultInvoiceNotes(deal, client, amount, tone),
-  };
-}
-
-function InvoiceComposerModal({
+export function InvoiceComposerModal({
   mode,
   deal,
   suggestedInvoiceIndex,
@@ -2211,6 +2359,7 @@ function InvoiceComposerModal({
   onClose,
   onCreate,
   onUpdate,
+  onSaveAndSend,
   onDelete,
 }: {
   mode: "create" | "view" | "edit";
@@ -2223,11 +2372,15 @@ function InvoiceComposerModal({
   onClose: () => void;
   onCreate: (payload: InvoicePayload) => void;
   onUpdate: (invoiceId: string, payload: InvoiceUpdatePayload) => void;
+  /** Lưu nội dung rồi gửi luôn cho khách. Bỏ trống thì cửa sổ chỉ có nút lưu. */
+  onSaveAndSend?: (invoiceId: string, payload: InvoiceUpdatePayload) => void;
   onDelete: (invoice: InvoiceResponse) => void;
 }) {
   const [tone, setTone] = useState<InvoiceTone>("formal");
+  // Hóa đơn ĐANG MỞ thì lấy số thứ tự của chính nó; chỉ khi tạo mới mới dùng số kế tiếp.
+  const draftOrdinal = invoice ? invoiceOrdinal(existingInvoices, invoice) : suggestedInvoiceIndex;
   const [draft, setDraft] = useState<InvoiceDraftState>(() =>
-    buildInvoiceDraft(deal, client, "formal", suggestedInvoiceIndex, invoice)
+    buildInvoiceDraft(deal, client, "formal", draftOrdinal, invoice)
   );
   const [dueDateText, setDueDateText] = useState(() => formatDateForVietnameseInput(draft.dueDate));
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false);
@@ -2246,10 +2399,10 @@ function InvoiceComposerModal({
         : draft.title;
 
   useEffect(() => {
-    const nextDraft = buildInvoiceDraft(deal, client, tone, suggestedInvoiceIndex, invoice);
+    const nextDraft = buildInvoiceDraft(deal, client, tone, draftOrdinal, invoice);
     setDraft(nextDraft);
     setDueDateText(formatDateForVietnameseInput(nextDraft.dueDate));
-  }, [client.email, client.name, client.phone, deal.id, deal.projectType, deal.value, invoice, suggestedInvoiceIndex]);
+  }, [client.email, client.name, client.phone, deal.id, deal.projectType, deal.value, invoice, draftOrdinal]);
 
   function updateDraft(field: keyof InvoiceDraftState, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -2268,9 +2421,11 @@ function InvoiceComposerModal({
   function hasDuplicateInvoiceTitle(): boolean {
     const currentTitle = draft.title.trim().toLowerCase();
     if (!currentTitle) return false;
-    return existingInvoices.some((item) => {
+    return existingInvoices.some((item, index) => {
       if (invoice && item.id === invoice.id) return false;
-      return getInvoiceDisplayTitle(item, 0).trim().toLowerCase() === currentTitle;
+      // Vị trí THẬT, không phải 0: để index cứng thì mọi hóa đơn chưa đặt tên đều đọc ra
+      // "Thanh toán đợt 1", và đặt tên đúng số thứ tự của mình lại bị báo trùng.  #Huynh
+      return getInvoiceDisplayTitle(item, index).trim().toLowerCase() === currentTitle;
     });
   }
 
@@ -2486,15 +2641,10 @@ function InvoiceComposerModal({
               </div>
             </div>
 
-            {invoice && (
-              <div className="rounded-xl border border-border bg-background p-4 text-sm">
-                <div className="text-xs font-semibold uppercase text-muted-foreground">Trạng thái</div>
-                <div className="mt-2 font-semibold">{invoice.status}</div>
-                <div className="mt-1 text-muted-foreground">
-                  Đã thu {formatVND(Number(invoice.amount_paid ?? 0))} / {formatVND(Number(invoice.total ?? 0))}
-                </div>
-              </div>
-            )}
+            {/* Khối "Trạng thái" đã BỎ: nó in thẳng giá trị thô của backend (`draft`, `sent`,
+                `partially_paid`) ra màn hình tiếng Việt, và lặp lại con số vừa nằm ngay trên
+                trong bảng tóm tắt. Trạng thái thật thì hàng ở tab Tài liệu và khối hóa đơn
+                dưới mốc thu tiền đều đã hiện bằng nhãn tiếng Việt có màu.  #Huynh */}
           </section>
 
           <section className="flex min-h-[520px] flex-col rounded-xl border border-border bg-background p-5">
@@ -2502,19 +2652,36 @@ function InvoiceComposerModal({
               <div>
                 <div className="text-sm font-semibold">Nội dung gửi khách</div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Đây là nội dung Freelancer có thể gửi kèm hóa đơn cho khách.
+                  {canEdit
+                    ? "Đây là nội dung Freelancer có thể gửi kèm hóa đơn cho khách."
+                    : "Đây là nội dung ĐÃ gửi kèm hóa đơn — đúng thứ khách nhận được."}
                 </p>
               </div>
               <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
                 {tone === "formal" ? "Trang trọng" : "Thân mật"}
               </span>
             </div>
-            <textarea
-              value={draft.notes}
-              disabled={!canEdit}
-              onChange={(event) => updateDraft("notes", event.target.value)}
-              className="min-h-[440px] flex-1 resize-none rounded-lg border border-border bg-card px-4 py-3 text-sm leading-7 outline-none focus:border-primary disabled:opacity-70"
-            />
+            {!canEdit && !draft.notes.trim() ? (
+              /* Hóa đơn sinh từ mốc thu tiền đi thẳng, không qua bước soạn thư. Nói thẳng ra
+                 chỗ này, thay vì để một ô trống mà người đọc phải tự đoán là mất nội dung hay
+                 vốn không có.  #Huynh */
+              <div className="flex min-h-[440px] flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 text-center">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Hóa đơn này gửi đi không kèm nội dung riêng.
+                </p>
+                <p className="mt-1.5 max-w-sm text-xs text-muted-foreground">
+                  Khách vẫn nhận đủ thư hóa đơn (hạng mục, số tiền, hạn thanh toán). Muốn kèm
+                  lời nhắn riêng thì tạo hóa đơn nháp từ tab Tài liệu rồi soạn trước khi gửi.
+                </p>
+              </div>
+            ) : (
+              <textarea
+                value={draft.notes}
+                disabled={!canEdit}
+                onChange={(event) => updateDraft("notes", event.target.value)}
+                className="min-h-[440px] flex-1 resize-none rounded-lg border border-border bg-card px-4 py-3 text-sm leading-7 outline-none focus:border-primary disabled:opacity-70"
+              />
+            )}
           </section>
         </div>
 
@@ -2551,9 +2718,25 @@ function InvoiceComposerModal({
                 type="button"
                 disabled={isLoading || subtotal <= 0}
                 onClick={handleUpdate}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" /> Lưu nháp
+              </button>
+            )}
+            {/* Nút CHÍNH của cửa sổ này: xem lại xong thì gửi. Trước đây bấm "Tạo & gửi hóa
+                đơn" ở bảng việc là thư bay đi ngay, freelancer không được đọc một chữ nào
+                trong thứ mang tên mình gửi cho khách.  #Huynh */}
+            {mode === "edit" && invoice?.status === "draft" && onSaveAndSend && (
+              <button
+                type="button"
+                disabled={isLoading || subtotal <= 0}
+                onClick={() => {
+                  if (!validateInvoiceDraft()) return;
+                  onSaveAndSend(invoice.id, buildPayload());
+                }}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Save className="h-4 w-4" /> Lưu chỉnh sửa
+                <Mail className="h-4 w-4" /> Lưu & gửi cho khách
               </button>
             )}
           </div>
@@ -2664,7 +2847,7 @@ const BAD_BADGE = "bg-destructive/10 text-destructive";
  * kèm `dark:` cho đủ tương phản — bám theo mẫu sẵn có ở `DealDetailModal.tsx`.  #Huynh */
 const STALE_BADGE = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
 
-function DocumentsTab({
+export function DocumentsTab({
   attachments,
   onViewAttachment,
   proposals,
@@ -2703,7 +2886,7 @@ function DocumentsTab({
   }>;
   invoices: InvoiceResponse[];
   onAddAttachment: (file: File) => void;
-  onDeleteAttachment: (attachmentId: string) => void;
+  onDeleteAttachment: (attachment: DealAttachment) => void;
   onViewAttachment: (attachment: DealAttachment) => void;
   onViewInvoice: (invoice: InvoiceResponse) => void;
   onVoidInvoice: (invoice: InvoiceResponse) => void;
@@ -2802,23 +2985,32 @@ function DocumentsTab({
             <div className="min-w-0">
               <div className="text-sm font-semibold">{displayTitle}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                Hạn thanh toán {formatDate(invoice.due_date)} · Tổng {formatVND(total)} · Đã thu {formatVND(paid)}
+                {/* MÃ HÓA ĐƠN đứng đầu dòng: "Thanh toán đợt 1" là cái tên dễ đọc, nhưng thứ
+                    tra cứu được — trong hộp thư đã gửi, trong sổ sách, khi khách hỏi lại — là
+                    mã này. Không hiện thì freelancer phải mở từng hóa đơn ra dò.  #Huynh */}
+                <span className="font-mono">{invoice.invoice_number}</span> · Hạn thanh toán{" "}
+                {formatDate(invoice.due_date)} · Tổng {formatVND(total)}
+                {/* CHỈ nói "còn bao nhiêu" khi thu dở dang. Thu đủ rồi mà vẫn in "Đã thu X"
+                    thì cùng một tin nhắc lại ba lần trên một hàng (nhãn + dòng này + số tổng
+                    trùng nhau), còn chưa thu đồng nào thì "Đã thu 0 đ" chẳng thêm gì so với
+                    nhãn "Đã gửi" ngay bên cạnh.  #Huynh */}
+                {paid > 0 && remaining > 0 && <> · còn {formatVND(remaining)}</>}
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {/* MỘT nhãn trạng thái, không phải hai. Trước đây hóa đơn đã thu đủ đeo cùng
+                  lúc "Đã thanh toán" và "Đã thanh toán đủ" — hai nhãn xanh cạnh nhau nói y hệt
+                  một điều, và người đọc phải dừng lại tự hỏi hai cái đó khác nhau chỗ nào.
+                  Dấu tích gộp thẳng vào nhãn sẵn có.  #Huynh */}
               <span
                 className={cn(
-                  "rounded-full px-2 py-1 text-xs font-semibold",
+                  "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold",
                   invoiceStatusLabel[invoice.status]?.cls ?? NEUTRAL_BADGE
                 )}
               >
+                {invoice.status === "paid" && <CheckCircle2 className="h-3.5 w-3.5" />}
                 {invoiceStatusLabel[invoice.status]?.label ?? invoice.status}
               </span>
-              {invoice.status === "paid" && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2 py-1 text-xs font-semibold text-success">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Đã thanh toán đủ
-                </span>
-              )}
               <button
                 type="button"
                 onClick={() => onViewInvoice(invoice)}
@@ -2904,16 +3096,21 @@ function DocumentsTab({
                 <Eye className="h-3.5 w-3.5" /> Xem
               </button>
             )}
+            {/* Nhãn theo ĐÚNG loại file, để hàng này đọc giống các hàng báo giá/hợp đồng bên
+                dưới ("Xem" + "Tải PDF") mà không nói sai. Ô đính kèm nhận cả .png/.docx/.xlsx
+                — gọi tất cả là "Tải PDF" thì khách gửi ảnh chụp màn hình sẽ thấy một cái nút
+                hứa sai.  #Huynh */}
             <button
               type="button"
               onClick={() => downloadDealAttachment(item.id, item.filename)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
             >
-              <FileText className="h-3.5 w-3.5" /> Tải về
+              <FileText className="h-3.5 w-3.5" />
+              {item.content_type === "application/pdf" ? "Tải PDF" : "Tải về"}
             </button>
             <button
               type="button"
-              onClick={() => onDeleteAttachment(item.id)}
+              onClick={() => onDeleteAttachment(item)}
               className="rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
               aria-label="Xoá file"
             >
@@ -2987,7 +3184,7 @@ function DocumentsTab({
                 onClick={() => onViewProposal(item.id)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
               >
-                <Eye className="h-3.5 w-3.5" /> Xem nội dung
+                <Eye className="h-3.5 w-3.5" /> Xem
               </button>
             )}
             <DownloadPdfButton
@@ -3059,7 +3256,7 @@ function DocumentsTab({
               onClick={() => onViewContract(item.id)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
             >
-              <Eye className="h-3.5 w-3.5" /> Xem nội dung
+              <Eye className="h-3.5 w-3.5" /> Xem
             </button>
             <DownloadPdfButton
               fetchPdf={() => downloadContractPdf(item.id)}
@@ -3188,10 +3385,6 @@ function isPastDate(value: string): boolean {
 function parseMoneyInput(value: string): number {
   const digits = value.replace(/[^\d]/g, "");
   return digits ? Number(digits) : 0;
-}
-
-function toDateInputValue(value?: string | null): string {
-  return value ? value.slice(0, 10) : "";
 }
 
 type ProposalViewContent = {
@@ -3428,6 +3621,10 @@ function ProposalViewModal({
             <iframe
               title="Nội dung báo giá"
               srcDoc={previewQuery.data}
+              // `sandbox` KHÔNG kèm `allow-scripts`: tờ giấy là HTML/CSS thuần (hai template
+              // Jinja không có thẻ <script> nào), nên chặn script trong khung là miễn phí. Giữ
+              // `allow-same-origin` để trang cha còn chạm được `contentDocument` cho sửa tại chỗ.
+              sandbox="allow-same-origin"
               className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
             />
           ) : renderedHtml ? (
@@ -3512,10 +3709,15 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
     { label: "Điều khoản bổ sung", value: c?.custom_clauses },
   ].filter((r) => r.value);
 
-  // Chỉ nhúng iframe khi hợp đồng CÓ nội dung thật. Hợp đồng nháp rỗng (chưa gen AI) vẫn
-  // render ra được một khung trống — nhúng cái đó vào thì nuốt mất lời nhắc "chưa điền,
-  // hãy Tạo Hợp Đồng AI". Có nội dung mới đáng đưa bản đẹp lên.  #Huynh
-  const showPreview = !!previewQuery.data && rows.length > 0;
+  // BẢN NHÁP thì luôn nhúng iframe, kể cả khi chưa có điều nào được điền.
+  //
+  // Trước đây điều kiện là `rows.length > 0`, nên hợp đồng nháp rỗng không được mount và màn
+  // hình trả lời thẳng: "Hãy dùng Tạo Hợp Đồng AI". Tức là chính người KHÔNG dùng được AI bị
+  // chặn ở đúng chỗ họ cần đi qua — mà tờ giấy ở chế độ sửa giờ đã render sẵn ô rỗng cho từng
+  // điều, bấm vào là gõ được.
+  //
+  // Bản đã gửi/ký thì giữ nguyên luật cũ: rỗng thì không có gì đáng xem.  #Huynh
+  const showPreview = !!previewQuery.data && (editable || rows.length > 0);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
@@ -3550,6 +3752,10 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
               ref={iframeRef}
               title="Nội dung hợp đồng"
               srcDoc={previewQuery.data}
+              // `sandbox` KHÔNG kèm `allow-scripts`: tờ giấy là HTML/CSS thuần (hai template
+              // Jinja không có thẻ <script> nào), nên chặn script trong khung là miễn phí. Giữ
+              // `allow-same-origin` để trang cha còn chạm được `contentDocument` cho sửa tại chỗ.
+              sandbox="allow-same-origin"
               className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
             />
           ) : (

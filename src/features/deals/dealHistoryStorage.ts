@@ -60,3 +60,39 @@ export function subscribeDealHistory(dealId: string, callback: () => void): () =
     window.removeEventListener("storage", callback);
   };
 }
+
+/**
+ * Lịch sử của NHIỀU deal cùng lúc — cho hồ sơ khách hàng, nơi một khách có nhiều dự án.
+ *
+ * Không gọi `useDealHistory` trong vòng lặp được: số deal thay đổi theo khách, mà số lần gọi
+ * hook thì phải cố định. Nên gom về một nguồn duy nhất ở đây.
+ *
+ * `useSyncExternalStore` đòi `getSnapshot` trả về CÙNG một reference khi dữ liệu chưa đổi —
+ * trả object mới mỗi lần là React render vô tận. Vì vậy có bộ nhớ đệm theo "chữ ký" gồm id của
+ * mọi mục; đổi một mục là chữ ký đổi, còn không thì trả lại đúng object cũ.  #Huynh
+ */
+let multiCache: { chuKy: string; value: Record<string, DealHistoryEntry[]> } | null = null;
+
+export function getDealHistories(dealIds: string[]): Record<string, DealHistoryEntry[]> {
+  const value: Record<string, DealHistoryEntry[]> = {};
+  const phan: string[] = [];
+  for (const dealId of dealIds) {
+    const entries = getDealHistory(dealId);
+    value[dealId] = entries;
+    phan.push(`${dealId}:${entries.map((e) => e.id).join(",")}`);
+  }
+  const chuKy = phan.join("|");
+  if (multiCache && multiCache.chuKy === chuKy) return multiCache.value;
+  multiCache = { chuKy, value };
+  return value;
+}
+
+/** Nghe MỌI thay đổi lịch sử deal, không lọc theo một deal cụ thể. */
+export function subscribeAllDealHistory(callback: () => void): () => void {
+  window.addEventListener(UPDATE_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(UPDATE_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
+}

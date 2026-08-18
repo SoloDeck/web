@@ -28,6 +28,8 @@ type ApiDealResponse = {
   ai_qualification_recommendation?: string | null;
   created_at: string;
   updated_at: string;
+  /** Ngày deal vào giai đoạn cuối. Backend vẫn trả sẵn, FE trước đây chưa khai. */
+  closed_at?: string | null;
 };
 
 type ClientHint = {
@@ -134,6 +136,7 @@ export function mapDeal(d: ApiDealResponse, clientMap: Map<string, ClientHint>):
     clientEmail: client?.email ?? null,
     clientPhone: client?.phone ?? null,
     projectType: d.title,
+    closedAt: d.closed_at ?? null,
     value,
     score: mapScore(d.ai_qualification_score),
     stage: d.stage,
@@ -247,10 +250,51 @@ function applyIntakeFallback(deal: Deal, intake?: DealIntake): Deal {
 // Service functions
 // ---------------------------------------------------------------------------
 
+/**
+ * Số trang tối đa chịu tải cho một lần dựng bảng (100 bản ghi/trang).
+ *
+ * Backend chặn cứng `page_size <= 100`, mà bản trước gọi ĐÚNG MỘT lần với `page_size: 100` và
+ * không hề phân trang — nên deal thứ 101 trở đi biến mất khỏi Kanban, im lặng, không báo gì.
+ * Freelancer làm nhiều dự án mất dữ liệu khỏi màn hình TRƯỚC khi kịp thấy cột dài.
+ *
+ * Trần 10 trang là để một tài khoản hỏng dữ liệu không kéo hàng trăm request. Chạm trần thì
+ * NÓI RA (xem `fetchAllDeals`), tuyệt đối không cắt im lặng thêm lần nữa.  #Huynh
+ */
+const MAX_DEAL_PAGES = 10;
+const DEAL_PAGE_SIZE = 100;
+
+/** Đã tải thiếu deal vì chạm trần — để giao diện nói cho người dùng biết thay vì giấu. */
+export let dealsTruncated = false;
+
+/** Tải HẾT các trang. Trang đầu cho biết tổng, các trang sau lấy song song. */
+async function fetchAllDealPages(
+  params: Record<string, unknown>
+): Promise<ApiDealResponse[]> {
+  const first = await axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
+    params: { ...params, page: 1, page_size: DEAL_PAGE_SIZE },
+  });
+  const rows = first.data.data ?? [];
+  const total = first.data.pagination?.total ?? rows.length;
+  const totalPages = Math.ceil(total / DEAL_PAGE_SIZE);
+
+  dealsTruncated = totalPages > MAX_DEAL_PAGES;
+  const lastPage = Math.min(totalPages, MAX_DEAL_PAGES);
+  if (lastPage <= 1) return rows;
+
+  const rest = await Promise.all(
+    Array.from({ length: lastPage - 1 }, (_, i) =>
+      axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
+        params: { ...params, page: i + 2, page_size: DEAL_PAGE_SIZE },
+      })
+    )
+  );
+  return rest.reduce((acc, res) => acc.concat(res.data.data ?? []), rows);
+}
+
 /** GET /deals — enriched với tên/liên hệ khách và dữ liệu bù từ phiếu intake. */
 async function fetchDeals(params: Record<string, unknown>): Promise<Deal[]> {
-  const [dealsRes, clientsRes, intakes] = await Promise.all([
-    axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", { params }),
+  const [rows, clientsRes, intakes] = await Promise.all([
+    fetchAllDealPages(params),
     axiosClient
       .get<PaginatedEnvelope<ClientHint>>("/clients", {
         params: { page_size: 100 },
@@ -262,14 +306,72 @@ async function fetchDeals(params: Record<string, unknown>): Promise<Deal[]> {
   const clientMap = new Map<string, ClientHint>(
     (clientsRes.data.data ?? []).map((c) => [c.id, c])
   );
-  return (dealsRes.data.data ?? []).map((d) =>
+  return rows.map((d) =>
     applyIntakeFallback(mapDeal(d, clientMap), findIntakeForDeal(intakes, d.id, d.client_id))
   );
 }
 
-/** GET /deals — toàn bộ deal của user (dùng cho Kanban). */
+/**
+ * Deal cho bảng Kanban — TRỪ những dự án đã vào kho lưu trữ.
+ *
+ * `archived: false` là chỗ duy nhất truyền tham số này; mọi đường khác (nhất là hồ sơ khách
+ * hàng) cố ý KHÔNG truyền, để vẫn thấy đủ lịch sử hợp tác.  #Huynh
+ */
 export async function getDeals(): Promise<Deal[]> {
-  return fetchDeals({ page_size: 100 });
+  return fetchDeals({ archived: false });
+}
+
+export type ArchivedDealsPage = {
+  deals: Deal[];
+  total: number;
+  totalPages: number;
+};
+
+/**
+ * GET /deals?archived=true — kho lưu trữ, PHÂN TRANG THẬT.
+ *
+ * Khác `getDeals()` ở chỗ KHÔNG tải hết: kho là thứ càng dùng lâu càng dài, tải hết là đúng
+ * cái sai đang đi sửa. Sắp theo `closed_at` để "gần đây nhất" nghĩa là gần đây về NGÀY ĐÓNG,
+ * không phải lần chạm cuối — sửa một chữ trong dự án cũ không được đẩy nó lên đầu kho.  #Huynh
+ */
+export async function getArchivedDeals(opts: {
+  page: number;
+  pageSize?: number;
+  title?: string;
+  clientId?: string;
+}): Promise<ArchivedDealsPage> {
+  const params: Record<string, unknown> = {
+    archived: true,
+    sort_by: "closed_at",
+    page: opts.page,
+    page_size: opts.pageSize ?? 10,
+  };
+  if (opts.title?.trim()) params.title = opts.title.trim();
+  if (opts.clientId) params.client_id = opts.clientId;
+
+  const [dealsRes, clientsRes] = await Promise.all([
+    axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", { params }),
+    axiosClient
+      .get<PaginatedEnvelope<ClientHint>>("/clients", { params: { page_size: 100 } })
+      .catch(() => ({ data: { data: [] as ClientHint[] } })),
+  ]);
+
+  const clientMap = new Map<string, ClientHint>(
+    (clientsRes.data.data ?? []).map((c) => [c.id, c])
+  );
+  return {
+    deals: (dealsRes.data.data ?? []).map((d) => mapDeal(d, clientMap)),
+    total: dealsRes.data.pagination?.total ?? 0,
+    totalPages: dealsRes.data.pagination?.total_pages ?? 1,
+  };
+}
+
+/** Chỉ ĐẾM số dự án trong kho — cho dòng ở chân cột. Xin 1 bản ghi, đọc mỗi `total`. */
+export async function countArchivedDeals(): Promise<number> {
+  const res = await axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
+    params: { archived: true, page_size: 1 },
+  });
+  return res.data.pagination?.total ?? 0;
 }
 
 /** GET /deals?client_id= — BE lọc sẵn theo khách, không cần tải hết deal rồi lọc ở FE nữa. */
