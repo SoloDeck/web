@@ -60,6 +60,59 @@ const PAGE_STYLE = `
   }
 `;
 
+/**
+ * Cây bút đánh dấu "ô này sửa được".
+ *
+ * KHÔNG BAO GIỜ LỌT RA NGOÀI, và đó là chuyện cố ý — bảo đảm bằng hai lớp:
+ *
+ *   1. Nó nằm trong `EDIT_STYLE`, mà style đó chỉ được `attachInlineEdit()` bơm vào iframe
+ *      xem trước lúc đang soạn. Bản PDF do WeasyPrint dựng ở phía server từ template, không
+ *      có đường nào chạm tới đoạn CSS này; bản đọc-only (hợp đồng đã gửi/ký) chỉ gọi
+ *      `injectPreviewPageStyle`, tức chỉ có `PAGE_STYLE`.
+ *   2. Nó là ẢNH NỀN trên `content: ""` chứ không phải ký tự. Nên kể cả nếu một trình duyệt
+ *      nào đó tính nội dung sinh ra vào `innerText`, thứ cộng thêm cũng là chuỗi rỗng —
+ *      `readField()` không thể nào bốc nhầm cây bút vào dữ liệu đem lưu.
+ *
+ * Vì sao hiện SẴN chứ không đợi rê chuột: freelancer mới không biết tờ giấy này bấm vào sửa
+ * được. Thứ chỉ hiện khi rê chuột thì chỉ người đã biết mới tìm thấy — đúng nhóm không cần
+ * nó. Đổi lại phải thật mờ, và tắt hẳn lúc đang gõ để không vướng mắt.  #Huynh
+ */
+const PENCIL_SVG =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'" +
+  " stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E" +
+  "%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E";
+
+const PENCIL_STYLE = `
+  [data-field]:not([data-kind="list"])::after,
+  [data-field][data-kind="list"] > li:last-child::after {
+    content: "";
+    display: inline-block;
+    width: .72em;
+    height: .72em;
+    margin-left: .35em;
+    vertical-align: baseline;
+    background-image: url("${PENCIL_SVG}");
+    background-size: contain;
+    background-repeat: no-repeat;
+    opacity: .45;
+    transition: opacity .12s;
+  }
+  [data-field]:hover::after,
+  [data-field]:hover > li:last-child::after {
+    opacity: .9;
+  }
+  /* Đang gõ thì giấu đi: cây bút nằm ngay sau con trỏ vừa vướng mắt vừa dễ bị tưởng là chữ. */
+  [data-field]:focus::after,
+  [data-field]:focus-within::after,
+  [data-field]:focus-within > li:last-child::after {
+    opacity: 0;
+  }
+  /* Ô rỗng đã có sẵn dòng gợi ý "nhấp để nhập" — thêm bút nữa là thừa. */
+  [data-field].se-empty::after {
+    display: none;
+  }
+`;
+
 const EDIT_STYLE = `
   [data-field] {
     outline: none;
@@ -198,7 +251,7 @@ export function attachInlineEdit(
   style.id = "se-inline-edit-style";
   // Trang giấy trước, rồi mới tới ô sửa. Cả hai đều là thẻ <style> chèn CUỐI <head> nên
   // thắng phần `body {...}` sẵn có của template ở thế ngang cơ về độ ưu tiên.
-  style.textContent = PAGE_STYLE + EDIT_STYLE;
+  style.textContent = PAGE_STYLE + EDIT_STYLE + PENCIL_STYLE;
   doc.head.appendChild(style);
 
   doc.querySelectorAll<HTMLElement>("[data-field]").forEach((element) => {

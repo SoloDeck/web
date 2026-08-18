@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, X, Send, Download,
-  Minus, RefreshCw, Save, Sparkles,
-  TrendingUp, Check, Pencil, ChevronRight,
+  ArrowLeft, Minus, RefreshCw, Sparkles,
+  TrendingUp, Check, Pencil, PencilLine, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatVND } from "@/utils/format";
@@ -13,22 +13,31 @@ import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { PricingPanel } from "@/features/deals/components/PricingPanel";
 import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
+import { giuKhoaCauTruc } from "@/features/admin/templateContent";
 import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
 import {
+  DEPOSIT_DEFAULT_PERCENT,
   DUE_ON_COMPLETION,
-  DUE_ON_SIGNING,
   costItemsIssue,
+  depositAmount,
+  makeDepositRow,
   paymentPercentIssue,
   rescaleToTotal,
   splitEqually,
   type CostItem,
+  type DueType,
   type PaymentMilestone,
 } from "@/features/deals/proposalHtml";
-import { getProposalPreview, setProposalPrice } from "@/services/proposalsService";
+import {
+  createProposalFromTemplate,
+  getProposalPreview,
+  setProposalPrice,
+} from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
-import { useCreateProposal, useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
+import { useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
 import type { ProposalContentDTO } from "@/services/proposalsService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
@@ -108,6 +117,19 @@ function normalizeProposalContentForApi(
       // Không dùng `?? []`: mảng rỗng có nghĩa "freelancer xoá sạch hạng mục", khác hẳn với
       // "báo giá này chưa có hạng mục nào" — cái sau phải để BE tự dựng từ bộ định giá.  #Huynh
       ...(Array.isArray(content.pricing_items) ? { pricing_items: content.pricing_items } : {}),
+      // Điều khoản chuẩn từ thư viện mẫu — LẦN THỨ TƯ của đúng cái bẫy trên.
+      //
+      // Freelancer chọn một mẫu ở màn đầu, backend chèn nguyên văn vào đây, tờ báo giá in ra
+      // mục 10. Rồi chỉ cần sửa MỘT chữ (hay chỉ cần đóng màn) là lượt lưu đầu tiên vứt sạch
+      // khoá này, và `PATCH /proposals/{id}` THAY TOÀN BỘ content — mục 10 biến mất không dấu
+      // vết. Nhìn từ ngoài thì chọn mẫu hay chọn "AI tự viết" ra kết quả y hệt nhau, nên ai
+      // cũng tưởng bộ chọn mẫu chưa được nối.  #Huynh
+      ...(content.standard_terms ? { standard_terms: content.standard_terms } : {}),
+      // Lần thứ NĂM của đúng cái bẫy trên, và lần này lộ ra khi mẫu bắt đầu điền được nó.
+      // AI KHÔNG hề sinh `revision_policy` (không có trong schema đầu ra), nên trước nay nó
+      // luôn rỗng và không ai thấy khoá này rụng. Từ khi mẫu điền được "2 vòng miễn phí" thì
+      // lượt lưu đầu tiên vứt sạch, và mục 8 mất một nửa.  #Huynh
+      ...(content.revision_policy ? { revision_policy: content.revision_policy } : {}),
       valid_until: content.valid_until,
       // Tiền lấy từ bộ định giá của BE, KHÔNG lấy `deal.value` (ô "Giá trị dự kiến" —
       // freelancer không nhập thì bằng 0, và bản lưu lại ghi "Tổng báo giá: 0 ₫").  #Huynh
@@ -126,16 +148,28 @@ function normalizeProposalContentForApi(
     };
   }
 
-  const source = content ?? buildManualProposalContent(deal);
+  // Chưa nạp được nội dung nào (mở rồi lưu trước khi content về). Dựng bộ khung tối thiểu từ
+  // DỮ LIỆU CÓ THẬT của deal — cố ý KHÔNG bịa một câu văn nào.
+  //
+  // Bản trước rơi về `buildManualProposalContent`, một khối văn bản viết cứng trong code
+  // ("thanh toán 50/50", "2 vòng chỉnh sửa"...) đi thẳng vào tờ giấy gửi khách mà không ai
+  // ngồi soạn. Mục nào chưa có chữ thì cứ để trống: ở bản nháp nó hiện thành ô bấm-để-nhập,
+  // ở bản gửi khách nó biến mất.  #Huynh
+  if (content) return content as ProposalContentDTO;
+  const total = deal.value > 0 ? deal.value : 0;
   return {
     rendered_html: renderedHtml,
-    title: source.title,
-    executive_summary: source.executive_summary,
-    scope_of_work: source.scope_of_work,
-    timeline: source.timeline,
-    pricing: source.pricing,
-    terms: source.terms,
-    notes: editedText?.trim() || source.notes,
+    title: `Báo giá ${deal.projectType}`,
+    executive_summary: deal.notes?.trim() ?? "",
+    scope_of_work: "",
+    pricing: {
+      currency: "VND",
+      total,
+      line_items: [
+        { description: deal.projectType, quantity: 1, unit_price: total, amount: total },
+      ],
+    },
+    notes: editedText?.trim() ?? "",
   };
 }
 
@@ -182,6 +216,11 @@ type EditFields = {
   assumptions: string;
   outOfScope: string;
   revisionPolicy: string;
+  /**
+   * Điều khoản chuẩn lấy NGUYÊN VĂN từ mẫu trong thư viện admin (mục 10 của tờ báo giá).
+   * Rỗng khi freelancer chọn "AI tự viết".
+   */
+  standardTerms: string;
   /** ISO "2026-08-31" — kiểu của máy. Tờ giấy hiện kiểu Việt, chỗ này lưu kiểu tính được. */
   validUntil: string;
 };
@@ -201,6 +240,10 @@ const INLINE_FIELD_MAP: Record<string, keyof EditFields> = {
   assumptions: "assumptions",
   out_of_scope: "outOfScope",
   revision_policy: "revisionPolicy",
+  // Không có dòng này thì mục "Điều khoản chuẩn" trên tờ giấy vẫn bấm vào gõ được (template
+  // có gắn `data-field`), nhưng gõ xong rời chuột là mất trắng — tra bảng không ra thì
+  // `handleInlineFieldChange` lặng lẽ bỏ qua.  #Huynh
+  standard_terms: "standardTerms",
   valid_until: "validUntil",
 };
 
@@ -226,52 +269,65 @@ function deriveCostItems(
 ): CostItem[] {
   if (Array.isArray(saved) && saved.length > 0) {
     if (saved.every((x) => typeof x === "object" && x !== null)) {
+      // Bảng freelancer ĐÃ LƯU — tôn trọng tuyệt đối, không chèn thêm gì, không đoán gì.
+      // Kể cả khi họ đã bỏ hẳn khoản cọc.
       return (saved as CostItem[]).map((x, index) => ({
         label: String(x.label ?? ""),
         amount: Number(x.amount) || 0,
         // Mang theo thời điểm thu — không mang là mở lại báo giá thì lựa chọn "Khi ký hợp
         // đồng" biến mất, và khoản đặt cọc lặng lẽ thành "thu khi xong".
-        //
-        // Chưa dòng nào chọn thì dòng ĐẦU mặc định thu khi ký — KHỚP với backend
-        // (`pdf_content._typed_cost_items`). Lệch nhau ở đây là panel hiện một đằng, tờ báo
-        // giá in một nẻo, đúng loại lỗi cả module này sinh ra để chặn.  #Huynh
-        due_type:
-          x.due_type ??
-          (saved.some((y) => (y as CostItem).due_type) || index > 0
-            ? DUE_ON_COMPLETION
-            : DUE_ON_SIGNING),
+        due_type: x.due_type ?? DUE_ON_COMPLETION,
         ...(x.due_note ? { due_note: String(x.due_note) } : {}),
+        ...(x.is_deposit ? { is_deposit: true } : {}),
+        ...(x.deposit_percent != null ? { deposit_percent: Number(x.deposit_percent) } : {}),
+        // Id TẤT ĐỊNH khi bản lưu chưa có: hàm này chạy lại MỖI LẦN RENDER (cố ý không
+        // `useMemo`, xem chỗ gọi), nên `crypto.randomUUID()` ở đây là id đổi giữa chừng lúc
+        // đang kéo — dnd-kit mất dấu phần tử ngay giữa thao tác.  #Huynh
+        id: x.id ?? `ci-${index}`,
       }));
     }
     const labels = (saved as unknown[]).map(String).filter(Boolean);
-    const amounts = splitEqually(agreedTotal, labels.length);
-    return withDepositDefault(labels.map((label, i) => ({ label, amount: amounts[i] ?? 0 })));
+    const deposit = depositAmount(agreedTotal, DEPOSIT_DEFAULT_PERCENT, labels.length);
+    const amounts = splitEqually(agreedTotal - deposit, labels.length);
+    return withDefaultDeposit(
+      labels.map((label, i) => ({ label, amount: amounts[i] ?? 0 })),
+      deposit
+    );
   }
 
   const items = detailItems ?? [];
   if (items.length === 0) return [];
-  return withDepositDefault(
+  const deposit = depositAmount(agreedTotal, DEPOSIT_DEFAULT_PERCENT, items.length);
+  return withDefaultDeposit(
     rescaleToTotal(
       items.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
-      agreedTotal,
+      // Cắt cọc TRƯỚC rồi mới giãn phần còn lại; mẫu số vẫn là giá ĐỀ XUẤT của bộ định giá.
+      // Cả hai điều này phải khớp từng phép tính với `_resolve_cost_items_with_total` bên
+      // backend — nếu không, panel bên trái và tờ báo giá bên phải ra hai bảng khác nhau.
+      agreedTotal - deposit,
       suggested
-    )
+    ),
+    deposit
   );
 }
 
 /**
- * Dòng ĐẦU thu khi ký hợp đồng — cho các bảng SUY RA (bộ định giá, nhãn-only), nơi chưa ai
- * kịp chọn thời điểm thu.
+ * Ghép dòng phí trả trước lên đầu một bảng SUY RA (bộ định giá hoặc nhãn-only), và đánh id
+ * tất định cho từng dòng.
  *
- * Không có bước này thì mặc định là "thu khi hoàn thành" cho tất cả, tức freelancer làm xong
- * sạch dự án mới nhận đồng đầu tiên — tệ hơn hẳn lịch 50/50 của bản cũ. Khớp từng chữ với
- * `pdf_content._with_deposit_default` bên backend.  #Huynh
+ * Backend cũng làm y hệt cho hai nhánh này (`pdf_content._resolve_cost_items_with_total`).
+ * Phải cả hai chứ không phải chỉ một: tờ báo giá bên phải màn soạn do SERVER dựng, nên nếu
+ * chỉ frontend chèn thì panel trái hiện 4 dòng còn tờ giấy phải hiện 3.  #Huynh
  */
-function withDepositDefault(items: CostItem[]): CostItem[] {
-  return items.map((item, index) => ({
-    ...item,
-    due_type: index === 0 ? DUE_ON_SIGNING : DUE_ON_COMPLETION,
+function withDefaultDeposit(rows: CostItem[], deposit: number): CostItem[] {
+  const withIds = rows.map((row, index) => ({
+    ...row,
+    due_type: DUE_ON_COMPLETION as DueType,
+    id: `ci-${index}`,
   }));
+  return deposit > 0
+    ? [makeDepositRow(deposit, DEPOSIT_DEFAULT_PERCENT), ...withIds]
+    : withIds;
 }
 
 function deriveEditFields(content: unknown): EditFields {
@@ -296,6 +352,7 @@ function deriveEditFields(content: unknown): EditFields {
       ((c.terms as { payment_terms?: string })?.payment_terms as string) ||
       "",
     assumptions: (c.assumptions as string) || (c.notes as string) || "",
+    standardTerms: typeof c.standard_terms === "string" ? c.standard_terms : "",
     validUntil: typeof c.valid_until === "string" ? c.valid_until : "",
     outOfScope: asLines(c.out_of_scope),
     revisionPolicy:
@@ -323,6 +380,9 @@ function editFieldsToContent(fields: EditFields, prev: unknown): BackendProposal
     assumptions: fields.assumptions,
     out_of_scope: lines(fields.outOfScope),
     revision_policy: fields.revisionPolicy,
+    // Điều khoản chuẩn từ mẫu admin. Chỉ ghi khi CÓ — ghi chuỗi rỗng là tờ báo giá mất hẳn
+    // mục 10 (template ẩn mục khi trường này rỗng), và số thứ tự mục 11 tụt về 10.  #Huynh
+    ...(fields.standardTerms ? { standard_terms: fields.standardTerms } : {}),
     // Chỉ ghi khi freelancer THỰC SỰ đặt hạn. Ghi chuỗi rỗng là đè mất mặc định của
     // backend (ngày gửi + 4), và tờ báo giá mất luôn dòng "Hiệu lực đến".  #Huynh
     ...(fields.validUntil ? { valid_until: fields.validUntil } : {}),
@@ -398,36 +458,6 @@ function ManualPriceCard({
   );
 }
 
-function buildManualProposalContent(deal: Deal): ProposalContentDTO {
-  const total = deal.value > 0 ? deal.value : 0;
-  return {
-    title: `Báo giá ${deal.projectType}`,
-    executive_summary:
-      deal.notes?.trim() ||
-      `Bản nháp báo giá cho yêu cầu ${deal.projectType}. Freelancer có thể chỉnh lại nội dung trước khi gửi khách.`,
-    scope_of_work:
-      "Trao đổi chi tiết yêu cầu, thống nhất phạm vi công việc, triển khai theo các hạng mục đã chốt và bàn giao kết quả sau khi nghiệm thu.",
-    timeline: {
-      milestones: [
-        { title: "Xác nhận phạm vi và nội dung cần triển khai" },
-        { title: "Triển khai phiên bản đầu tiên" },
-        { title: "Chỉnh sửa theo phản hồi và bàn giao" },
-      ],
-    },
-    pricing: {
-      currency: "VND",
-      total,
-      line_items: [{ description: deal.projectType, quantity: 1, unit_price: total, amount: total }],
-    },
-    terms: {
-      payment_terms: "Đề xuất thanh toán 50% khi bắt đầu và 50% sau khi nghiệm thu.",
-      revision_policy: "Bao gồm 2 vòng chỉnh sửa trong phạm vi đã thống nhất.",
-      ip_ownership: "Quyền sử dụng sản phẩm được bàn giao cho khách hàng sau khi hoàn tất thanh toán.",
-    },
-    notes: "Bản này được tạo thủ công vì tài khoản hiện chưa dùng được AI. Bạn có thể chỉnh nội dung trước khi gửi.",
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -491,6 +521,8 @@ export function ProposalModal({
   const [chosenTemplateId, setChosenTemplateId] = useState<string | null>(null);
   const termTemplates = useTermTemplates("proposal", !existingProposalId);
 
+  const canUseAi = useCanUseAi();
+
   // Bản nháp đang có của deal — để màn chọn cho freelancer mở lại một bản thay vì đẻ bản mới.
   // DÙNG ĐÚNG query key của trang chi tiết (`{ deal_id, page_size: 10 }`) nên mở từ đó không
   // phát sinh request thừa, và xoá/sửa bản nháp bên kia là bên này thấy ngay.  #Huynh
@@ -507,11 +539,15 @@ export function ProposalModal({
   const qc = useQueryClient();
   const freelancerName = useAuthStore((s) => s.user?.fullName ?? "Freelancer");
   const aiGenerate = useAiGenerateProposal();
-  const createDraft = useCreateProposal();
+  /** Đường soạn KHÔNG dùng AI. Không `AI_TIMEOUT_MS`, không job nền, không tốn lượt. */
+  const fromTemplate = useMutation({
+    mutationFn: ({ dealId, templateId }: { dealId: string; templateId: string | null }) =>
+      createProposalFromTemplate(dealId, templateId),
+  });
   const updateDraft = useUpdateProposal();
   const send = useSendProposal();
   const downloadPdf = useDownloadProposalPdf();
-  const [pendingAction, setPendingAction] = useState<"send" | "pdf" | "save" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"send" | "pdf" | null>(null);
 
   // Khối định giá do BE tính. `null` khi deal chưa được chấm điểm và freelancer cũng chưa
   // có lịch sử — lúc đó BE không neo được vào đâu và CỐ Ý không bịa ra con số.  #Huynh
@@ -591,6 +627,7 @@ export function ProposalModal({
     assumptions: "",
     outOfScope: "",
     revisionPolicy: "",
+    standardTerms: "",
     validUntil: "",
   });
 
@@ -611,48 +648,31 @@ export function ProposalModal({
   const cancelJob = useAIActivityStore((state) => state.cancelJob);
   const jobId = deal ? `ai-proposal-${deal.id}` : "";
 
-  function createManualDraft(d: NonNullable<typeof deal>, status?: number) {
-    const currentJobId = `ai-proposal-${d.id}`;
-    const content = buildManualProposalContent(d);
-    createDraft.mutate(
-      { deal_id: d.id, content },
-      {
-        onSuccess: (res) => {
-          if (cancelRef.current) return;
-          setRetryCount(0);
-          setIsGenerating(false);
-          setProposalId(res.id);
-          setProposalContent(res.content);
-          setEditFields(deriveEditFields(res.content));
-          // Nhớ id bản nháp vào thẻ job: bấm "Xem" sau này sẽ nạp lại ĐÚNG bản này thay
-          // vì gọi AI sinh bản mới.  #Huynh
-          updateJob(currentJobId, { resultId: res.id });
-          addDealHistoryEntry(d.id, {
-            date: new Date().toISOString(),
-            text: `Đã tạo bản nháp báo giá thủ công cho "${d.client}" (AI không dùng được).`,
-            channel: "message",
-          });
-          updateJob(currentJobId, {
-            status: "success",
-            description: "Đã tạo bản nháp thường để bạn chỉnh sửa và gửi khách.",
-          });
-          toast.info(
-            status === 402
-              ? "Gói hiện tại chưa dùng được AI, SoloDesk đã tạo bản nháp thường để bạn chỉnh và gửi khách."
-              : "Không tạo được bằng AI, SoloDesk đã tạo bản nháp thường để bạn chỉnh tiếp."
-          );
-        },
-        onError: () => {
-          if (cancelRef.current) return;
-          setIsGenerating(false);
-          updateJob(currentJobId, {
-            status: "error",
-            description: "Không thể tạo bản nháp báo giá.",
-            error: "Backend không tạo được bản nháp báo giá. Hãy kiểm tra request proposals.",
-          });
-          toast.error("Không thể tạo bản nháp báo giá. Vui lòng thử lại.");
-        },
-      }
+  /**
+   * AI không dùng được → đưa về màn chọn, sẵn tab KHUNG.
+   *
+   * Bản trước ở đây tạo hộ một bản nháp từ `buildManualProposalContent` — một khối văn bản
+   * tiếng Việt viết cứng trong code ("thanh toán 50/50", "2 vòng chỉnh sửa", "Bản này được tạo
+   * thủ công vì tài khoản hiện chưa dùng được AI") đi thẳng vào tờ giấy gửi khách. Không ai
+   * ngồi soạn những câu đó, chúng chỉ là hằng số lập trình mặc áo nghiệp vụ; và câu cuối thì
+   * lộ chuyện nội bộ ra trước mặt khách hàng.
+   *
+   * Giờ đã có đường soạn-từ-khung thật, nên chỗ này chỉ cần CHỈ ĐƯỜNG: mục nào admin đã soạn
+   * thì có chữ của admin, còn lại là ô trống freelancer tự điền.  #Huynh
+   */
+  function fallBackToSkeleton(d: NonNullable<typeof deal>, status?: number) {
+    if (cancelRef.current) return;
+    setRetryCount(0);
+    setIsGenerating(false);
+    removeJob(`ai-proposal-${d.id}`);
+    setChosenTemplateId(null);
+    setChoosing(true);
+    toast.info(
+      status === 402
+        ? "Gói hiện tại chưa dùng được AI. Bạn vẫn soạn báo giá đầy đủ từ khung có sẵn."
+        : status === 429
+          ? "Đã hết lượt AI trong kỳ này. Bạn vẫn soạn báo giá đầy đủ từ khung có sẵn."
+          : "Không tạo được bằng AI. Bạn có thể soạn từ khung có sẵn."
     );
   }
 
@@ -708,7 +728,7 @@ export function ProposalModal({
           if (cancelRef.current) return;
           const status = (err as { response?: { status?: number } })?.response?.status;
           if (status && status < 500) {
-            createManualDraft(d, status);
+            fallBackToSkeleton(d, status);
             return;
           }
 
@@ -742,7 +762,7 @@ export function ProposalModal({
           if (attempt + 1 >= MAX_GENERATE_ATTEMPTS) {
             setIsGenerating(false);
             setRetryCount(0);
-            createManualDraft(d, status);
+            fallBackToSkeleton(d, status);
             return;
           }
           setRetryCount(attempt + 1);
@@ -791,20 +811,19 @@ export function ProposalModal({
     if (generatedKeyRef.current === runKey) return;
     generatedKeyRef.current = runKey;
 
-    // Có mẫu của admin HOẶC có bản nháp đang dở → hiện màn chọn, chưa sinh gì.
+    // LUÔN qua màn chọn, kể cả khi chưa có mẫu nào.
     //
-    // Trước đây có bản nháp thì trang chi tiết tự nhét thẳng id vào và nhảy luôn vào bản đó —
-    // freelancer không có đường nào để ngó qua các bản nháp rồi chọn, cũng không có đường tạo
-    // bản mới khi đang có nháp.  #Huynh
-    if ((termTemplates.data ?? []).length > 0 || draftProposals.length > 0) {
-      setChosenTemplateId(null);
-      setChoosing(true);
-      return () => { cancelRef.current = true; };
-    }
-
-    // Không có gì để chọn → sinh thẳng như cũ, không chen một cú bấm vô nghĩa.
-    templateIdRef.current = null;
-    startGenerate(deal);
+    // Màn này cho freelancer ngó qua bản nháp đang dở rồi mở lại (trước đây trang chi tiết tự
+    // nhét thẳng id vào và nhảy luôn vào bản đó, không có đường nào để chọn), và chọn giữa hai
+    // lối soạn.
+    //
+    // Trước đây nhánh này sinh thẳng: không có mẫu + không có nháp = request AI bay đi ngay lúc
+    // mở panel, chưa ai bấm gì. Với gói Free thì đó là một lượt chờ rồi ăn 402; với gói trả tiền
+    // thì đó là một lượt AI bị tiêu cho quyết định mà người dùng chưa hề đưa ra. Và quan trọng
+    // hơn: nhánh đó khiến đường soạn-từ-khung không bao giờ hiện ra cho đúng những người cần nó
+    // nhất — tài khoản mới, chưa có mẫu nào.  #Huynh
+    setChosenTemplateId(null);
+    setChoosing(true);
     return () => { cancelRef.current = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -815,6 +834,31 @@ export function ProposalModal({
     proposalList.isFetched,
     draftProposals.length,
   ]);
+
+  /**
+   * Soạn từ khung — KHÔNG gọi AI, mở thẳng màn soạn.
+   *
+   * Cố ý không mở "job nền" như đường AI: không có gì chạy nền cả, request về gần như tức thì.
+   * Dựng một thẻ job rồi đóng ngay chỉ làm người dùng thấy một cái chớp vô nghĩa.
+   */
+  function startFromTemplate(d: NonNullable<typeof deal>, templateId: string | null) {
+    fromTemplate.mutate(
+      { dealId: d.id, templateId },
+      {
+        onSuccess: (res) => {
+          setChoosing(false);
+          setIsGenerating(false);
+          setProposalId(res.id);
+          setProposalContent(res.content);
+          setEditFields(deriveEditFields(res.content));
+          qc.invalidateQueries({ queryKey: ["proposals"] });
+        },
+        onError: () => {
+          toast.error("Không tạo được bản nháp từ khung. Vui lòng thử lại.");
+        },
+      }
+    );
+  }
 
   // Bắt đầu sinh: mở job nền + báo đang chạy + gọi AI. Tách ra để dùng chung cho đường tự
   // sinh (không mẫu) lẫn đường sau khi chọn mẫu.
@@ -898,9 +942,21 @@ export function ProposalModal({
    * không thể lệch giữa "chữ hiện ra" và "giá gửi đi".  #Huynh
    */
   const buildContentToSave = () =>
-    normalizeProposalContentForApi(
-      editFieldsToContent(editFieldsRef.current, proposalContentRef.current),
-      deal
+    // `giuKhoaCauTruc` là chỗ CHẶN CUỐI cho cái bẫy đã đếm tới lần thứ năm ở đầu file.
+    //
+    // Hai hàm trên đều dựng content bằng cách liệt kê tay từng khoá, nên khoá nào không được
+    // gọi tên là rụng — mà `PATCH /proposals/{id}` thay TOÀN BỘ content. Bốn khoá cấu trúc do
+    // mẫu của admin đặt (mục đã tắt, tên đầu mục, chữ điều khoản, mục tự soạn) là nạn nhân
+    // tiếp theo: admin cấu hình xong, freelancer gõ MỘT chữ là tờ giấy về mặc định.
+    //
+    // Đặt ở đây chứ không ở từng chỗ gọi: cả lưu ngầm, lưu tiền lẫn đường gửi đều đi qua hàm
+    // này, nên không phải nhớ ba chỗ.  #Huynh
+    giuKhoaCauTruc(
+      proposalContentRef.current as Record<string, unknown> | null,
+      normalizeProposalContentForApi(
+        editFieldsToContent(editFieldsRef.current, proposalContentRef.current),
+        deal
+      )
     );
 
   /**
@@ -1025,28 +1081,6 @@ export function ProposalModal({
     });
   };
 
-  const handleSaveDraft = () => {
-    if (!proposalId) return;
-    const contentToSave = buildContentToSave();
-
-    setPendingAction("save");
-    updateDraft.mutate(
-      { proposalId, payload: { deal_id: deal.id, content: contentToSave } },
-      {
-        onSuccess: () => {
-          setPendingAction(null);
-          setDirtyContent(false);
-          qc.invalidateQueries({ queryKey: ["proposal-preview", proposalId] });
-          toast.success("Đã lưu bản nháp.");
-        },
-        onError: () => {
-          setPendingAction(null);
-          toast.error("Không lưu được bản nháp. Vui lòng thử lại.");
-        },
-      }
-    );
-  };
-
   const handleSend = async () => {
     if (!proposalId) return;
     const contentToSave = buildContentToSave();
@@ -1148,6 +1182,41 @@ export function ProposalModal({
     triggerGenerate(deal, 0);
   };
 
+  /**
+   * Bản này soạn từ khung hay do AI viết — quyết định nút phụ ở chân màn là gì.
+   *
+   * SUY RA từ chính bản ghi (`ai_generated`) chứ không nhớ bằng state, để mở lại một bản nháp
+   * cũ cũng ra đúng nút. Chưa nạp xong thì tạm theo chế độ vừa chọn.
+   */
+  // Bản này soạn tay hay do AI viết — quyết định nút phụ ở chân màn là "Quay lại" hay "Tạo lại".
+  // SUY RA từ chính bản ghi (`ai_generated`) chứ không nhớ bằng state, để mở lại một bản nháp cũ
+  // cũng ra đúng nút. Gói không dùng được AI thì "Tạo lại" luôn sai — nó chỉ dẫn tới 402.
+  const soanTuKhung = canUseAi === false || existing.data?.ai_generated === false;
+
+  /**
+   * Quay lại màn chọn — nút thay cho "Tạo lại" ở bản soạn tay.
+   *
+   * "Tạo lại" ở đây vừa vô nghĩa vừa nguy hiểm: nó gọi AI (gói không có AI thì ăn 402), và nó
+   * `setProposalId(null)` rồi sinh một bản MỚI — tức là công freelancer vừa gõ tay nằm lại ở
+   * bản nháp cũ, còn màn hình thì nhảy sang bản trắng khác. Bấm nhầm một cái là tưởng mất
+   * trắng.  #Huynh
+   */
+  function handleBackToChooser() {
+    // Lưu thứ đang gõ dở TRƯỚC, y như lúc đóng màn — bản nháp vẫn nằm trong DB và hiện lại ở
+    // màn chọn, nên quay lại không được phép làm rơi chữ nào.
+    if (dirtyContent && proposalId && deal) {
+      updateDraft.mutate(
+        { proposalId, payload: { deal_id: deal.id, content: buildContentToSave() } },
+        {
+          onError: () =>
+            toast.error("Không lưu được thay đổi cuối. Mở lại báo giá để kiểm tra."),
+        }
+      );
+    }
+    setChosenTemplateId(null);
+    setChoosing(true);
+  }
+
   // Gửi và xuất PDF đều đi qua updateDraft trước, nên không thể phân biệt bằng
   // mutation flag — theo dõi hành động đang chạy một cách tường minh.
   const isLoading = isGenerating;
@@ -1160,8 +1229,18 @@ export function ProposalModal({
     // Trước đây tôi bật một hộp thoại "Bỏ những thay đổi chưa lưu?" — nhưng đó là bắt người
     // dùng gánh một quyết định mà máy tự lo được. Đây là BẢN NHÁP: lưu lại chẳng mất gì,
     // còn hỏi thì vừa phiền vừa dễ bấm nhầm "Bỏ" rồi mất công gõ lại.  #Huynh
+    //
+    // Từ khi bỏ nút "Lưu nháp", đây là lưới an toàn CUỐI CÙNG — nên lưu hụt phải NÓI RA.
+    // Không có nhánh lỗi thì màn hình đóng lại êm ru trong khi thứ vừa gõ đã rơi mất, và
+    // người dùng chỉ phát hiện lúc mở lại.  #Huynh
     if (dirtyContent && proposalId && deal) {
-      updateDraft.mutate({ proposalId, payload: { deal_id: deal.id, content: buildContentToSave() } });
+      updateDraft.mutate(
+        { proposalId, payload: { deal_id: deal.id, content: buildContentToSave() } },
+        {
+          onError: () =>
+            toast.error("Không lưu được thay đổi cuối. Mở lại báo giá để kiểm tra trước khi gửi."),
+        }
+      );
     }
     if (jobId) removeJob(jobId);
     onClose();
@@ -1308,24 +1387,45 @@ export function ProposalModal({
                 onChange={setChosenTemplateId}
                 docLabel="báo giá"
               />
-              <div className="mt-5 flex justify-end gap-2">
+              {/* HAI HÀNH ĐỘNG, MỘT danh sách. Khác biệt giữa hai đường soạn nằm ở việc
+                BẤM GÌ, không phải ở chỗ chọn mẫu nào — nên nó thuộc về hai cái nút này chứ
+                không phải hai cái tab ở trên (bản trước bày hai tab liệt kê cùng một thư
+                viện, nhìn ra là hai bản sao của nhau).  #Huynh */}
+              <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
+                  className="mr-auto rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
+                  disabled={fromTemplate.isPending}
+                  title="Không gọi AI, không tốn lượt — bạn tự điền nội dung trên tờ giấy"
+                  onClick={() => deal && startFromTemplate(deal, chosenTemplateId)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold transition hover:bg-secondary disabled:opacity-60"
+                >
+                  <PencilLine className="h-4 w-4" />
+                  {fromTemplate.isPending ? "Đang mở..." : "Tôi tự soạn"}
+                </button>
+                <button
+                  type="button"
+                  disabled={canUseAi === false || fromTemplate.isPending}
+                  title={
+                    canUseAi === false
+                      ? "Gói hiện tại chưa dùng được AI — bạn vẫn soạn tay được"
+                      : "AI đọc yêu cầu của khách rồi viết phần nội dung"
+                  }
                   onClick={() => {
+                    if (!deal) return;
                     templateIdRef.current = chosenTemplateId;
                     setChoosing(false);
-                    if (deal) startGenerate(deal);
+                    startGenerate(deal);
                   }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Sparkles className="h-4 w-4" /> Tạo báo giá
+                  <Sparkles className="h-4 w-4" /> Nhờ AI viết
                 </button>
               </div>
             </div>
@@ -1450,6 +1550,10 @@ export function ProposalModal({
                       onLoad={handlePreviewLoad}
                       title="Báo giá — bấm vào chữ để sửa"
                       srcDoc={previewQuery.data}
+                      // `sandbox` KHÔNG kèm `allow-scripts`: tờ giấy là HTML/CSS thuần (hai template
+                      // Jinja không có thẻ <script> nào), nên chặn script trong khung là miễn phí. Giữ
+                      // `allow-same-origin` để trang cha còn chạm được `contentDocument` cho sửa tại chỗ.
+                      sandbox="allow-same-origin"
                       className="min-h-0 w-full flex-1 rounded-lg border border-border bg-white"
                     />
                   ) : (
@@ -1463,12 +1567,24 @@ export function ProposalModal({
               {/* Footer — MỘT hành động chính. "Tạo lại"/"Tải PDF" là phụ, để nhạt.  #Huynh */}
               <div className="border-t border-border p-4 bg-card flex gap-2 shrink-0">
                 <button
-                  onClick={handleRegenerate}
+                  onClick={soanTuKhung ? handleBackToChooser : handleRegenerate}
                   disabled={isLoading || isSending || isDownloading}
-                  title="AI soạn lại bản nháp khác"
+                  title={
+                    soanTuKhung
+                      ? "Về màn chọn khung — bản nháp này vẫn được giữ"
+                      : "AI soạn lại bản nháp khác"
+                  }
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <RefreshCw className="h-4 w-4" /> Tạo lại
+                  {soanTuKhung ? (
+                    <>
+                      <ArrowLeft className="h-4 w-4" /> Quay lại
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4" /> Tạo lại
+                    </>
+                  )}
                 </button>
                 <button
                   onClick={handleDownloadPdf}
@@ -1484,18 +1600,11 @@ export function ProposalModal({
                     </span>
                   )}
                 </button>
-                <button
-                  onClick={handleSaveDraft}
-                  disabled={!proposalId || isSending || isDownloading || pendingAction === "save"}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {pendingAction === "save" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  {dirtyContent ? "Lưu nháp *" : "Lưu nháp"}
-                </button>
+                {/* Nút "Lưu nháp" đã BỎ — nó không còn việc gì để làm.
+                  Sửa chữ trên tờ giấy thì lưu sau 800ms, sửa mục 7/8 thì lưu sau 700ms, và
+                  đóng màn hình cũng lưu nốt phần chưa kịp. Cả ba đường đều gửi ĐÚNG một
+                  payload như nút này từng gửi. Giữ lại chỉ tổ khiến người dùng tưởng không
+                  bấm là mất bài — rồi bấm cho chắc sau mỗi lần gõ.  #Huynh */}
 
                 {/* Chưa chốt giá thì KHÔNG gửi được. Gửi cho khách một bản ghi "87 – 162 triệu"
                   là tự bắn vào chân: khách chỉ nhìn con số nhỏ nhất, và mọi thương lượng

@@ -3,7 +3,30 @@ import type { CostItem, PaymentMilestone, PricingDetail } from "@/features/deals
 import type { ApiResponse } from "@/features/auth/types";
 
 /** Một lựa chọn mẫu điều khoản (thư viện admin) freelancer chọn trước khi sinh tài liệu. */
-export type TermTemplateOption = { id: string; name: string };
+/**
+ * Một mẫu điều khoản trong bộ chọn.
+ *
+ * Bản trước chỉ có `{id, name}` nên bộ chọn KHÔNG THỂ hiện gì về nội dung — mọi mẫu mang chung
+ * một dòng phụ đề, hai mẫu khác nhau nhìn y hệt nhau, chọn xong không có kỳ vọng nào để đối
+ * chiếu. Nay kèm đủ để phân biệt trước khi bấm.  #Huynh
+ */
+export type TermTemplateOption = {
+  id: string;
+  name: string;
+  /** Slug nghề; `null` = mẫu dùng chung. */
+  profession?: string | null;
+  /** Nhãn các khối mẫu này thực sự điền ("Ngoài phạm vi", "Chính sách chỉnh sửa"...). */
+  blocks?: string[];
+  /** Trích đoạn ngắn của khối đầu tiên. */
+  preview?: string;
+  /**
+   * Các mục mẫu này đã soạn sẵn cho chế độ KHUNG (soạn không cần AI).
+   *
+   * Rỗng = mẫu chưa soạn khung: chọn nó ở tab "Tự soạn từ khung" thì phần thân freelancer phải
+   * tự điền. Phải nói trước, không để họ chọn xong mới phát hiện tờ giấy gần như trống.
+   */
+  skeleton_blocks?: string[];
+};
 
 /** GET /proposals/term-templates — mẫu điều khoản báo giá theo nghề của freelancer. */
 export async function listProposalTermTemplates(): Promise<TermTemplateOption[]> {
@@ -124,6 +147,30 @@ export type ProposalContentDTO = {
    * thiếu khoá không phải lỗi kiểu.  #Huynh
    */
   valid_until?: string;
+
+  /**
+   * Điều khoản chuẩn lấy NGUYÊN VĂN từ mẫu trong thư viện admin — mục 10 của tờ báo giá.
+   *
+   * Cùng một cái bẫy, lần thứ TƯ (sau `pricing_detail`, `deliverables`, `pricing_items`).
+   * Freelancer bấm "Tạo báo giá" rồi chọn một mẫu, backend chèn điều khoản vào đây và tờ
+   * giấy in ra mục 10 — nhưng lượt LƯU đầu tiên vứt khoá này, mà `PATCH /proposals/{id}`
+   * thì THAY TOÀN BỘ `content`, nên mục 10 biến mất không dấu vết.
+   *
+   * Hậu quả nhìn từ ngoài: chọn mẫu hay chọn "AI tự viết" ra kết quả y hệt nhau, nên người
+   * dùng kết luận bộ chọn mẫu chưa được nối — trong khi backend đã làm đúng phần của nó.
+   * #Huynh
+   */
+  standard_terms?: string;
+
+  /**
+   * Chính sách chỉnh sửa — mục 8 của tờ báo giá. Lần thứ NĂM của cùng cái bẫy "DTO liệt kê
+   * từng khoá nên khoá nào không có tên là bị vứt".
+   *
+   * Trước nay không ai thấy nó rụng vì AI KHÔNG hề sinh trường này (không có trong schema đầu
+   * ra), nên nó luôn rỗng. Từ khi mẫu của admin điền được "2 vòng chỉnh sửa miễn phí" thì lượt
+   * lưu đầu tiên vứt sạch, và mục 8 mất một nửa.  #Huynh
+   */
+  revision_policy?: string;
 };
 
 export type ProposalResponse = {
@@ -331,6 +378,24 @@ export async function generateProposalFromDeal(dealId: string): Promise<Proposal
 }
 
 /**
+ * POST /proposals/from-template/{dealId} — soạn báo giá từ KHUNG mẫu, KHÔNG dùng AI.
+ *
+ * Đường soạn thứ hai. CỐ Ý không có `AI_TIMEOUT_MS`: không có lượt gọi model nào, nên chờ 60
+ * giây là vô nghĩa. `templateId = null` = "khung trắng", bản nháp rỗng với đủ ô để tự điền.
+ */
+export async function createProposalFromTemplate(
+  dealId: string,
+  templateId: string | null
+): Promise<ProposalResponse> {
+  const { data } = await axiosClient.post<ApiResponse<ProposalResponse>>(
+    `/proposals/from-template/${dealId}`,
+    undefined,
+    templateId ? { params: { template_id: templateId } } : undefined
+  );
+  return data.data;
+}
+
+/**
  * POST /proposals/ai-generate — AI-generate and create a proposal for a deal.
  * Backend uses Gemini AI. Returns a full ProposalResponse (id + content).
  */
@@ -372,9 +437,16 @@ export async function setProposalPrice(
  * Cùng một template với PDF ở backend nên hai bên KHÔNG THỂ lệch — đó là gốc khiến bản trên
  * màn hình trước đây khác bản tải về, nhìn như lừa đảo.  #Huynh
  */
-export async function getProposalPreview(proposalId: string): Promise<string> {
+export async function getProposalPreview(
+  proposalId: string,
+  options?: { editable?: boolean }
+): Promise<string> {
   const { data } = await axiosClient.get<ApiResponse<{ html: string }>>(
-    `/proposals/${proposalId}/preview`
+    `/proposals/${proposalId}/preview`,
+    // `editable` mở thêm ô rỗng cho các mục chưa có chữ. Không có nó thì báo giá soạn từ khung
+    // là bài toán con-gà-quả-trứng: 5/10 mục bọc trong `{% if %}` nên rỗng là biến mất, mà biến
+    // mất thì không có chỗ bấm để nhập.  #Huynh
+    options?.editable ? { params: { editable: true } } : undefined
   );
   return data.data?.html ?? "";
 }

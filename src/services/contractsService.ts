@@ -44,6 +44,15 @@ export type ContractContentDTO = {
   termination_clause?: string;
   governing_law?: string;
   custom_clauses?: string | null;
+
+  /**
+   * Điều khoản chuẩn theo lĩnh vực — do MẪU của admin điền.
+   *
+   * Khai ở đây là bắt buộc: DTO này liệt kê từng khoá một, nên khoá nào không có tên là bị
+   * vứt im lặng khi dựng content từ shape đã khai. Đúng cái bẫy đã làm rụng khoá BỐN LẦN bên
+   * báo giá (`pricing_detail`, `deliverables`, `pricing_items`, `standard_terms`).  #Huynh
+   */
+  standard_terms?: string;
 };
 
 export type ContractResponse = {
@@ -243,6 +252,25 @@ export async function generateContractContent(
 ): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
     `/contracts/${contractId}/generate`,
+    undefined,
+    { params: templateId ? { template_id: templateId } : undefined }
+  );
+  return data.data;
+}
+
+/**
+ * POST /contracts/{id}/from-template — điền hợp đồng từ KHUNG mẫu, KHÔNG dùng AI.
+ *
+ * Song sinh với `generateContractContent` ngay trên, khác đúng một chỗ: không tốn lượt AI và
+ * chạy được với gói không có AI. Trước bản này, gói Free đứng ở bước thương lượng là bí đường
+ * hẳn — mọi nút tạo hợp đồng đều bắn request AI và ăn 402, không có lối nào khác.  #Huynh
+ */
+export async function fillContractFromTemplate(
+  contractId: string,
+  templateId?: string | null
+): Promise<ContractResponse> {
+  const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
+    `/contracts/${contractId}/from-template`,
     undefined,
     { params: templateId ? { template_id: templateId } : undefined }
   );

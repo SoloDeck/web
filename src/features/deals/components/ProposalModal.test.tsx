@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
@@ -18,6 +18,7 @@ const mockCreateMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 const mockSendMutate = vi.fn();
 const mockDownloadPdfMutate = vi.fn();
+const mockFromTemplate = vi.fn();
 
 vi.mock("@/features/deals/hooks/useProposals", () => ({
   useAiGenerateProposal: () => ({ mutateAsync: mockGenerateMutate }),
@@ -54,6 +55,8 @@ vi.mock("@/services/dealsService", () => ({
 vi.mock("@/services/proposalsService", () => ({
   setProposalPrice: vi.fn().mockResolvedValue({}),
   getProposalPreview: vi.fn().mockResolvedValue("<html><body>preview</body></html>"),
+  // Đường soạn KHÔNG dùng AI.
+  createProposalFromTemplate: (...args: unknown[]) => mockFromTemplate(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -109,6 +112,26 @@ function renderWithClient(ui: React.ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
+/**
+ * Màn chọn giờ LUÔN hiện, kể cả khi nghề này chưa có mẫu nào.
+ *
+ * Trước đây "không có mẫu + không có nháp" thì modal sinh THẲNG: request AI bay đi ngay lúc mở
+ * panel, chưa ai bấm gì. Với gói Free đó là một lượt chờ rồi ăn 402; với gói trả tiền đó là một
+ * lượt AI tiêu cho quyết định người dùng chưa hề đưa ra. Và nhánh đó khiến đường soạn-từ-khung
+ * không bao giờ lộ ra cho đúng những người cần nó nhất — tài khoản mới, chưa có mẫu.
+ *
+ * Nên các bài test đường-AI phải bấm qua màn chọn, đúng như người dùng thật.  #Huynh
+ */
+async function bamTaoBangAI() {
+  // `fireEvent` + `getBy` (đồng bộ), KHÔNG dùng `userEvent` hay `findBy`: một bài dưới đây chạy
+  // với `vi.useFakeTimers()`, mà cả hai thứ kia đều hẹn giờ để chờ — hẹn vào đồng hồ đã đóng
+  // băng là treo tới khi hết giờ test, rồi kéo theo mọi bài chạy sau nó.
+  //
+  // Chờ ở đây cũng thừa: hai query của màn chọn đều đã `isFetched: true` trong mock, nên màn
+  // chọn có mặt ngay sau `render` (effect chạy đồng bộ trong `act`).  #Huynh
+  fireEvent.click(screen.getByRole("button", { name: "Nhờ AI viết" }));
+}
+
 describe("ProposalModal", () => {
   const onClose = vi.fn();
 
@@ -125,11 +148,12 @@ describe("ProposalModal", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("calls aiGenerateProposal with a complete deal payload on mount", () => {
+  it("bấm Tạo báo giá thì gọi AI với payload đầy đủ của deal", async () => {
     // mutateAsync trả Promise; test này chỉ kiểm việc GỌI nên cho Promise treo (không resolve).
     mockGenerateMutate.mockImplementation(() => new Promise(() => {}));
     const deal = makeDeal();
     renderWithClient(<ProposalModal deal={deal} onClose={onClose} />);
+    await bamTaoBangAI();
 
     expect(mockGenerateMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -143,6 +167,7 @@ describe("ProposalModal", () => {
   it("shows loading state while AI is generating", async () => {
     mockGenerateMutate.mockImplementation(() => new Promise(() => {}));
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     expect(await screen.findByRole("status", { name: /đang tạo báo giá/i })).toBeInTheDocument();
     expect(screen.getByText(/AI đang soạn báo giá/i)).toBeInTheDocument();
@@ -158,9 +183,9 @@ describe("ProposalModal", () => {
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
 
-    expect(await screen.findByText("AI tự viết")).toBeInTheDocument();
+    expect(await screen.findByText("Không dùng mẫu")).toBeInTheDocument();
     expect(screen.getByText("Mẫu điều khoản UX")).toBeInTheDocument();
-    // Chưa bấm "Tạo báo giá" thì chưa gọi AI.
+    // Chưa bấm "Nhờ AI viết" thì chưa gọi AI.
     expect(mockGenerateMutate).not.toHaveBeenCalled();
   });
 
@@ -254,6 +279,7 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     // Không còn khối "Chỉnh sửa nội dung" riêng: câu chữ sửa THẲNG trên tờ báo giá. Nên thứ
     // phải kiểm ở tầng này là tờ báo giá đúng bản server dựng — cùng một template với PDF.
@@ -301,6 +327,7 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     // Câu này chỉ được phép hiện khi THẬT SỰ không neo được giá (BE trả `pricing_detail:
     // null`). Hiện nó trong khi đang cầm 450 triệu là giao diện nói dối về TIỀN.
@@ -340,6 +367,7 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     // Khu sửa tiền bày sẵn — không còn nút gập nào chắn trước. MỘT khu duy nhất từ khi mục 7
     // và 8 gộp làm một; thời điểm thu nằm ngay trên từng hạng mục.
@@ -374,6 +402,7 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     const sendButton = await screen.findByRole("button", { name: /mốc thanh toán đang 130%/i });
     expect(sendButton).toBeDisabled();
@@ -397,23 +426,27 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     const sendButton = await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i });
     expect(sendButton).toBeEnabled();
   });
 
-  it("falls back to a manual draft when AI generation fails with a client error", async () => {
-    mockGenerateMutate.mockImplementation(() => Promise.reject({ response: { status: 400 } }));
+  it("AI hỏng thì đưa về màn chọn, không bịa nội dung hộ", async () => {
+    // Bản trước ở đây tạo hộ một bản nháp từ `buildManualProposalContent`: một khối văn bản
+    // tiếng Việt viết cứng trong code ("thanh toán 50/50", "2 vòng chỉnh sửa", và cả câu "Bản
+    // này được tạo thủ công vì tài khoản hiện chưa dùng được AI") đi THẲNG vào tờ giấy gửi
+    // khách. Không ai ngồi soạn những câu đó — chúng chỉ là hằng số lập trình mặc áo nghiệp vụ,
+    // còn câu cuối thì kể chuyện nội bộ trước mặt khách hàng.  #Huynh
+    mockGenerateMutate.mockImplementation(() => Promise.reject({ response: { status: 402 } }));
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
-    // Lỗi phía client (400) → không báo lỗi, mà tạo bản nháp thường để freelancer chỉnh tiếp.
-    await waitFor(() => {
-      expect(mockCreateMutate).toHaveBeenCalledWith(
-        expect.objectContaining({ deal_id: "deal-123" }),
-        expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
-      );
-    });
+    // Về màn chọn, sẵn tab khung — nơi mục nào admin đã soạn thì có chữ admin, còn lại để trống.
+    expect(await screen.findByText("Không dùng mẫu")).toBeInTheDocument();
+    // Và tuyệt đối KHÔNG tự tạo bản nháp nào.
+    expect(mockCreateMutate).not.toHaveBeenCalled();
   });
 
   it("StrictMode: phản hồi về SAU khi effect bị dọn — vòng xoay vẫn phải tắt", async () => {
@@ -449,6 +482,7 @@ describe("ProposalModal", () => {
         </QueryClientProvider>
       </StrictMode>
     );
+    await bamTaoBangAI();
 
     expect(await screen.findByText(/AI đang soạn báo giá/i)).toBeInTheDocument();
     await waitFor(() => {
@@ -464,6 +498,7 @@ describe("ProposalModal", () => {
     );
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     // Gọi lại là tính tiền lần nữa và đẻ thêm một bản báo giá thứ hai — đúng lỗi "Tài liệu
     // cầm 2 bản" đã bị báo. Không biết server làm tới đâu thì phải HỎI, không được đoán.
@@ -478,14 +513,19 @@ describe("ProposalModal", () => {
       mockGenerateMutate.mockImplementation(() => Promise.reject({ response: { status: 500 } }));
 
       renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+      await bamTaoBangAI();
       // Đẩy thời gian đi thật xa — nếu còn vòng lặp vô tận thì số lần gọi sẽ vọt lên.
-      await vi.advanceTimersByTimeAsync(120_000);
+      // Bọc `act`: lần hỏng cuối cùng đổi state (đưa về màn chọn), mà state đó đổi trong
+      // `.then` chứ không phải trong một sự kiện — không bọc thì React chưa kịp vẽ lại.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
 
       // Mỗi vòng đốt một lượt hạn mức AI và một khoản tiền thật. Trước đây không có điểm
       // dừng: hỏng dai là quay mãi, và chính nó làm cạn hạn mức tài khoản test.
       expect(mockGenerateMutate).toHaveBeenCalledTimes(3);
-      // Hết lượt thì rơi về bản nháp thủ công, KHÔNG bỏ mặc người dùng với vòng xoay.
-      expect(mockCreateMutate).toHaveBeenCalled();
+      // Hết lượt thì đưa về màn chọn, KHÔNG bỏ mặc người dùng với vòng xoay.
+      expect(screen.getByText("Không dùng mẫu")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -509,6 +549,7 @@ describe("ProposalModal", () => {
     });
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
 
     // Gửi báo giá dính tới TIỀN và không lùi được — nút không gửi thẳng nữa mà mở hộp thoại
     // xác nhận, nhắc lại con số sắp gửi. Phải bấm xác nhận thì mới thật sự gửi.  #Huynh
@@ -544,6 +585,14 @@ describe("ProposalModal", () => {
             { label: "Dựng giao diện", amount: 30_000_000 },
             { label: "Nối thanh toán", amount: 20_000_000 },
           ],
+          standard_terms: "Thanh toan trong 7 ngay ke tu ngay xuat hoa don.",
+          revision_policy: "2 vong chinh sua mien phi.",
+          // Bốn khoá CẤU TRÚC do mẫu của admin đặt — lần thứ BẢY của cùng cái bẫy, và là
+          // lần đầu nó xoá thứ freelancer không hề gõ ra: quyết định của admin.
+          hidden_sections: ["assumptions"],
+          section_titles: { deliverables: "Sản phẩm giao cho khách" },
+          clause_texts: { standard_terms: "Chữ riêng của admin" },
+          extra_sections: [{ title: "Quyền sử dụng hình ảnh", body: "Khách được dùng 1 năm." }],
         },
       })
     );
@@ -552,6 +601,7 @@ describe("ProposalModal", () => {
     });
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
     await user.click(await screen.findByRole("button", { name: /tải pdf/i }));
 
     // Hai trường này TỪNG rụng âm thầm: `ProposalContentDTO` không có chỗ chứa chúng, nên
@@ -577,6 +627,28 @@ describe("ProposalModal", () => {
               { label: "Dựng giao diện", amount: 30_000_000 },
               { label: "Nối thanh toán", amount: 20_000_000 },
             ],
+            // Lần thứ NĂM. Freelancer chọn một mẫu điều khoản trong thư viện admin, backend
+            // chèn nguyên văn vào đây và tờ giấy in ra mục 10 — rồi lượt lưu đầu tiên vứt
+            // sạch. Nhìn từ ngoài thì chọn mẫu hay chọn "AI tự viết" ra kết quả y hệt nhau,
+            // nên ai cũng tưởng bộ chọn mẫu chưa được nối.
+            standard_terms: "Thanh toan trong 7 ngay ke tu ngay xuat hoa don.",
+            // Lần thứ SÁU. Lộ ra khi mẫu của admin bắt đầu điền được mục này — trước đó AI
+            // không hề sinh `revision_policy` nên nó luôn rỗng và không ai thấy nó rụng.
+            revision_policy: "2 vong chinh sua mien phi.",
+            // Lần thứ BẢY, và khác chất với sáu lần trước: sáu khoá trên là chữ freelancer
+            // gõ, còn bốn khoá dưới là QUYẾT ĐỊNH CỦA ADMIN đi theo tài liệu suốt đời nó —
+            // mục nào bị tắt, đầu mục tên gì, điều khoản viết sao, có thêm mục tự soạn nào.
+            //
+            // Rụng chúng thì admin cấu hình mẫu xong, freelancer gõ một chữ là tờ giấy về
+            // mặc định: mục admin đã tắt hiện lại, tên đầu mục quay về tên gốc. Chữa bằng
+            // `giuKhoaCauTruc` — một danh sách chung trong `templateContent.ts`, chứ không
+            // thêm bốn dòng nữa vào hai hàm liệt kê tay.  #Huynh
+            hidden_sections: ["assumptions"],
+            section_titles: { deliverables: "Sản phẩm giao cho khách" },
+            clause_texts: { standard_terms: "Chữ riêng của admin" },
+            extra_sections: [
+              { title: "Quyền sử dụng hình ảnh", body: "Khách được dùng 1 năm." },
+            ],
           }),
         }),
       }),
@@ -597,6 +669,7 @@ describe("ProposalModal", () => {
     });
 
     renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
     await user.click(await screen.findByRole("button", { name: /tải pdf/i }));
 
     // BE render PDF từ nội dung ĐÃ LƯU trên server. Tải thẳng mà không lưu trước thì
@@ -647,5 +720,111 @@ describe("ProposalModal", () => {
 
     await user.click(await screen.findByRole("button", { name: /đóng/i }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("không còn nút Lưu nháp — mọi thứ đã tự lưu", async () => {
+    // Sửa chữ lưu sau 800ms, sửa mục 7/8 lưu sau 700ms, đóng màn lưu nốt phần chưa kịp. Cả
+    // ba đường gửi ĐÚNG một payload như nút này từng gửi, nên giữ lại chỉ khiến người dùng
+    // tưởng không bấm là mất bài.  #Huynh
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: { title: "Logo", pricing: { total: 5_000_000, currency: "VND" } },
+      })
+    );
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+
+    expect(await screen.findByRole("button", { name: /tải pdf/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /lưu nháp/i })).toBeNull();
+  });
+
+  it("đóng màn khi còn thay đổi chưa kịp lưu thì PHẢI lưu lại", async () => {
+    // Từ khi bỏ nút Lưu nháp, đây là lưới an toàn CUỐI CÙNG. Gõ xong bấm đóng ngay — nhanh
+    // hơn bộ đếm 700/800ms — mà không lưu ở đây là mất trắng thứ vừa gõ.
+    const user = userEvent.setup();
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          title: "Logo",
+          pricing_items: [{ label: "Dựng giao diện", amount: 5_000_000 }],
+          pricing: { total: 5_000_000, currency: "VND" },
+        },
+      })
+    );
+    // Lượt lưu lúc đóng KHÔNG kèm `onSuccess`, nên mock phải chịu được việc thiếu callback.
+    mockUpdateMutate.mockImplementation(
+      (_payload: unknown, callbacks?: { onSuccess?: () => void }) => callbacks?.onSuccess?.()
+    );
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+
+    // Sửa một hạng mục để đánh dấu "còn thay đổi chưa lưu".
+    const amount = await screen.findByLabelText("Số tiền hạng mục 1");
+    await user.clear(amount);
+    await user.type(amount, "9000000");
+
+    mockUpdateMutate.mockClear();
+    await user.click(screen.getByRole("button", { name: /đóng/i }));
+
+    expect(mockUpdateMutate).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Đường soạn KHÔNG dùng AI.
+ *
+ * Trước bản này nó không tồn tại trên giao diện: cả 14 lối tạo tài liệu đều gọi AI, và thư viện
+ * mẫu của admin chỉ với được từ trong bụng hai hàm `generate_*` — muốn dùng mẫu là bắt buộc tiêu
+ * một lượt AI, dù việc ghép mẫu không cần LLM một chút nào.  #Huynh
+ */
+describe("ProposalModal — tự soạn, không dùng AI", () => {
+  const onClose = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useTermTemplates).mockReturnValue(noTemplates);
+    mockProposalList.mockReturnValue({ data: undefined, isFetched: true });
+  });
+
+  function moManChon() {
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+  }
+
+  it("chọn khung thì gọi đường khung, TUYỆT ĐỐI không gọi AI", async () => {
+    mockFromTemplate.mockResolvedValue({ id: "proposal-khung-1", content: {} });
+    moManChon();
+
+    fireEvent.click(screen.getByRole("button", { name: /tôi tự soạn/i }));
+
+    await waitFor(() => expect(mockFromTemplate).toHaveBeenCalledWith("deal-123", null));
+    // Cả lý do đường này tồn tại nằm ở đây: không một lượt AI nào bị tiêu.
+    expect(mockGenerateMutate).not.toHaveBeenCalled();
+  });
+
+  it("chọn một mẫu ở tab khung thì gửi kèm id mẫu đó", async () => {
+    vi.mocked(useTermTemplates).mockReturnValue({
+      data: [{ id: "tpl-9", name: "Khung thiết kế", skeleton_blocks: ["Tổng quan dự án"] }],
+      isFetched: true,
+    } as unknown as ReturnType<typeof useTermTemplates>);
+    mockFromTemplate.mockResolvedValue({ id: "proposal-khung-2", content: {} });
+
+    moManChon();
+    fireEvent.click(screen.getByText("Khung thiết kế"));
+    fireEvent.click(screen.getByRole("button", { name: /tôi tự soạn/i }));
+
+    await waitFor(() => expect(mockFromTemplate).toHaveBeenCalledWith("deal-123", "tpl-9"));
+  });
+
+  it("soạn xong MỞ THẲNG màn soạn, không chen bước trung gian", async () => {
+    mockFromTemplate.mockResolvedValue({ id: "proposal-khung-3", content: {} });
+    moManChon();
+    fireEvent.click(screen.getByRole("button", { name: /tôi tự soạn/i }));
+
+    // Màn chọn biến mất và tờ giấy hiện ra — không có màn chờ nào ở giữa vì không có gì chạy nền.
+    expect(await screen.findByTitle(/bấm vào chữ để sửa/i)).toBeInTheDocument();
+    expect(screen.queryByText("Không dùng mẫu")).toBeNull();
   });
 });

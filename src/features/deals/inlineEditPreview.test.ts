@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { attachInlineEdit, formatVnDate, parseVnDate, readField } from "./inlineEditPreview";
+import {
+  attachInlineEdit,
+  formatVnDate,
+  injectPreviewPageStyle,
+  parseVnDate,
+  readField,
+} from "./inlineEditPreview";
 
 /**
  * jsdom KHÔNG có `innerText` (cũng không có `contentEditable` lẫn `execCommand`) — nó không
@@ -220,5 +226,56 @@ describe("attachInlineEdit", () => {
     attachInlineEdit(doc, vi.fn());
     attachInlineEdit(doc, vi.fn());
     expect(doc.querySelectorAll("#se-inline-edit-style")).toHaveLength(1);
+  });
+});
+
+
+describe("dấu cây bút cho ô sửa được", () => {
+  /**
+   * Freelancer mới không biết tờ giấy này bấm vào là sửa được. Cây bút mờ nói ra điều đó.
+   *
+   * Ràng buộc quan trọng hơn: nó TUYỆT ĐỐI không được lọt vào bản gửi khách hay bản PDF.
+   */
+  function makeDoc(body: string): Document {
+    const doc = document.implementation.createHTMLDocument("bao gia");
+    doc.body.innerHTML = body;
+    return doc;
+  }
+
+  function styleText(doc: Document): string {
+    return Array.from(doc.querySelectorAll("style"))
+      .map((node) => node.textContent ?? "")
+      .join(" ");
+  }
+
+  it("bản ĐANG SOẠN có dấu cây bút", () => {
+    const doc = makeDoc('<p data-field="payment_terms">Cọc 30%.</p>');
+    attachInlineEdit(doc, vi.fn());
+    expect(styleText(doc)).toContain("data:image/svg+xml");
+  });
+
+  it("bản ĐỌC-ONLY (đã gửi / đã ký) KHÔNG có cây bút", () => {
+    // Hợp đồng đã gửi chỉ bơm style tờ giấy, không bật sửa — không được có dấu hiệu mời sửa.
+    const doc = makeDoc('<p data-field="payment_terms">Cọc 30%.</p>');
+    injectPreviewPageStyle(doc);
+    expect(styleText(doc)).not.toContain("data:image/svg+xml");
+  });
+
+  it("cây bút KHÔNG phải chữ nên không thể lọt vào dữ liệu đem lưu", () => {
+    // Bảo đảm lớp hai: dùng ảnh nền trên `content: ""`. Kể cả trình duyệt nào đó có tính nội
+    // dung sinh ra vào `innerText` thì phần cộng thêm cũng là chuỗi rỗng.
+    const doc = makeDoc('<p data-field="payment_terms">Cọc 30%.</p>');
+    attachInlineEdit(doc, vi.fn());
+
+    expect(styleText(doc)).toMatch(/content:\s*""/);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+    expect(readField(node)).toBe("Cọc 30%.");
+  });
+
+  it("PDF do server dựng nên không có đường nào chạm tới style này", () => {
+    // Kiểm bằng chính kiến trúc: style chỉ tồn tại sau khi gọi `attachInlineEdit` trên một
+    // Document của trình duyệt. Tài liệu chưa gắn gì thì sạch trơn.
+    const doc = makeDoc('<p data-field="payment_terms">Cọc 30%.</p>');
+    expect(styleText(doc)).toBe("");
   });
 });
