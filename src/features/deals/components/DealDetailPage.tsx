@@ -254,6 +254,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [completePending, setCompletePending] = useState(false);
   // Bản nháp báo giá đang chờ xác nhận xoá (mục 5). null = không có hộp thoại nào mở.
   const [deleteProposalId, setDeleteProposalId] = useState<string | null>(null);
+  /**
+   * Hai mốc "khách đã đồng ý" đang chờ xác nhận. Cả hai đều GHI NHẬN một việc xảy ra ngoài
+   * hệ thống, và bấm xong là deal đi tiếp một giai đoạn — mà luật chuyển giai đoạn không
+   * cho lùi. Trước đây bấm phát ăn ngay, lỡ tay là không gỡ lại được.  #Huynh
+   */
+  const [proposalPendingAccept, setProposalPendingAccept] = useState<string | null>(null);
+  const [contractPendingSign, setContractPendingSign] = useState<{ id: string } | null>(null);
 
   // File đính kèm giờ lưu trên object storage (MinIO/S3) qua API, KHÔNG còn nhét base64
   // vào localStorage: ~5MB là vỡ, đổi máy là mất sạch, và file không rời khỏi trình duyệt
@@ -1394,13 +1401,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     onVoidInvoice={handleVoidInvoice}
                     onSendInvoice={handleSendInvoice}
                     onRecordInvoicePayment={handleRecordInvoicePayment}
-                    onProposalDecision={handleProposalDecision}
+                    onProposalDecision={(proposalId, status) =>
+                      status === "accepted"
+                        ? setProposalPendingAccept(proposalId)
+                        : handleProposalDecision(proposalId, status)
+                    }
                     proposalDecisionLoading={proposalDecision.isPending}
                     onViewProposal={(id) => setViewProposalId(id)}
                     onEditProposal={handleEditProposal}
                     onDeleteProposal={(id) => setDeleteProposalId(id)}
                     onSendContract={handleSendContract}
-                    onSignContract={handleSignContract}
+                    onSignContract={(contract) => setContractPendingSign({ id: contract.id })}
                     onViewContract={(id) => setViewContractId(id)}
                     savedQualifications={savedQualificationDocs}
                     onViewQualification={setViewQualificationDoc}
@@ -1594,6 +1605,45 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         tone="danger"
         isLoading={deleteDeal.isPending}
         onConfirm={confirmRemoveDeal}
+      />
+      {/* Hai mốc "khách đã đồng ý" — đều là GHI NHẬN việc xảy ra ngoài hệ thống (Zalo, gọi
+          điện, gặp mặt), nên chỉ mình freelancer biết đúng hay sai. Bấm xong deal đi tiếp
+          một giai đoạn mà luật không cho lùi, nên phải hỏi lại một câu.  #Huynh */}
+      <ConfirmDialog
+        open={Boolean(proposalPendingAccept)}
+        onOpenChange={(open) => {
+          if (!open) setProposalPendingAccept(null);
+        }}
+        title="Khách đã đồng ý báo giá này?"
+        description={
+          deal
+            ? `Chỉ bấm khi khách "${deal.client}" đã thật sự đồng ý ở ngoài (Zalo, email, gọi điện). Dự án sẽ chuyển sang Đang Đàm Phán và không lùi lại được.`
+            : undefined
+        }
+        confirmLabel="Đúng, khách đã đồng ý"
+        cancelLabel="Chưa, để sau"
+        isLoading={proposalDecision.isPending}
+        onConfirm={() => {
+          if (!proposalPendingAccept) return;
+          handleProposalDecision(proposalPendingAccept, "accepted");
+          setProposalPendingAccept(null);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(contractPendingSign)}
+        onOpenChange={(open) => {
+          if (!open) setContractPendingSign(null);
+        }}
+        title="Khách đã ký hợp đồng?"
+        description="Chỉ bấm khi đã cầm được bản ký của khách (giấy, bản scan, hoặc ảnh chụp). Hợp đồng sẽ chuyển sang có hiệu lực và hệ thống lập luôn các mốc thu tiền — bỏ ra thì phải dọn tay."
+        confirmLabel="Đúng, khách đã ký"
+        cancelLabel="Chưa, để sau"
+        isLoading={recordSignature.isPending}
+        onConfirm={() => {
+          if (!contractPendingSign) return;
+          handleSignContract(contractPendingSign);
+          setContractPendingSign(null);
+        }}
       />
       <ConfirmDialog
         open={Boolean(attachmentPendingDelete)}
