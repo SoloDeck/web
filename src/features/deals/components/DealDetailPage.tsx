@@ -201,6 +201,24 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const sendInvoiceMutation = useSendInvoice(deal?.id);
   const voidInvoiceMutation = useVoidInvoice(deal?.id);
   const recordInvoicePaymentMutation = useRecordInvoicePayment(deal?.id);
+  /**
+   * Hoá đơn NÀO đang được xử lý — để khoá đúng một hàng thay vì khoá cả danh sách.
+   *
+   * Trước đây chỗ này là một cờ boolean gộp sáu mutation rồi truyền xuống mọi hàng: bấm gửi
+   * một hoá đơn là toàn bộ nút của mọi hàng mờ theo, trông y như hệ thống đang gửi hết một
+   * lượt. Vừa gây sợ, vừa che mất việc thật đang chạy là việc nào.
+   *
+   * Lấy id từ `variables` của mutation đang chạy nên không phải nuôi thêm state — mà state
+   * kiểu đó thì kiểu gì cũng có ngày quên dọn.  #Huynh
+   */
+  const pendingInvoiceId =
+    (sendInvoiceMutation.isPending ? sendInvoiceMutation.variables : null) ??
+    (voidInvoiceMutation.isPending ? voidInvoiceMutation.variables : null) ??
+    (deleteInvoiceMutation.isPending ? deleteInvoiceMutation.variables : null) ??
+    (recordInvoicePaymentMutation.isPending
+      ? recordInvoicePaymentMutation.variables?.invoiceId
+      : null) ??
+    null;
   const proposals = useProposalList({ deal_id: deal?.id, page_size: 10 });
   const contracts = useContractList({ deal_id: deal?.id, page_size: 10 });
   const reminders = useDealReminders(deal?.id);
@@ -756,8 +774,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         setInvoiceModalMode(null);
       },
       onError: (error) => {
-        const message = getApiErrorMessage(error, "");
-        toast.error(message || "Không thể xóa hóa đơn. Vui lòng thử lại.");
+        toast.error(getApiErrorMessage(error, "Không thể xóa bản nháp. Vui lòng thử lại."));
       },
     });
   }
@@ -1416,14 +1433,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     savedQualifications={savedQualificationDocs}
                     onViewQualification={setViewQualificationDoc}
                     contractActionLoading={sendContract.isPending}
-                    invoiceActionLoading={
-                      createInvoice.isPending ||
-                      updateInvoiceMutation.isPending ||
-                      deleteInvoiceMutation.isPending ||
-                      sendInvoiceMutation.isPending ||
-                      voidInvoiceMutation.isPending ||
-                      recordInvoicePaymentMutation.isPending
-                    }
+                    pendingInvoiceId={pendingInvoiceId}
                   />
                 </TabsContent>
 
@@ -1676,9 +1686,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       {/* Tick một mốc thu tiền = tiền đã về. Hỏi ngay để chứng từ đi theo, thay vì bắt người
           dùng nhớ sang tab Tài liệu làm nốt — mà thường là không ai nhớ.
 
-          BA nút chứ không phải hai: "Để sau" vẫn tick xong task (người ta bấm tick là để
-          tick, đừng bắt trả lời câu hỏi khác mới cho làm việc mình định làm), còn "Huỷ" thì
-          không đụng gì tới task cả.  #Huynh */}
+          "Để sau" vẫn tick xong task — người ta bấm tick là để tick, đừng bắt trả lời câu
+          hỏi khác mới cho làm việc mình định làm.
+
+          Từng có nút "Huỷ" thứ ba (bỏ luôn việc tick), nay bỏ đi: dấu ✕ ở góc cửa sổ vốn đã
+          làm đúng việc đó rồi (onOpenChange -> setPaymentTaskPrompt(null)), nên nó chỉ là
+          một nút nói lại điều người dùng đã biết cách làm.  #Huynh */}
       <Dialog
         open={Boolean(paymentTaskPrompt)}
         onOpenChange={(open) => {
@@ -1718,35 +1731,26 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                       </>
                     )}
                   </p>
-                  <DialogFooter className="gap-2 sm:justify-between">
+                  <DialogFooter className="gap-2">
                     <button
                       type="button"
-                      onClick={() => setPaymentTaskPrompt(null)}
-                      className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                      onClick={finishTogglingPaymentTask}
+                      className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
                     >
-                      Huỷ
+                      Để sau
                     </button>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={finishTogglingPaymentTask}
-                        className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
-                      >
-                        Để sau
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const task = paymentTaskPrompt;
-                          finishTogglingPaymentTask();
-                          if (chuaCoHoaDon) createInvoiceDraftForReview(task);
-                          else recordFullPayment(task);
-                        }}
-                        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-                      >
-                        {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const task = paymentTaskPrompt;
+                        finishTogglingPaymentTask();
+                        if (chuaCoHoaDon) createInvoiceDraftForReview(task);
+                        else recordFullPayment(task);
+                      }}
+                      className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                    >
+                      {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
+                    </button>
                   </DialogFooter>
                 </>
               );
@@ -2810,9 +2814,9 @@ export function InvoiceComposerModal({
         <ConfirmDialog
           open={deleteConfirmOpen}
           onOpenChange={setDeleteConfirmOpen}
-          title="Xóa hóa đơn nháp?"
-          description={`Hóa đơn ${invoice.invoice_number} sẽ bị xóa khỏi hồ sơ giao dịch. Thao tác này chỉ nên dùng khi tạo nhầm.`}
-          confirmLabel="Xóa hóa đơn"
+          title="Xóa bản nháp này?"
+          description={`Bạn có chắc chắn muốn xóa bản nháp ${invoice.invoice_number}? Bản nháp chưa gửi cho khách nên xóa đi không ảnh hưởng gì tới hồ sơ thu tiền.`}
+          confirmLabel="Xóa"
           cancelLabel="Giữ lại"
           tone="danger"
           isLoading={isLoading}
@@ -2918,7 +2922,7 @@ export function DocumentsTab({
   onSignContract,
   onViewContract,
   contractActionLoading,
-  invoiceActionLoading,
+  pendingInvoiceId,
   savedQualifications: savedQualificationItems,
   onViewQualification,
 }: {
@@ -2951,7 +2955,8 @@ export function DocumentsTab({
   onSignContract: (contract: { id: string; share_token?: string | null; signed_by_freelancer_at?: string | null }) => void;
   onViewContract: (contractId: string) => void;
   contractActionLoading: boolean;
-  invoiceActionLoading: boolean;
+  /** Hoá đơn đang được xử lý — chỉ hàng của nó bị khoá, các hàng khác vẫn bấm được. */
+  pendingInvoiceId: string | null;
 }) {
   const proposalStatusLabel: Record<string, StatusBadge> = {
     draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
@@ -3025,6 +3030,8 @@ export function DocumentsTab({
         const total = Number(invoice.total ?? 0);
         const paid = Number(invoice.amount_paid ?? 0);
         const remaining = Math.max(total - paid, 0);
+        // Chỉ khoá hàng đang có việc chạy. Các hàng khác vẫn bấm được — chúng độc lập nhau.
+        const rowBusy = pendingInvoiceId === invoice.id;
         const canSendInvoice = invoice.status === "draft";
         const canRecordPayment = remaining > 0 && !["draft", "void", "cancelled"].includes(invoice.status);
         const canVoidInvoice = !["draft", "paid", "void", "cancelled"].includes(invoice.status) && paid <= 0;
@@ -3081,7 +3088,7 @@ export function DocumentsTab({
               {canSendInvoice && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onSendInvoice(invoice.id)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -3091,7 +3098,7 @@ export function DocumentsTab({
               {canRecordPayment && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onRecordInvoicePayment(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -3101,7 +3108,7 @@ export function DocumentsTab({
               {canVoidInvoice && (
                 <button
                   type="button"
-                  disabled={invoiceActionLoading}
+                  disabled={rowBusy}
                   onClick={() => onVoidInvoice(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
                 >

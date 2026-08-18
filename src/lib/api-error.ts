@@ -22,10 +22,28 @@ export function getApiErrorStatus(err: unknown): number | undefined {
   return (err as ApiErrorEnvelope)?.response?.status;
 }
 
-/** Thông điệp lỗi từ backend; trả về `fallback` khi lỗi mạng hoặc không đúng hình dạng. */
+/**
+ * Câu backend trả về khi nó KHÔNG biết chuyện gì vừa xảy ra (mọi lỗi 500 chưa được phân
+ * loại đều mang đúng câu này — xem `shared/exceptions/http.py`).
+ *
+ * Vô dụng với người dùng: vừa tiếng Anh, vừa không nói được hỏng ở đâu. Trước đây nó lọt
+ * thẳng ra toast — bấm xoá hoá đơn nháp thì màn hình chỉ hiện "An unexpected error occurred",
+ * người dùng không biết mình làm sai hay hệ thống lỗi.  #Huynh
+ */
+const BACKEND_GENERIC_ERROR = "An unexpected error occurred";
+
+/**
+ * Thông điệp lỗi từ backend; trả về `fallback` khi lỗi mạng, sai hình dạng, hoặc khi backend
+ * chỉ nói được câu chung vô nghĩa.
+ *
+ * Nhờ vậy mỗi nơi gọi chỉ cần truyền một `fallback` tiếng Việt nói rõ việc vừa thất bại là
+ * gì, và câu đó sẽ thắng câu chung của backend.
+ */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   const message = (err as ApiErrorEnvelope)?.response?.data?.error?.message;
-  return typeof message === "string" && message.trim() ? message : fallback;
+  if (typeof message !== "string" || !message.trim()) return fallback;
+  if (message.trim() === BACKEND_GENERIC_ERROR) return fallback;
+  return message;
 }
 
 /**

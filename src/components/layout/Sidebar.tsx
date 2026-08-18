@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { UserMenu } from "@/features/auth/components/UserMenu";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 
 type NavKey = "pipeline" | "clients" | "revenue" | "intake-form" | "settings" | "subscription" | "admin";
 
@@ -29,6 +30,8 @@ export function AppSidebar({
   onNavigate: (nav: NavKey) => void;
 }) {
   const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  const { data: zaloStatus } = useZaloStatus();
+  const zaloConnected = zaloStatus?.connected ?? false;
   const navItems = [
     { key: "pipeline" as const, icon: LayoutDashboard, label: "Quy trình deal" },
     { key: "clients" as const, icon: MessageSquareHeart, label: "Hồ sơ khách hàng" },
@@ -102,16 +105,24 @@ export function AppSidebar({
 
       <div className="mt-auto space-y-3 border-t border-sidebar-border p-4">
         <UserMenu onOpenSettings={() => onNavigate("settings")} />
-        <div className="grid grid-cols-2 gap-2 text-[11px]">
-          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
-            <div className="text-sidebar-foreground/60">Zalo</div>
-            <div className="font-semibold text-success">Đã kết nối</div>
-          </div>
-          <div className="rounded-md bg-sidebar-accent px-2 py-1.5">
-            <div className="text-sidebar-foreground/60">Email</div>
-            <div className="font-semibold text-success">Đã kết nối</div>
-          </div>
-        </div>
+        {/* Trước đây chỗ này là hai ô "Zalo · Đã kết nối" và "Email · Đã kết nối" viết CỨNG —
+            xanh lè kể cả khi chưa nối gì. Ô Email bỏ hẳn: backend không có endpoint nào nói
+            được email đã "kết nối" hay chưa, mà thư thì gửi qua SMTP của hệ thống chứ không
+            phải hộp thư riêng của từng người — nên ô đó không có thật để mà hiển thị.
+
+            Ô Zalo giữ lại vì có dữ liệu thật (GET trạng thái Zalo OA), và cho bấm luôn sang
+            trang cài đặt: một cái nhãn nói "chưa kết nối" mà không chỉ đường thì cũng chỉ để
+            đó nhìn.  #Huynh */}
+        <button
+          type="button"
+          onClick={() => onNavigate("settings")}
+          className="flex w-full items-center justify-between gap-2 rounded-md bg-sidebar-accent px-2 py-1.5 text-left text-[11px] transition hover:brightness-110"
+        >
+          <span className="text-sidebar-foreground/60">Zalo OA</span>
+          <span className={zaloConnected ? "font-semibold text-success" : "text-sidebar-foreground/70"}>
+            {zaloConnected ? "Đã kết nối" : "Chưa kết nối"}
+          </span>
+        </button>
       </div>
     </aside>
   );

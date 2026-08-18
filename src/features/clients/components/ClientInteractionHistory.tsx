@@ -32,8 +32,13 @@ const CHANNEL_OPTIONS: { value: string; label: string; icon: typeof Mail }[] = [
 
 const CHANNEL_MAP = new Map(CHANNEL_OPTIONS.map((opt) => [opt.value, opt]));
 
-/** Số dòng mỗi trang. Một khách chạy nhiều dự án là dòng thời gian dài rất nhanh. */
-const DONG_MOI_TRANG = 8;
+/**
+ * Số dòng mỗi trang. Một khách chạy nhiều dự án là dòng thời gian dài rất nhanh.
+ *
+ * Để 7 chứ không phải 8: mỗi dòng cao ~94px, 8 dòng là đã đẩy nút chuyển trang xuống dưới
+ * mép màn hình nên phải cuộn mới thấy — mà cuộn được rồi thì phân trang còn để làm gì.
+ */
+const DONG_MOI_TRANG = 7;
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65";
