@@ -13,14 +13,18 @@ import {
   useSaveDealQualification,
 } from "@/features/deals/hooks/useDealQualifications";
 import type { DealPayload, QualificationScoreGaps } from "@/services/dealsService";
+import { ClientFactsCard } from "@/features/ai/components/ClientFactsCard";
 import { FillGapsDialog } from "@/features/ai/components/FillGapsDialog";
-import type { FillGapsValues } from "@/features/ai/gapFillFields";
+import type { FillField, FillGapsValues } from "@/features/ai/gapFillFields";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
-import { formatVND } from "@/utils/format";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useCancelAiJob, useCreateAiJob, useAiJob } from "@/features/ai/hooks/useAIJobs";
-import { getAiJobErrorMessage, isAiJobErrorRetryable, isTerminal } from "@/services/aiJobsService";
+import {
+  getAiJobErrorAdvice,
+  getAiJobErrorMessage,
+  isTerminal,
+} from "@/services/aiJobsService";
 import {
   QualificationResultView,
   type QualificationView,
@@ -167,6 +171,18 @@ export function AIPanel({
   const [fillGapsOpen, setFillGapsOpen] = useState(false);
   /** Vừa bổ sung dữ liệu nhưng chưa chấm lại — điểm đang hiện là của dữ liệu cũ. */
   const [staleAfterFill, setStaleAfterFill] = useState(false);
+  /**
+   * Những ô đã bổ sung trong phiên này, để khung "Thông tin khách đã cho" gắn nhãn "vừa
+   * thêm". CỐ Ý không xoá sau khi chấm lại: đó đúng là lúc người dùng cần đối chiếu "mình
+   * thêm cái này nên điểm lên chừng này". Cộng dồn qua nhiều lần điền lẻ từng ô.
+   */
+  const [justAddedFields, setJustAddedFields] = useState<FillField[]>([]);
+  /**
+   * Nguyên văn phần mô tả vừa viết thêm. Phải giữ riêng: trên `deal.notes` nó đã bị trộn
+   * vào đoạn mô tả cũ nên không tách ra được nữa, mà đây lại đúng là thứ người dùng muốn
+   * nhìn lại để biết mình vừa thêm gì.
+   */
+  const [justAddedNotes, setJustAddedNotes] = useState("");
   const staleBannerRef = useRef<HTMLDivElement | null>(null);
   const [createError, setCreateError] = useState("");
   /** Job nào đã kéo lại lịch sử rồi — chặn refetch lặp trong effect đồng bộ trạng thái. */
@@ -233,12 +249,21 @@ export function AIPanel({
     return mapApiQualification(job.result as ApiQualificationResult);
   }, [deal, job]);
 
+  // Ngân sách theo LỜI KHÁCH để hiện ở dải đầu cửa sổ. Ưu tiên chữ khách nói qua ô bổ sung
+  // (client_budget) vì đó là bản mới nhất và cũng chính là thứ AI đọc để chấm tiêu chí Ngân
+  // sách; sau đó mới tới ngân sách khách tự điền ở biểu mẫu công khai (budgetLabel).
+  // Rỗng => trả "" để chỗ hiển thị tự đổi sang trạng thái "Khách chưa nêu".
+  const clientBudgetLabel = deal?.clientBudget?.trim() || deal?.budgetLabel?.trim() || "";
+
   const errorHint =
     createError || (job?.status === "failed" ? (getAiJobErrorMessage(job) ?? "") : "");
-  // Lỗi do gói/hạn mức thì "thử lại" vô ích — đổi câu khuyên cho khớp. Lỗi lúc tạo job
-  // (createError, thường do mạng) coi như đáng thử lại.
-  const errorRetryable =
-    job?.status === "failed" ? isAiJobErrorRetryable(job) : Boolean(createError);
+  // Người dùng nên làm gì tiếp. Job hỏng thì tra theo mã lỗi backend gửi về (getAiJobErrorAdvice
+  // tự xét cả cờ retryable); còn lỗi ngay lúc tạo job (createError) hầu như là mạng, cứ
+  // khuyên thử lại.
+  const errorAdvice =
+    job?.status === "failed"
+      ? getAiJobErrorAdvice(job)
+      : 'Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.';
 
   // Đang chạy = đang tạo job, hoặc job có rồi nhưng chưa vào trạng thái kết thúc.
   const isRunning = createJob.isPending || Boolean(job && !isTerminal(job.status));
@@ -426,10 +451,11 @@ export function AIPanel({
   }
 
   /**
-   * Bổ sung thông tin khách đã cho -> chấm lại ngay.
+   * Lưu thông tin khách đã cho. CHỈ LƯU — không tự chấm lại (lý do ở `onSuccess` bên dưới).
    *
-   * Chấm lại NGAY trong cùng thao tác chứ không bắt người dùng tự bấm "Đánh giá lại": họ vừa
-   * điền xong đúng thứ đang thiếu, việc muốn làm tiếp chỉ có thể là xem điểm mới.  #Huynh
+   * Ghi lại luôn những ô vừa lưu vào `justAddedFields` để khung "Thông tin khách đã cho"
+   * bày ra được là người dùng vừa thêm cái gì; nếu không, họ chỉ thấy điểm nhảy mà không
+   * biết nhờ dữ kiện nào.
    */
   function submitGapFill(values: FillGapsValues) {
     if (!deal) return;
@@ -458,6 +484,18 @@ export function AIPanel({
           // Thay vào đó bật cờ báo điểm đã cũ; người dùng tự bấm "Chấm lại" khi đã điền
           // xong hết.  #Huynh
           setStaleAfterFill(true);
+
+          // Gộp với lần bổ sung trước để điền lẻ từng ô vẫn giữ đủ dấu vết.
+          const added: FillField[] = [];
+          if (values.client_budget) added.push("client_budget");
+          if (values.desired_timeline) added.push("desired_timeline");
+          if (values.notes_append) added.push("notes");
+          setJustAddedFields((prev) => [...new Set([...prev, ...added])]);
+          if (values.notes_append) {
+            setJustAddedNotes((prev) =>
+              [prev, values.notes_append].filter(Boolean).join("\n")
+            );
+          }
         },
       }
     );
@@ -577,9 +615,21 @@ export function AIPanel({
             </div>
             <div className="shrink-0 text-right">
               <div className="text-[11px] font-medium text-muted-foreground">Ngân sách khách đưa</div>
-              <div className="text-lg font-bold text-foreground">
-                {deal.budgetLabel || formatVND(deal.value)}
-              </div>
+              {/* Nhãn nói "khách đưa" thì chỉ được lấy LỜI KHÁCH, theo đúng thứ tự:
+                  clientBudget (khách nói miệng, freelancer chép vào ô Bổ sung thông tin) →
+                  budgetLabel (khách tự điền ở biểu mẫu công khai) → chưa có gì.
+
+                  CỐ Ý không rơi về formatVND(deal.value). `value` là estimated_value —
+                  con số freelancer TỰ ƯỚC, thứ mà backend xếp vào khối "KHÔNG PHẢI LỜI
+                  KHÁCH — CẤM DÙNG ĐỂ CHẤM ĐIỂM". Deal tự tạo thì nó bằng 0, nên chỗ này
+                  từng hiện "0 đ" cho mọi deal: bổ sung ngân sách xong nhìn lên vẫn thấy
+                  "0 đ", tưởng bấm Lưu không ăn. Mà "0 đ" còn tệ hơn bỏ trống — trông như
+                  khách bảo không trả đồng nào.  #Huynh */}
+              {clientBudgetLabel ? (
+                <div className="text-lg font-bold text-foreground">{clientBudgetLabel}</div>
+              ) : (
+                <div className="text-sm font-medium text-muted-foreground">Khách chưa nêu</div>
+              )}
             </div>
           </div>
 
@@ -603,11 +653,11 @@ export function AIPanel({
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
               <div className="font-semibold text-destructive">Chưa đánh giá được deal</div>
               <p className="mt-1 text-muted-foreground">{errorHint}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {errorRetryable
-                  ? 'Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.'
-                  : "Bạn cần nâng cấp gói để dùng AI. Liên hệ quản trị viên để được kích hoạt gói phù hợp."}
-              </p>
+              {/* Câu khuyên chọn theo MÃ LỖI (xem getAiJobErrorAdvice). Bản cũ chỉ có hai
+                  nhánh theo cờ retryable, nên mọi lỗi không-thử-lại-được đều bị kết luận là
+                  "phải nâng gói" — kể cả khi nhà cung cấp AI chặn vì quá hạn mức token, và
+                  gói của người dùng vốn đang là Agency.  #Huynh */}
+              <p className="mt-2 text-xs text-muted-foreground">{errorAdvice}</p>
             </div>
           )}
 
@@ -634,6 +684,19 @@ export function AIPanel({
                   </p>
                 </div>
               )}
+
+              {/* Đặt NGAY TRÊN bảng chấm điểm, sát dải "63 → 73 +10": hai thứ này phải đọc
+                  liền nhau mới thành một câu hoàn chỉnh — "thêm ngân sách 100 triệu" (khung
+                  này) "nên điểm lên 10" (dải delta). Tách xa nhau thì người dùng thấy điểm
+                  nhảy mà không biết nhờ đâu.  #Huynh */}
+              <ClientFactsCard
+                deal={deal}
+                justAdded={justAddedFields}
+                justAddedNotes={justAddedNotes}
+                breakdown={result.breakdown}
+                scoresAreStale={staleAfterFill}
+                onEdit={() => setFillGapsOpen(true)}
+              />
 
               <QualificationResultView
                 view={resultView!}

@@ -118,7 +118,7 @@ describe("<FillGapsDialog />", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Lưu và chấm lại" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Lưu thông tin" })).toBeDisabled();
   });
 
   it("gửi đi chữ đã gõ, và phần mô tả là NỐI THÊM chứ không thay thế", async () => {
@@ -139,7 +139,7 @@ describe("<FillGapsDialog />", () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Ngân sách khách nêu"), "120 triệu");
     await user.type(screen.getByLabelText("Bổ sung nội dung yêu cầu"), "5 hạng mục");
-    await user.click(screen.getByRole("button", { name: "Lưu và chấm lại" }));
+    await user.click(screen.getByRole("button", { name: "Lưu thông tin" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       client_budget: "120 triệu",
@@ -164,8 +164,62 @@ describe("<FillGapsDialog />", () => {
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Mốc thời gian khách nêu"), "trước 30/09/2026");
-    await user.click(screen.getByRole("button", { name: "Lưu và chấm lại" }));
+    await user.click(screen.getByRole("button", { name: "Lưu thông tin" }));
 
     expect(onSubmit).toHaveBeenCalledWith({ desired_timeline: "trước 30/09/2026" });
+  });
+
+  it("mỗi ô ghi rõ điền vào thì lấy lại được bao nhiêu điểm", () => {
+    render(
+      <FillGapsDialog
+        open
+        onOpenChange={vi.fn()}
+        deal={DEAL}
+        gaps={gaps([
+          gap("budget", "Ngân sách", "client_budget"),
+          gap("timeline", "Thời gian", "desired_timeline"),
+        ])}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    // Người dùng cần biết nên đi hỏi khách cái gì trước cho bõ công.
+    expect(screen.getAllByText("+25đ")).toHaveLength(2);
+  });
+
+  it("một ô vá nhiều tiêu chí thì CỘNG DỒN điểm, không hiện lẻ từng con", () => {
+    render(
+      <FillGapsDialog
+        open
+        onOpenChange={vi.fn()}
+        deal={DEAL}
+        gaps={gaps([
+          // Phần mô tả ăn vào cả ba tiêu chí này — viết kỹ một lần gỡ được cả ba.
+          gap("scope", "Phạm vi công việc", "notes"),
+          gap("detail", "Mức độ chi tiết", "notes"),
+          gap("context", "Bối cảnh", "notes"),
+        ])}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("+75đ")).toBeInTheDocument();
+    expect(screen.queryByText("+25đ")).not.toBeInTheDocument();
+  });
+
+  it("phần mô tả đang có được bày ra để biết chữ mình gõ lần trước nằm đâu", () => {
+    render(
+      <FillGapsDialog
+        open
+        onOpenChange={vi.fn()}
+        deal={DEAL}
+        gaps={gaps([gap("scope", "Phạm vi công việc", "notes")])}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    // Ô nhập luôn mở ra TRỐNG (nó là ô viết thêm), nên mô tả cũ phải hiện ở chỗ khác —
+    // không thì người dùng tưởng lần bổ sung trước không lưu được.
+    expect(screen.getByText("Khách cần một trang bán hàng.")).toBeInTheDocument();
   });
 });

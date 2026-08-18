@@ -90,10 +90,17 @@ export async function cancelAiJob(jobId: string): Promise<AiJob> {
 // Backend trả kèm `code` (ErrorCode) trong job.error. Dịch sang câu tiếng Việt rõ ràng —
 // message thô của backend là tiếng Anh ("Your plan does not include AI features...") và
 // lọt thẳng ra màn hình thì vừa lệch ngôn ngữ vừa khó hiểu.  #Huynh
+// Đối chiếu với backend (src/modules/ai_jobs/application/errors.py) — trước đây hai dòng
+// giữa bị ĐẢO nhau: hết lượt tháng thật ra là RATE_LIMITED (RateLimitError → 429), còn
+// AI_QUOTA_EXCEEDED là AIGenerationError (mô hình sinh lỗi → 502). Dùng hết lượt mà màn
+// hình bảo "hệ thống đang bận" thì người dùng cứ ngồi bấm lại mãi.  #Huynh
 const AI_JOB_ERROR_MESSAGES: Record<string, string> = {
   SUBSCRIPTION_REQUIRED: "Gói của bạn chưa có tính năng AI. Hãy nâng cấp gói để dùng.",
-  AI_QUOTA_EXCEEDED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức.",
-  RATE_LIMITED: "Hệ thống AI đang bận. Bạn thử lại sau ít phút nhé.",
+  RATE_LIMITED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức.",
+  AI_QUOTA_EXCEEDED: "AI không sinh được kết quả cho lần chạy này.",
+  // AI_PROVIDER_ERROR CỐ Ý không có ở đây: backend đã gửi sẵn câu tiếng Việt nói rõ nhà
+  // cung cấp từ chối vì gì (hạn mức token, khoá sai, model bị gỡ...) kèm nguyên văn lỗi.
+  // Ghi đè bằng một câu chung là ném đi đúng thứ cần đọc lúc demo.
 };
 
 export function getAiJobErrorMessage(job: AiJob | undefined): string | null {
@@ -105,9 +112,38 @@ export function getAiJobErrorMessage(job: AiJob | undefined): string | null {
 }
 
 /**
- * Lỗi này có đáng thử lại không? Backend đánh dấu `retryable`: false cho lỗi do gói/hạn
- * mức (thử lại vô ích — phải nâng gói), true cho lỗi tạm (mạng, AI bận).
+ * Lỗi này có đáng thử lại không? Backend đánh dấu `retryable`: true cho lỗi tạm (nhà cung
+ * cấp AI bận, quá hạn mức token mỗi phút, mạng chập chờn), false cho lỗi phải đổi thứ gì đó
+ * mới hết (gói không có AI, hết lượt tháng, khoá API sai, model bị gỡ).
  */
 export function isAiJobErrorRetryable(job: AiJob | undefined): boolean {
   return job?.error?.retryable === true;
+}
+
+/**
+ * Câu khuyên đi kèm thông báo lỗi: người dùng nên LÀM GÌ tiếp theo.
+ *
+ * Tách khỏi `getAiJobErrorMessage` vì hai câu trả lời hai câu hỏi khác nhau — "hỏng cái gì"
+ * và "giờ làm sao". Trước đây màn hình chỉ có hai nhánh: thử lại được thì bảo thử lại, còn
+ * lại thì bảo "bạn cần nâng cấp gói" — nên Groq chặn vì token cũng bị đổ tội cho gói dịch
+ * vụ. Chọn câu theo MÃ LỖI, không theo mỗi cờ retryable.  #Huynh
+ */
+export function getAiJobErrorAdvice(job: AiJob | undefined): string {
+  const code = typeof job?.error?.code === "string" ? job.error.code : "";
+
+  if (code === "SUBSCRIPTION_REQUIRED") {
+    return "Vào mục Gói dịch vụ để nâng cấp, hoặc nhờ quản trị viên kích hoạt gói có AI.";
+  }
+  if (code === "RATE_LIMITED") {
+    return "Hạn mức làm mới vào kỳ sau. Cần dùng ngay thì nâng gói ở mục Gói dịch vụ.";
+  }
+  if (code === "AI_PROVIDER_ERROR") {
+    return isAiJobErrorRetryable(job)
+      ? 'Đây là lỗi phía nhà cung cấp AI, không phải gói của bạn. Chờ một lát rồi bấm "Đánh giá lại".'
+      : "Đây là lỗi cấu hình dịch vụ AI, không phải gói của bạn. Hãy báo quản trị viên kiểm tra mục Cấu hình AI.";
+  }
+  if (isAiJobErrorRetryable(job)) {
+    return 'Bạn thử bấm "Đánh giá lại" sau ít phút. Nếu vẫn lỗi, hãy báo cho quản trị viên.';
+  }
+  return "Hãy báo cho quản trị viên kèm nội dung lỗi ở trên để kiểm tra.";
 }
