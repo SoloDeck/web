@@ -14,6 +14,7 @@ import {
   FileText,
   Loader2,
   Pencil,
+  PencilLine,
   Plus,
   RefreshCw,
   Save,
@@ -27,6 +28,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TemplateDocEditor } from "@/features/admin/components/TemplateDocEditor";
 import {
   useAdminPlans,
   useAdminTemplates,
@@ -1228,7 +1231,12 @@ function PlanCell({ user }: { user: AdminUser }) {
 }
 
 // ---------------------------------------------------------------------------
-// Thư viện mẫu điều khoản theo nghề (Phiếu SU26SE083, Gói 6)
+// Thư viện mẫu tài liệu theo nghề (Phiếu SU26SE083, Gói 6)
+//
+// Một mẫu phục vụ HAI đường soạn: điều khoản chèn vào bản AI viết, và khung phần thân làm nền
+// cho freelancer tự soạn khi không dùng AI. Màn này phải cho admin thấy mẫu của mình đủ hay
+// thiếu vế nào — bản trước chỉ đọc mỗi khoá `body` kiểu cũ nên mẫu nhiều khối hiện ra trống
+// trơn, nhìn như chưa nhập gì.  #Huynh
 // ---------------------------------------------------------------------------
 
 const TEMPLATE_TYPE_LABEL: Record<AdminTemplateType, string> = {
@@ -1240,6 +1248,54 @@ const TEMPLATE_TYPE_LABEL: Record<AdminTemplateType, string> = {
 function professionLabel(slug: string | null): string {
   if (!slug) return "Dùng chung";
   return PROFESSIONS.find((p) => p.value === slug)?.label ?? slug;
+}
+
+/** Một khoá của `content` có chữ thật hay không — chuỗi trắng và mảng rỗng đều tính là trống. */
+function blockText(content: Record<string, unknown> | undefined, key: string): string {
+  const value = content?.[key];
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x).trim()).filter(Boolean).join(" · ");
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Nhãn những mục mẫu này THỰC SỰ đã soạn, theo một bộ ô cho trước.
+ *
+ * Dùng chung một bộ ô với form soạn, nên thẻ mẫu và form không bao giờ hiểu khác nhau về "mẫu
+ * này có gì" — đó chính là chỗ bản trước lệch: thẻ chỉ đọc mỗi khoá `body` kiểu cũ, nên mẫu soạn
+ * theo cấu trúc mới hiện ra TRỐNG TRƠN dù bên trong có đủ bốn khối.  #Huynh
+ */
+function filledLabels(
+  template: AdminTemplate,
+  fields: { key: string; label: string }[]
+): string[] {
+  const content = template.content as Record<string, unknown> | undefined;
+  const labels = fields
+    .filter((f) => blockText(content, String(f.key)).length > 0)
+    .map((f) => f.label);
+
+  // Mẫu kiểu cũ chỉ có khoá `body` — đọc như bí danh của "Điều khoản chuẩn", giống hệt backend.
+  const coStandardTerms = fields.some((f) => f.key === "standard_terms");
+  if (coStandardTerms && labels.length === 0 && blockText(content, "body")) {
+    return ["Điều khoản chuẩn"];
+  }
+  return labels;
+}
+
+/** Trích đoạn ngắn của khối đầu tiên có chữ — đủ để phân biệt hai mẫu cùng cấu trúc. */
+function templateExcerpt(template: AdminTemplate, limit = 140): string {
+  const content = template.content as Record<string, unknown> | undefined;
+  const keys = [
+    ...TEMPLATE_SKELETON_FIELDS[template.template_type].map((f) => String(f.key)),
+    ...TEMPLATE_BLOCK_FIELDS[template.template_type].map((f) => String(f.key)),
+    "body",
+  ];
+  for (const key of keys) {
+    const text = blockText(content, key);
+    if (text) return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`;
+  }
+  return "";
 }
 
 export function AdminTemplatesPage() {
@@ -1257,22 +1313,35 @@ export function AdminTemplatesPage() {
 
   const activeCount = templates.filter((t) => t.is_active).length;
   const byProfession = new Set(templates.map((t) => t.profession).filter(Boolean)).size;
+  // Con số đáng theo dõi nhất lúc này: bao nhiêu mẫu đỡ được PHẦN THÂN. Mẫu chỉ có điều khoản
+  // thì freelancer chọn "Tự soạn từ khung" vẫn phải gõ tay gần như toàn bộ tờ giấy.  #Huynh
+  const coKhung = templates.filter(
+    (t) => filledLabels(t, TEMPLATE_SKELETON_FIELDS[t.template_type]).length > 0
+  ).length;
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <MetricCard compact icon={FileText} label="Tổng mẫu" value={String(templates.length)} hint="Theo bộ lọc hiện tại" tone="primary" />
         <MetricCard compact icon={CheckCircle2} label="Đang bật" value={String(activeCount)} hint="Mẫu đang dùng được" tone="success" />
+        <MetricCard
+          compact
+          icon={PencilLine}
+          label="Có khung phần thân"
+          value={`${coKhung}/${templates.length}`}
+          hint="Soạn được không cần AI"
+          tone={coKhung === 0 ? "warning" : "default"}
+        />
         <MetricCard compact icon={Users} label="Nghề có mẫu riêng" value={String(byProfession)} hint="Chưa tính mẫu dùng chung" tone="default" />
       </div>
 
       <PanelShell
-        title="Thư viện mẫu điều khoản"
+        title="Thư viện mẫu tài liệu"
         icon={FileText}
         action={
-          <Button type="button" size="sm" onClick={() => setShowCreate((c) => !c)}>
-            {showCreate ? <X className="size-4" /> : <Plus className="size-4" />}
-            {showCreate ? "Đóng form" : "Tạo mẫu"}
+          <Button type="button" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="size-4" />
+            Tạo mẫu
           </Button>
         }
       >
@@ -1301,25 +1370,26 @@ export function AdminTemplatesPage() {
           </select>
         </div>
 
-        {showCreate && (
-          <div className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
-            <TemplateForm
-              submitLabel="Tạo mẫu mới"
-              isSubmitting={createTemplate.isPending}
-              onCancel={() => setShowCreate(false)}
-              onSubmit={(payload) =>
-                createTemplate.mutate(payload, { onSuccess: () => setShowCreate(false) })
-              }
-            />
-          </div>
-        )}
+        {/* Form soạn mẫu nằm trong CỬA SỔ RIÊNG.
+          Từ khi một mẫu gánh cả hai đường soạn, form dài gấp ba bản cũ (điều khoản + khung
+          phần thân + hạn hiệu lực). Bung tại chỗ là đẩy cả thư viện xuống dưới màn hình —
+          admin đang soạn thì không còn thấy mẫu nào để đối chiếu.  #Huynh */}
+        <TemplateFormDialog
+          open={showCreate}
+          onOpenChange={setShowCreate}
+          title="Tạo mẫu mới"
+          isSubmitting={createTemplate.isPending}
+          onSubmit={(payload) =>
+            createTemplate.mutate(payload, { onSuccess: () => setShowCreate(false) })
+          }
+        />
 
         {templatesQuery.isLoading ? (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Đang tải thư viện mẫu...
           </div>
         ) : templates.length === 0 ? (
-          <EmptyState text="Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm." />
+          <EmptyState text="Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm điều khoản và khung soạn sẵn." />
         ) : (
           <div className="grid gap-3 xl:grid-cols-2">
             {templates.map((template) => (
@@ -1332,30 +1402,69 @@ export function AdminTemplatesPage() {
   );
 }
 
-function TemplateCard({ template }: { template: AdminTemplate }) {
+/** Thứ form gửi lên khi admin bấm Lưu — khớp body của POST/PATCH /admin/templates. */
+type TemplatePayload = {
+  name: string;
+  template_type: AdminTemplateType;
+  profession: string | null;
+  content: Record<string, unknown>;
+  is_active: boolean;
+};
+
+/**
+ * Cửa sổ soạn mẫu — dùng chung cho cả TẠO và SỬA.
+ *
+ * Một khuôn duy nhất cho hai việc: cùng bộ ô, cùng luật, nên không có chuyện tạo được một thứ
+ * mà sửa lại không sửa được thứ đó.
+ *
+ * `key` gắn theo mẫu để form dựng lại state ban đầu mỗi lần mở — thiếu nó là mở mẫu A, đóng,
+ * mở mẫu B thì vẫn thấy chữ của A vì `useState(() => ...)` chỉ chạy lần đầu.  #Huynh
+ */
+function TemplateFormDialog({
+  open,
+  onOpenChange,
+  title,
+  template,
+  isSubmitting,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  template?: AdminTemplate;
+  isSubmitting: boolean;
+  onSubmit: (payload: TemplatePayload) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* Gần trọn màn hình: bên trong là một TỜ GIẤY A4 thật, ép vào hộp nhỏ thì chữ bé tí và
+        admin phải cuộn ngang — mất đúng cái lợi của việc soạn-thấy-ngay.  #Huynh */}
+      <DialogContent className="h-[92vh] max-w-[calc(100%-2rem)] gap-4 sm:max-w-[1200px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        {open && (
+          <TemplateDocEditor
+            key={template?.id ?? "moi"}
+            template={template}
+            isSubmitting={isSubmitting}
+            onCancel={() => onOpenChange(false)}
+            onSubmit={onSubmit}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** `export` để kiểm riêng được thẻ mẫu mà không phải dựng cả trang quản trị. */
+export function TemplateCard({ template }: { template: AdminTemplate }) {
   const updateTemplate = useUpdateAdminTemplate();
   const [editing, setEditing] = useState(false);
 
-  if (editing) {
-    return (
-      <article className="rounded-xl border border-primary/25 bg-primary/5 p-4">
-        <TemplateForm
-          template={template}
-          submitLabel="Lưu mẫu"
-          isSubmitting={updateTemplate.isPending}
-          onCancel={() => setEditing(false)}
-          onSubmit={(payload) =>
-            updateTemplate.mutate(
-              { id: template.id, payload },
-              { onSuccess: () => setEditing(false) }
-            )
-          }
-        />
-      </article>
-    );
-  }
-
-  const body = typeof template.content?.body === "string" ? template.content.body : "";
+  const dieuKhoan = filledLabels(template, TEMPLATE_BLOCK_FIELDS[template.template_type]);
+  const phanThan = filledLabels(template, TEMPLATE_SKELETON_FIELDS[template.template_type]);
+  const trichDoan = templateExcerpt(template);
 
   return (
     <article className="rounded-xl border border-border bg-background p-4">
@@ -1374,146 +1483,142 @@ function TemplateCard({ template }: { template: AdminTemplate }) {
             </span>
             <span className="text-muted-foreground">v{template.version_number}</span>
           </div>
-          {body && (
-            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{body}</p>
+
+          {/* HAI VẾ, nói tách bạch. Một mẫu giờ phục vụ hai đường soạn: điều khoản chèn vào bản
+            AI viết, còn khung là nền cho freelancer tự soạn khi không dùng AI. Gộp lại thì admin
+            không biết mẫu của mình còn thiếu vế nào.  #Huynh */}
+          <dl className="mt-2.5 space-y-1 text-xs">
+            <TemplateFacet label="Điều khoản" items={dieuKhoan} empty="chưa soạn" />
+            <TemplateFacet
+              label="Khung phần thân"
+              items={phanThan}
+              empty="chưa soạn — freelancer sẽ tự điền toàn bộ"
+              warnWhenEmpty
+            />
+          </dl>
+
+          {trichDoan && (
+            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{trichDoan}</p>
           )}
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
           <Pencil className="size-4" /> Sửa
         </Button>
       </div>
+
+      {/* Sửa cũng mở cùng cửa sổ đó. Bản trước form thay chỗ chính cái thẻ, mà thẻ nằm trong
+        lưới 2 cột — form dài như hiện nay nhét vào một ô lưới thì vừa chật vừa làm cả lưới
+        nhảy chiều cao.  #Huynh */}
+      <TemplateFormDialog
+        open={editing}
+        onOpenChange={setEditing}
+        title={`Sửa mẫu · ${template.name}`}
+        template={template}
+        isSubmitting={updateTemplate.isPending}
+        onSubmit={(payload) =>
+          updateTemplate.mutate(
+            { id: template.id, payload },
+            { onSuccess: () => setEditing(false) }
+          )
+        }
+      />
     </article>
   );
 }
 
-type TemplateDraft = {
-  name: string;
-  template_type: AdminTemplateType;
-  profession: string;
-  body: string;
-  is_active: boolean;
-};
-
-function TemplateForm({
-  template,
-  submitLabel,
-  isSubmitting,
-  onSubmit,
-  onCancel,
+/** Một vế của thẻ mẫu: nhãn + danh sách mục đã soạn, hoặc lời nhắc khi còn trống. */
+function TemplateFacet({
+  label,
+  items,
+  empty,
+  warnWhenEmpty,
 }: {
-  template?: AdminTemplate;
-  submitLabel: string;
-  isSubmitting: boolean;
-  onSubmit: (payload: {
-    name: string;
-    template_type: AdminTemplateType;
-    profession: string | null;
-    content: Record<string, unknown>;
-    is_active: boolean;
-  }) => void;
-  onCancel: () => void;
+  label: string;
+  items: string[];
+  empty: string;
+  warnWhenEmpty?: boolean;
 }) {
-  const [draft, setDraft] = useState<TemplateDraft>(() => ({
-    name: template?.name ?? "",
-    template_type: template?.template_type ?? "proposal",
-    profession: template?.profession ?? "",
-    body: typeof template?.content?.body === "string" ? template.content.body : "",
-    is_active: template?.is_active ?? false,
-  }));
-
-  const canSubmit = draft.name.trim().length > 0 && draft.body.trim().length > 0;
-
-  function set(field: keyof TemplateDraft, value: string | boolean) {
-    setDraft((current) => ({ ...current, [field]: value }));
-  }
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canSubmit) return;
-    onSubmit({
-      name: draft.name.trim(),
-      template_type: draft.template_type,
-      // "" = mẫu dùng chung → gửi null cho backend lưu NULL.
-      profession: draft.profession || null,
-      content: { body: draft.body.trim() },
-      is_active: draft.is_active,
-    });
-  }
-
+  const trong = items.length === 0;
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm">
-          <span className="mb-1 block font-medium">Tên mẫu</span>
-          <input
-            value={draft.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder="VD: Điều khoản thanh toán chuẩn"
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block font-medium">Loại</span>
-          <select
-            value={draft.template_type}
-            onChange={(e) => set("template_type", e.target.value as AdminTemplateType)}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="proposal">Báo giá</option>
-            <option value="contract">Hợp đồng</option>
-          </select>
-        </label>
-      </div>
-
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Áp dụng cho nghề</span>
-        <select
-          value={draft.profession}
-          onChange={(e) => set("profession", e.target.value)}
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="">Dùng chung cho mọi nghề</option>
-          {PROFESSIONS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Nội dung điều khoản</span>
-        <textarea
-          value={draft.body}
-          onChange={(e) => set("body", e.target.value)}
-          rows={6}
-          placeholder="Nội dung mẫu điều khoản (tiếng Việt)..."
-          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-        />
-      </label>
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={draft.is_active}
-          onChange={(e) => set("is_active", e.target.checked)}
-          className="size-4 rounded border-input"
-        />
-        Bật mẫu này (cho phép dùng)
-      </label>
-
-      <div className="flex items-center gap-2 pt-1">
-        <Button type="submit" size="sm" disabled={!canSubmit || isSubmitting}>
-          {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          {submitLabel}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Hủy
-        </Button>
-      </div>
-    </form>
+    <div className="flex gap-1.5">
+      <dt className="shrink-0 font-semibold text-muted-foreground">{label}:</dt>
+      <dd
+        className={
+          trong
+            ? warnWhenEmpty
+              ? "text-warning"
+              : "text-muted-foreground/70"
+            : "text-foreground"
+        }
+      >
+        {trong ? empty : items.join(" · ")}
+      </dd>
+    </div>
   );
 }
+
+/**
+ * Mẫu gồm những khối nào — phải khớp `src/shared/domain/template_blocks.py` bên backend.
+ *
+ * Bản trước mỗi mẫu chỉ có MỘT ô chữ, đổ vào MỘT mục ở gần cuối tờ giấy — nên admin soạn xong
+ * mà freelancer chọn vào gần như không thấy gì khác. Và vì chỉ có một ô, muốn khác nhau theo
+ * nghề thì phải viết lại toàn bộ cho từng nghề; tách thành khối thì phần lớn dùng chung.  #Huynh
+ */
+const TEMPLATE_BLOCK_FIELDS: Record<
+  AdminTemplateType,
+  { key: string; label: string; hint: string; list?: boolean }[]
+> = {
+  proposal: [
+    {
+      key: "out_of_scope",
+      label: "Ngoài phạm vi",
+      hint: "Mỗi dòng một mục. VD: Mua font bản quyền",
+      list: true,
+    },
+    {
+      key: "revision_policy",
+      label: "Chính sách chỉnh sửa",
+      hint: "VD: 2 vòng chỉnh sửa miễn phí, từ vòng 3 tính phí",
+    },
+    { key: "standard_terms", label: "Điều khoản chuẩn", hint: "Điều khoản áp cho mọi báo giá" },
+  ],
+  contract: [
+    { key: "ip_ownership", label: "Quyền sở hữu trí tuệ", hint: "Bàn giao quyền gì, khi nào" },
+    { key: "termination_clause", label: "Sửa đổi và chấm dứt", hint: "Điều kiện chấm dứt" },
+    { key: "standard_terms", label: "Điều khoản chuẩn", hint: "Điều khoản áp cho mọi hợp đồng" },
+    { key: "custom_clauses", label: "Điều khoản bổ sung", hint: "Phần thêm, để trống cũng được" },
+  ],
+};
+
+/**
+ * Nhóm ô thứ hai: KHUNG tài liệu — dùng khi freelancer soạn mà KHÔNG nhờ AI.
+ *
+ * Khác nhóm trên ở chỗ nó với tới phần đặc thù dự án (tổng quan, phạm vi, bàn giao, tiến độ).
+ * Ở chế độ AI thì mẫu cố ý KHÔNG chạm mấy mục này — AI vừa đọc yêu cầu thật của khách, chép đè
+ * lên là xoá đúng phần đáng giá nhất. Ở chế độ khung thì ngược lại: không có AI nào viết hộ,
+ * nên mẫu phải với được tới đó.
+ *
+ * Để trống hoàn toàn cũng được: mục đó ra một ô trống freelancer bấm vào nhập. KHÔNG có chữ mồi
+ * nào được bịa ra thay — chữ trên tờ giấy gửi khách phải là chữ có người soạn.  #Huynh
+ */
+const TEMPLATE_SKELETON_FIELDS: Record<
+  AdminTemplateType,
+  { key: string; label: string; hint: string; list?: boolean }[]
+> = {
+  proposal: [
+    { key: "project_overview", label: "Tổng quan dự án", hint: "Mô tả chung, freelancer sửa lại theo từng khách" },
+    { key: "scope_of_work", label: "Phạm vi công việc", hint: "Mỗi dòng một đầu việc", list: true },
+    { key: "deliverables", label: "Sản phẩm bàn giao", hint: "Mỗi dòng một sản phẩm", list: true },
+    { key: "timeline", label: "Thời gian thực hiện", hint: "VD: 4 tuần kể từ ngày tạm ứng" },
+    { key: "payment_terms", label: "Điều khoản thanh toán", hint: "VD: Tạm ứng 30% khi ký" },
+    { key: "assumptions", label: "Ghi chú và giả định", hint: "Điều kiện để báo giá này còn đúng" },
+  ],
+  contract: [
+    { key: "scope_of_work", label: "Nội dung và phạm vi công việc", hint: "Điều 1 của hợp đồng" },
+    { key: "payment_terms", label: "Giá trị hợp đồng và thanh toán", hint: "Điều 3 — mô tả cách thanh toán, KHÔNG ghi số tiền" },
+    { key: "revision_policy", label: "Chính sách chỉnh sửa và phát sinh", hint: "Xử lý yêu cầu ngoài phạm vi" },
+  ],
+};
 
 /**
  * Trang cho Admin đổi nhà cung cấp AI của toàn hệ thống. Trung

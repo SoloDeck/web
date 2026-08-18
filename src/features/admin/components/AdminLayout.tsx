@@ -58,7 +58,7 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     label: "Thư viện mẫu",
     path: "/admin/templates",
     icon: FileText,
-    description: "Mẫu điều khoản báo giá / hợp đồng theo nghề",
+    description: "Điều khoản và khung soạn sẵn cho báo giá / hợp đồng",
   },
   {
     label: "Cấu hình AI",

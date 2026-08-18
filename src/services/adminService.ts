@@ -300,6 +300,24 @@ export type AdminTemplateFilter = {
   is_active?: boolean;
 };
 
+/**
+ * POST /admin/templates/preview — dựng TỜ GIẤY THẬT từ nội dung mẫu đang soạn.
+ *
+ * Gửi `content` đang gõ dở chứ không phải id: admin cần thấy kết quả TRƯỚC khi bấm Lưu. Cùng
+ * một template Jinja với bản freelancer nhận và với PDF, nên cái admin thấy đúng là cái khách
+ * sẽ đọc.  #Huynh
+ */
+export async function previewAdminTemplate(payload: {
+  template_type: AdminTemplateType;
+  content: Record<string, unknown>;
+}): Promise<string> {
+  const { data } = await axiosClient.post<ApiResponse<{ html: string }>>(
+    "/admin/templates/preview",
+    payload
+  );
+  return data.data?.html ?? "";
+}
+
 /** GET /admin/templates — thư viện mẫu, lọc theo loại/nghề/trạng thái. */
 export async function listAdminTemplates(
   filter: AdminTemplateFilter = {}
