@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, Loader2, MessageSquareText, Zap } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, MessageSquareText, Zap } from "lucide-react";
 
 import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import { useReminderRules, useUpdateReminderRule } from "@/features/reminders/hooks/useReminders";
@@ -22,6 +22,19 @@ const OFFSET_LABEL: Record<string, string> = {
   re_engagement: "ngày không liên lạc với khách",
 };
 
+/**
+ * Một dòng tóm tắt cấu hình, hiện ngay dưới tên khi hàng đang gấp lại.
+ *
+ * Gấp phần cấu hình đi thì phải trả lại chỗ khác, không thì người dùng buộc phải mở từng
+ * cái ra mới biết mình đặt gì — đổi cuộn dài thành bấm nhiều lần, chẳng hơn gì.
+ */
+function moTaNgan(rule: ReminderRule): string {
+  const kenh = CHANNELS.find((c) => c.value === normalizeChannel(rule.channel))?.label ?? "Chỉ nhắc tôi";
+  const gio = `${String(rule.send_at_hour).padStart(2, "0")}:00`;
+  const tuDong = rule.auto_send ? " · tự gửi" : "";
+  return `${rule.offset_days} ngày · ${kenh.toLowerCase()} · ${gio}${tuDong}`;
+}
+
 const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
   { value: "in_app", label: "Chỉ nhắc tôi" },
   { value: "email", label: "Gửi email cho khách" },
@@ -34,9 +47,29 @@ export function ReminderRulesSettings() {
   const updateRule = useUpdateReminderRule();
   const { data: zaloStatus } = useZaloStatus();
   const zaloConnected = zaloStatus?.connected ?? false;
+  /**
+   * Quy tắc đang mở phần cấu hình. Chỉ MỘT cái mở tại một thời điểm.
+   *
+   * Trước đây cứ bật là phần cấu hình bung ra và ở luôn đó, nên bật đủ năm quy tắc là màn
+   * hình thành một cột dài toàn ô nhập giống nhau — muốn sửa giờ gửi của quy tắc thứ tư thì
+   * phải cuộn qua ba khối y hệt. Danh sách năm dòng vẫn luôn thấy đủ, nên nhìn một cái là
+   * biết đang bật cái nào.  #Huynh
+   */
+  const [openRule, setOpenRule] = useState<string | null>(null);
 
   function patch(rule: ReminderRule, payload: Parameters<typeof updateRule.mutate>[0]["payload"]) {
     updateRule.mutate({ ruleType: rule.rule_type, payload });
+  }
+
+  /** Bật một quy tắc thì mở luôn phần cấu hình — vừa bật là để đặt số ngày với giờ gửi. */
+  function toggleEnabled(rule: ReminderRule, is_enabled: boolean) {
+    patch(rule, { is_enabled });
+    if (is_enabled) {
+      setOpenRule(rule.rule_type);
+    } else {
+      // Tắt cái đang mở thì đóng theo; tắt cái khác thì đừng đụng vào cái đang mở.
+      setOpenRule((current) => (current === rule.rule_type ? null : current));
+    }
   }
 
   return (
@@ -67,7 +100,9 @@ export function ReminderRulesSettings() {
       )}
 
       <div className="mt-5 space-y-3">
-        {(rulesQuery.data ?? []).map((rule) => (
+        {(rulesQuery.data ?? []).map((rule) => {
+          const dangMo = openRule === rule.rule_type;
+          return (
           <article
             key={rule.rule_type}
             className={cn(
@@ -76,20 +111,38 @@ export function ReminderRulesSettings() {
             )}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold">{rule.label}</h3>
-                {!rule.is_enabled && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">Đang tắt</p>
+              {/* Cả phần chữ là một nút gấp mở — vùng bấm rộng, khỏi phải nhắm vào mũi tên.
+                  Quy tắc đang TẮT thì không có gì để cấu hình nên nút cũng không bấm được. */}
+              <button
+                type="button"
+                disabled={!rule.is_enabled}
+                aria-expanded={dangMo}
+                onClick={() => setOpenRule(dangMo ? null : rule.rule_type)}
+                className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default"
+              >
+                {rule.is_enabled && (
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                      dangMo && "rotate-180"
+                    )}
+                  />
                 )}
-              </div>
+                <span className="min-w-0">
+                  <h3 className="text-sm font-semibold">{rule.label}</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {rule.is_enabled ? moTaNgan(rule) : "Đang tắt"}
+                  </p>
+                </span>
+              </button>
               <Toggle
                 checked={rule.is_enabled}
-                onChange={(is_enabled) => patch(rule, { is_enabled })}
+                onChange={(is_enabled) => toggleEnabled(rule, is_enabled)}
                 label="Bật quy tắc"
               />
             </div>
 
-            {rule.is_enabled && (
+            {rule.is_enabled && dangMo && (
               <div className="mt-4 space-y-3 border-t border-border pt-4">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Nhắc khi qua</span>
@@ -206,7 +259,8 @@ export function ReminderRulesSettings() {
               </div>
             )}
           </article>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
