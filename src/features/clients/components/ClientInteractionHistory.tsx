@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  Briefcase,
   CalendarClock,
   Loader2,
   Mail,
@@ -15,6 +16,10 @@ import {
   useClientCommLogs,
   useCreateClientCommLog,
 } from "@/features/clients/hooks/useClients";
+import { useClientDeals, useDealHistories } from "@/features/deals/hooks/useDeals";
+import { buildClientTimeline } from "@/features/clients/clientTimeline";
+import { Pager } from "@/components/solodesk/Pager";
+import { pageSlice } from "@/utils/paging";
 
 const CHANNEL_OPTIONS: { value: string; label: string; icon: typeof Mail }[] = [
   { value: "email", label: "Email", icon: Mail },
@@ -26,6 +31,9 @@ const CHANNEL_OPTIONS: { value: string; label: string; icon: typeof Mail }[] = [
 ];
 
 const CHANNEL_MAP = new Map(CHANNEL_OPTIONS.map((opt) => [opt.value, opt]));
+
+/** Số dòng mỗi trang. Một khách chạy nhiều dự án là dòng thời gian dài rất nhanh. */
+const DONG_MOI_TRANG = 8;
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65";
@@ -57,14 +65,26 @@ export function ClientInteractionHistory({ clientId }: { clientId: string }) {
   const [channel, setChannel] = useState("email");
   const [summary, setSummary] = useState("");
   const [communicatedAt, setCommunicatedAt] = useState(nowLocalInput);
+  const [page, setPage] = useState(1);
+
+  // Dự án của khách này — nguồn thứ hai của dòng thời gian. Một khách có NHIỀU deal, nên mỗi
+  // dòng phải nói rõ nó thuộc dự án nào.
+  const dealsQuery = useClientDeals(clientId);
+  const deals = useMemo(() => dealsQuery.data ?? [], [dealsQuery.data]);
+  const dealIds = useMemo(() => deals.map((deal) => deal.id), [deals]);
+  const dealHistories = useDealHistories(dealIds);
 
   const logs = useMemo(
     () =>
-      [...(commLogsQuery.data ?? [])].sort((a, b) =>
-        b.communicated_at.localeCompare(a.communicated_at)
-      ),
-    [commLogsQuery.data]
+      buildClientTimeline({
+        commLogs: commLogsQuery.data ?? [],
+        deals,
+        dealHistories,
+      }),
+    [commLogsQuery.data, deals, dealHistories]
   );
+
+  const trangNay = useMemo(() => pageSlice(logs, page, DONG_MOI_TRANG), [logs, page]);
 
   function resetForm() {
     setChannel("email");
@@ -88,6 +108,8 @@ export function ClientInteractionHistory({ clientId }: { clientId: string }) {
         onSuccess: () => {
           resetForm();
           setShowForm(false);
+          // Dòng vừa ghi nằm ở ĐẦU danh sách — về trang 1 để họ thấy ngay thứ mình vừa lưu.
+          setPage(1);
         },
       }
     );
@@ -96,12 +118,11 @@ export function ClientInteractionHistory({ clientId }: { clientId: string }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Lịch sử tương tác</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Ghi lại các lần liên hệ với khách hàng qua email, điện thoại, Zalo...
-          </p>
-        </div>
+        {/* Không lặp lại tên — nhãn tab ngay trên đã ghi rồi. */}
+        <p className="max-w-xl text-sm text-muted-foreground">
+          Gộp việc bạn tự ghi với lịch sử tự động của từng dự án — gửi báo giá, khách chấp nhận,
+          ký hợp đồng, thu tiền.
+        </p>
         <button
           type="button"
           onClick={() => setShowForm((prev) => !prev)}
@@ -181,29 +202,49 @@ export function ClientInteractionHistory({ clientId }: { clientId: string }) {
           </div>
         )}
 
-        {logs.map((log) => {
-          const meta = CHANNEL_MAP.get(log.channel);
-          const ChannelIcon = meta?.icon ?? MessageSquare;
+        {trangNay.map((item) => {
+          const meta = item.channel ? CHANNEL_MAP.get(item.channel) : undefined;
+          const tuDuAn = item.source === "deal";
+          const ChannelIcon = meta?.icon ?? (tuDuAn ? Briefcase : MessageSquare);
           return (
-            <div key={log.id} className="flex gap-3 rounded-lg border border-border px-3 py-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+            <div key={item.id} className="flex gap-3 rounded-lg border border-border px-3 py-3">
+              <div
+                className={
+                  tuDuAn
+                    ? "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground"
+                    : "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"
+                }
+              >
                 <ChannelIcon className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-medium text-foreground">
-                    {meta?.label ?? log.channel}
-                  </span>
+                  {/* Nói rõ dòng này thuộc DỰ ÁN NÀO. Một khách chạy hai dự án song song mà
+                    không có nhãn này thì dòng thời gian trộn thành một mớ không đọc được. */}
+                  {tuDuAn ? (
+                    <span className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-border px-2 py-0.5 font-medium text-foreground">
+                      {item.dealTitle ?? "Dự án"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-medium text-foreground">
+                      {meta?.label ?? item.channel ?? "Ghi chú"}
+                    </span>
+                  )}
                   <span className="inline-flex items-center gap-1">
                     <CalendarClock className="h-3.5 w-3.5" />
-                    {formatDateTime(log.communicated_at)}
+                    {formatDateTime(item.at)}
                   </span>
+                  {tuDuAn && (
+                    <span className="text-[11px] text-muted-foreground/70">tự động</span>
+                  )}
                 </div>
-                <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{log.summary}</p>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{item.text}</p>
               </div>
             </div>
           );
         })}
+
+        <Pager page={page} total={logs.length} pageSize={DONG_MOI_TRANG} onPage={setPage} />
 
         {!commLogsQuery.isLoading && logs.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">

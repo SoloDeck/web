@@ -15,11 +15,17 @@ import { AppSidebar } from "@/components/layout/Sidebar";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ClientEditDialog } from "@/features/clients/components/ClientEditDialog";
 import { ClientInteractionHistory } from "@/features/clients/components/ClientInteractionHistory";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Pager } from "@/components/solodesk/Pager";
+import { pageSlice } from "@/utils/paging";
 import { useClient } from "@/features/clients/hooks/useClients";
 import { useClientDeals } from "@/features/deals/hooks/useDeals";
 import { STAGE_BY_ID, type Deal } from "@/features/deals/types";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
+
+/** Số dự án mỗi trang. Đủ để nhìn hết một trang mà không phải cuộn trong khung. */
+const DEALS_MOI_TRANG = 5;
 
 type DealSort = "newest" | "oldest" | "value";
 
@@ -38,6 +44,7 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
   const [editOpen, setEditOpen] = useState(false);
   const [dealSearch, setDealSearch] = useState("");
   const [dealSort, setDealSort] = useState<DealSort>("newest");
+  const [dealPage, setDealPage] = useState(1);
 
   const client = clientQuery.data;
   // Danh sách gốc (chưa lọc) — dùng cho các chỉ số tổng quan.
@@ -68,6 +75,11 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
     }
     return sorted;
   }, [deals, dealSearch, dealSort]);
+
+  const dealsTrangNay = useMemo(
+    () => pageSlice(visibleDeals, dealPage, DEALS_MOI_TRANG),
+    [visibleDeals, dealPage]
+  );
 
   function goBack() {
     navigate({ to: "/", search: { tab: "clients" } });
@@ -222,15 +234,21 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
               </section>
             </aside>
 
-            <section className="min-w-0 space-y-4">
+            {/* HAI TRANG. Trước đây hai khối xếp chồng và mỗi khối tự cuộn vô hạn, nên muốn
+              xem lịch sử tương tác là phải cuộn qua hết danh sách dự án.  #Huynh */}
+            <Tabs defaultValue="deals" className="min-w-0">
+              <TabsList variant="line" className="w-full justify-start border-b border-border">
+                <TabsTrigger value="deals">Dự án đã hợp tác</TabsTrigger>
+                <TabsTrigger value="history">Lịch sử tương tác</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="deals" className="mt-4">
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold">Dự án đã hợp tác</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {deals.length} dự án · Tổng giá trị {formatVND(totalValue)}
-                    </p>
-                  </div>
+                  {/* Không lặp lại tên — nhãn tab ngay trên đã ghi rồi. */}
+                  <p className="text-sm text-muted-foreground">
+                    {deals.length} dự án · Tổng giá trị {formatVND(totalValue)}
+                  </p>
                   {dealsQuery.isFetching && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang cập nhật...
@@ -244,14 +262,23 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                       <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <input
                         value={dealSearch}
-                        onChange={(e) => setDealSearch(e.target.value)}
+                        onChange={(e) => {
+                          setDealSearch(e.target.value);
+                          // Về trang 1 NGAY tại chỗ gõ. Không làm thì đang ở trang 3, lọc còn
+                          // 2 kết quả là màn hình trắng trơn — trông y như mất dữ liệu. Đặt ở
+                          // đây thay vì trong `useEffect` để tránh một vòng render thừa.
+                          setDealPage(1);
+                        }}
                         placeholder="Tìm theo tên dự án hoặc ghi chú..."
                         className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                       />
                     </div>
                     <select
                       value={dealSort}
-                      onChange={(e) => setDealSort(e.target.value as DealSort)}
+                      onChange={(e) => {
+                        setDealSort(e.target.value as DealSort);
+                        setDealPage(1);
+                      }}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                       aria-label="Sắp xếp dự án"
                     >
@@ -264,8 +291,8 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                   </div>
                 )}
 
-                <div className="mt-4 max-h-[480px] space-y-3 overflow-y-auto pr-1">
-                  {visibleDeals.map((deal) => (
+                <div className="mt-4 space-y-3">
+                  {dealsTrangNay.map((deal) => (
                     <DealRow key={deal.id} deal={deal} onOpen={() => openDeal(deal)} />
                   ))}
 
@@ -285,10 +312,21 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                     </div>
                   )}
                 </div>
-              </section>
 
-              <ClientInteractionHistory clientId={clientId} />
-            </section>
+                <Pager
+                  page={dealPage}
+                  total={visibleDeals.length}
+                  pageSize={DEALS_MOI_TRANG}
+                  onPage={setDealPage}
+                  className="mt-4"
+                />
+              </section>
+              </TabsContent>
+
+              <TabsContent value="history" className="mt-4">
+                <ClientInteractionHistory clientId={clientId} />
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </main>
