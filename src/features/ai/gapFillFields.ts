@@ -30,7 +30,9 @@ export const FILL_FIELD_UI: Record<
   },
   notes: {
     label: "Bổ sung nội dung yêu cầu",
-    hint: "Nối thêm vào phần mô tả sẵn có: các hạng mục cần làm, sản phẩm bàn giao, ràng buộc, bối cảnh khách hàng.",
+    // Không dùng chữ "nối thêm" — đó là từ của người viết code, người dùng đọc thấy kỳ.
+    // Chỉ cần cho họ yên tâm là phần mô tả cũ vẫn còn nguyên.
+    hint: "Viết thêm những gì bạn hỏi được: hạng mục cần làm, sản phẩm bàn giao, ràng buộc, bối cảnh khách hàng. Phần mô tả cũ vẫn được giữ.",
     placeholder:
       "Khách cần 5 hạng mục: đăng nhập, giỏ hàng, thanh toán VNPay, CMS, báo cáo doanh thu...",
     multiline: true,
@@ -39,6 +41,18 @@ export const FILL_FIELD_UI: Record<
 
 /** Thứ tự cố định để form không nhảy chỗ giữa hai lần chấm. */
 const FIELD_ORDER: FillField[] = ["client_budget", "desired_timeline", "notes"];
+
+/**
+ * Nhãn ngắn dùng khi ĐIỂM LẠI những gì đã bổ sung (khác nhãn trên form).
+ *
+ * Trên form đang hỏi nên nhãn dài cho rõ ("Ngân sách khách nêu"); còn khi liệt kê lại thứ đã
+ * lưu thì nó nằm sau chữ "Bạn đã bổ sung", nhãn dài đọc thành thừa.
+ */
+export const FILL_FIELD_SHORT_LABEL: Record<FillField, string> = {
+  client_budget: "Ngân sách",
+  desired_timeline: "Mốc thời gian",
+  notes: "Nội dung yêu cầu",
+};
 
 export type FillGapsValues = {
   client_budget?: string;

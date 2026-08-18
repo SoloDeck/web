@@ -161,12 +161,20 @@ export function AIActivityCenter() {
           </div>
         </div>
         {finishedCount > 0 && (
+          /* Chỉ biểu tượng, đồng bộ với nút ✕ trên từng hàng. Nhãn dồn vào tooltip +
+             aria-label — bỏ chữ thì người dùng chuột phải biết nhờ tooltip, người dùng
+             bàn phím/đọc màn hình vẫn nghe được đầy đủ.
+
+             Tooltip nói rõ "đã xong" để không bị hiểu thành đóng bảng: ✕ ở góc phải thanh
+             tiêu đề vốn là quy ước của nút đóng.  #Huynh */
           <button
             type="button"
             onClick={clearFinished}
-            className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label={`Dọn ${finishedCount} tác vụ đã xong`}
+            title={`Dọn ${finishedCount} tác vụ đã xong`}
           >
-            Dọn xong
+            <X className="h-4 w-4" />
           </button>
         )}
       </div>
@@ -220,21 +228,28 @@ export function AIActivityCenter() {
                     <Eye className="h-3.5 w-3.5" />
                     Xem
                   </button>
+                  {/* Cả hai đều là ✕, nhưng hậu quả khác hẳn nhau: đang chạy thì ✕ là DỪNG
+                      tác vụ (mất kết quả, tốn một lượt AI), xong rồi thì ✕ chỉ là ẩn khỏi
+                      danh sách. Vì hai nút nằm cùng một chỗ trên hàng, phần phân biệt dồn
+                      hết vào MÀU (đỏ có viền / xám trơn) và tooltip. Nút đỏ còn có hộp xác
+                      nhận chặn trước nên bấm nhầm vẫn quay đầu được.  #Huynh */}
                   {job.status === "running" ? (
                     <button
                       type="button"
                       onClick={() => setCancelTarget(job)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-destructive/20 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                      className="rounded-md border border-destructive/20 p-1.5 text-destructive hover:bg-destructive/10"
+                      aria-label="Hủy tác vụ đang chạy"
+                      title="Hủy tác vụ đang chạy"
                     >
                       <X className="h-3.5 w-3.5" />
-                      Hủy
                     </button>
                   ) : (
                     <button
                       type="button"
                       onClick={() => removeJob(job.id)}
                       className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      aria-label="Ẩn tác vụ"
+                      aria-label="Ẩn tác vụ khỏi danh sách"
+                      title="Ẩn tác vụ khỏi danh sách"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
