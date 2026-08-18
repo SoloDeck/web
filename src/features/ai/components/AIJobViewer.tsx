@@ -36,9 +36,19 @@ export function AIJobViewer() {
   //   - Thu nhỏ (bấm ra ngoài / nút Thu nhỏ): panel Ở LẠI store → mở lại được bất cứ lúc
   //     nào từ Task Center. Người dùng có khi chỉ muốn ẩn một lát rồi xem kỹ hơn.
   //   - Đóng (nút X / Huỷ): gọi closePanel() → bỏ hẳn khỏi store.
+  // `key` theo deal là BẮT BUỘC, không phải cho đẹp: panel giữ state cục bộ nói về deal
+  // đang mở (thông tin vừa bổ sung, cờ điểm đã cũ, job vừa tạo). Thu nhỏ panel thì nó chỉ
+  // ngừng vẽ chứ VẪN mount, nên đổi sang deal khác mà không có key là React tái dùng đúng
+  // instance cũ — kèm nguyên state của deal trước.
+  //
+  // Hậu quả đã tái hiện được: gõ mô tả bổ sung cho deal A, thu nhỏ, mở job của deal B →
+  // khung "Thông tin khách đã cho" của B hiện nguyên văn chữ vừa gõ cho A, gắn nhãn "vừa
+  // thêm". Dữ liệu của khách này nằm trên hồ sơ khách khác. Đổi deal thì dựng lại panel.
+  //   #Huynh
   if (panel.kind === "deal_qualification") {
     return (
       <AIPanel
+        key={panel.dealId}
         open
         deal={deal}
         viewJobId={panel.jobId ?? null}
@@ -51,6 +61,7 @@ export function AIJobViewer() {
   if (panel.kind === "proposal_generation") {
     return (
       <ProposalModal
+        key={panel.dealId}
         deal={deal}
         existingProposalId={panel.proposalId ?? null}
         openNonce={panel.openedAt}

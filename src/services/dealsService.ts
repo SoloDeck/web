@@ -242,6 +242,16 @@ function applyIntakeFallback(deal: Deal, intake?: DealIntake): Deal {
     // BE đang lưu ngân sách public intake ở bảng riêng; khi deal chưa có estimated_value thì FE bù vào để board không hiện 0đ.
     value: deal.value > 0 ? deal.value : parsedBudget || deal.value,
     budgetLabel: deal.value > 0 || !budget ? deal.budgetLabel : formatBudgetLabel(budget, parsedBudget),
+    // Ngân sách/thời hạn khách tự điền ở biểu mẫu công khai CŨNG là lời khách, nên đổ vào
+    // đúng hai ô lời khách. Cố ý KHÔNG nhét qua `budgetLabel`: nhãn đó còn nuôi bảng Kanban
+    // và trang chi tiết, mà ở đó người ta cần con số freelancer chốt chứ không phải câu
+    // khách nói.
+    //
+    // Thiếu bước này thì deal đến từ biểu mẫu công khai mà đã có estimated_value sẽ hiện
+    // "Khách chưa nêu" ở màn chấm điểm — ngay cạnh dòng bảng chấm "Ngân sách 25/25" chấm
+    // dựa trên chính câu khách viết trong biểu mẫu đó.  #Huynh
+    clientBudget: deal.clientBudget?.trim() || budget || deal.clientBudget,
+    desiredTimeline: deal.desiredTimeline?.trim() || intake.desiredTimeline.trim() || deal.desiredTimeline,
     notes: deal.notes.trim() || intake.inquiryText.trim() || deal.notes,
   };
 }

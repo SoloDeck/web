@@ -486,9 +486,17 @@ export function AIPanel({
           setStaleAfterFill(true);
 
           // Gộp với lần bổ sung trước để điền lẻ từng ô vẫn giữ đủ dấu vết.
+          //
+          // Chỉ tính ô THỰC SỰ đổi giá trị: hộp bổ sung mở ra đã điền sẵn dữ liệu cũ, nên
+          // người dùng chỉ sửa ô thời hạn rồi bấm Lưu là ô ngân sách cũng bị gửi kèm y
+          // nguyên — đánh dấu "vừa thêm" cho nó là nói sai việc họ vừa làm.
           const added: FillField[] = [];
-          if (values.client_budget) added.push("client_budget");
-          if (values.desired_timeline) added.push("desired_timeline");
+          if (values.client_budget && values.client_budget !== deal.clientBudget?.trim()) {
+            added.push("client_budget");
+          }
+          if (values.desired_timeline && values.desired_timeline !== deal.desiredTimeline?.trim()) {
+            added.push("desired_timeline");
+          }
           if (values.notes_append) added.push("notes");
           setJustAddedFields((prev) => [...new Set([...prev, ...added])]);
           if (values.notes_append) {
@@ -695,6 +703,7 @@ export function AIPanel({
                 justAddedNotes={justAddedNotes}
                 breakdown={result.breakdown}
                 scoresAreStale={staleAfterFill}
+                canEdit={(result.gaps?.gaps.length ?? 0) > 0}
                 onEdit={() => setFillGapsOpen(true)}
               />
 

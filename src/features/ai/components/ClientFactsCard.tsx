@@ -12,20 +12,41 @@ import { cn } from "@/lib/utils";
  * bảng chấm điểm để biết nó đang được bao nhiêu điểm. Khoá trùng với `FILL_FIELD` bên
  * backend (src/ai/lead_qualifier/scoring.py) — sửa một bên thì phải sửa cả hai.
  */
-const FIELD_TO_CRITERION: Record<FillField, string> = {
-  client_budget: "budget",
-  desired_timeline: "timeline",
-  notes: "scope",
+const FIELD_TO_CRITERIA: Record<FillField, string[]> = {
+  client_budget: ["budget"],
+  desired_timeline: ["timeline"],
+  // Ô mô tả vá tới BA tiêu chí. Chỉ lấy mỗi "scope" thì con số ở đây bé hơn hẳn số "+Nđ"
+  // mà hộp bổ sung hứa (nó cộng cả ba) — hai chỗ nói hai số khác nhau cho cùng một ô.
+  notes: ["scope", "detail", "context"],
 };
 
-/** Điểm của tiêu chí ứng với một ô nhập, `null` nếu bảng chấm điểm không có dòng đó. */
-function criterionScore(breakdown: ScoreItem[], field: FillField): ScoreItem | null {
-  const key = FIELD_TO_CRITERION[field];
-  return breakdown.find((item) => item.key === key) ?? null;
+/** Điểm gộp của các tiêu chí mà một ô nhập vá được, `null` nếu bảng chấm không có dòng nào. */
+function criterionScore(
+  breakdown: ScoreItem[],
+  field: FillField
+): { label: string; points: number; max: number } | null {
+  const rows = FIELD_TO_CRITERIA[field]
+    .map((key) => breakdown.find((item) => item.key === key))
+    .filter((item): item is ScoreItem => Boolean(item));
+  if (!rows.length) return null;
+
+  return {
+    // Gộp nhiều tiêu chí thì gọi chung là "Tổng cộng" — liệt kê cả ba nhãn ra thì dòng dài
+    // hơn cả dữ kiện nó đang chú thích.
+    label: rows.length === 1 ? rows[0].label : "Tổng cộng",
+    points: rows.reduce((sum, item) => sum + item.points, 0),
+    max: rows.reduce((sum, item) => sum + item.max_points, 0),
+  };
 }
 
 /** Nhãn điểm "25/25", hoặc dấu nhắc khi điểm đang là của lần chấm trước. */
-function ScoreTag({ item, stale }: { item: ScoreItem | null; stale: boolean }) {
+function ScoreTag({
+  item,
+  stale,
+}: {
+  item: { label: string; points: number; max: number } | null;
+  stale: boolean;
+}) {
   if (!item) return null;
 
   // Vừa bổ sung mà chưa chấm lại thì con điểm bên bảng CHƯA tính phần mới. Bày nó ra cạnh
@@ -38,7 +59,7 @@ function ScoreTag({ item, stale }: { item: ScoreItem | null; stale: boolean }) {
     );
   }
 
-  const full = item.points >= item.max_points;
+  const full = item.points >= item.max;
   // Chưa đủ điểm thì đẩy màu ngữ nghĩa sang viền + nền, chữ giữ `text-foreground`: token
   // --warm là oklch L=0.75, dùng làm màu chữ trên nền sáng chỉ được ~2.3:1, đọc không nổi.
   // Cùng cách đã chốt cho nhãn "thiết yếu" trong QualificationResult.tsx.
@@ -51,7 +72,7 @@ function ScoreTag({ item, stale }: { item: ScoreItem | null; stale: boolean }) {
           : "border border-warm bg-warm/15 text-foreground"
       )}
     >
-      {item.label} {item.points}/{item.max_points}
+      {item.label} {item.points}/{item.max}
     </span>
   );
 }
@@ -73,6 +94,7 @@ export function ClientFactsCard({
   justAddedNotes,
   breakdown,
   scoresAreStale,
+  canEdit,
   onEdit,
 }: {
   deal: Deal;
@@ -83,6 +105,11 @@ export function ClientFactsCard({
   breakdown: ScoreItem[];
   /** Đã bổ sung nhưng chưa chấm lại → điểm đang hiện là của lần chấm trước. */
   scoresAreStale: boolean;
+  /**
+   * Còn khoảng thiếu nào để điền không. Hộp bổ sung CHỈ dựng ô cho tiêu chí đang thiếu
+   * điểm, nên deal đã đủ điểm mà vẫn bày nút thì bấm vào ra một hộp thoại trống trơn.
+   */
+  canEdit: boolean;
   onEdit: () => void;
 }) {
   const facts: { field: FillField; value: string }[] = [
@@ -99,14 +126,16 @@ export function ClientFactsCard({
     <div className="rounded-xl border border-border bg-muted/30 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm font-semibold text-foreground">Thông tin khách đã cho</div>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary"
-        >
-          <PencilLine className="h-3.5 w-3.5" />
-          Sửa / bổ sung
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary"
+          >
+            <PencilLine className="h-3.5 w-3.5" />
+            Sửa / bổ sung
+          </button>
+        )}
       </div>
 
       <dl className="mt-3 space-y-2.5">

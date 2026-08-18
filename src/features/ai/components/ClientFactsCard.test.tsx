@@ -40,6 +40,7 @@ function renderCard(props: Partial<Parameters<typeof ClientFactsCard>[0]> = {}) 
       justAddedNotes=""
       breakdown={BREAKDOWN}
       scoresAreStale={false}
+      canEdit
       onEdit={vi.fn()}
       {...props}
     />
@@ -105,6 +106,27 @@ describe("<ClientFactsCard />", () => {
     });
 
     expect(container.textContent).not.toMatch(/nối/i);
+  });
+
+  it("hết khoảng thiếu thì giấu nút bổ sung, đừng mời bấm vào hộp thoại rỗng", () => {
+    // Hộp bổ sung chỉ dựng ô cho tiêu chí đang thiếu điểm — đủ điểm hết là hộp trống trơn.
+    renderCard({ deal: deal({ clientBudget: "100 triệu" }), canEdit: false });
+    expect(screen.queryByRole("button", { name: /Sửa \/ bổ sung/ })).not.toBeInTheDocument();
+  });
+
+  it("điểm của ô mô tả cộng cả ba tiêu chí mà nó vá, khớp với số '+Nđ' bên hộp bổ sung", () => {
+    renderCard({
+      justAdded: ["notes"],
+      justAddedNotes: "Thêm phần bàn giao file gốc",
+      breakdown: [
+        { key: "scope", label: "Phạm vi công việc", points: 20, max_points: 30 },
+        { key: "detail", label: "Mức độ chi tiết", points: 8, max_points: 15 },
+        { key: "context", label: "Bối cảnh", points: 5, max_points: 10 },
+      ],
+    });
+
+    // 20+8+5 / 30+15+10 — không phải chỉ mỗi "Phạm vi công việc 20/30".
+    expect(screen.getByText("Tổng cộng 33/55")).toBeInTheDocument();
   });
 
   it("bảng chấm điểm thiếu tiêu chí thì bỏ qua nhãn điểm, không vỡ", () => {
