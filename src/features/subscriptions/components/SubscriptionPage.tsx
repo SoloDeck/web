@@ -16,6 +16,7 @@ import {
   SETTLED_PAYMENT_STATUSES,
   type PlanResponse,
 } from "@/services/subscriptionsService";
+import { readMomoReturn, stripMomoParams } from "@/features/subscriptions/lib/momoReturn";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,11 +91,15 @@ function PlanCard({
   isCurrent,
   onBuy,
   buying,
+  disabled = false,
 }: {
   plan: PlanResponse;
   isCurrent: boolean;
   onBuy: (plan: PlanResponse) => void;
+  /** ĐÚNG thẻ này đang mở phiên thanh toán — không phải "có ai đó đang mở". */
   buying: boolean;
+  /** Một thẻ KHÁC đang mở phiên thanh toán. */
+  disabled?: boolean;
 }) {
   const meta = PLAN_META[plan.slug] ?? PLAN_META.free;
   const Icon = meta.icon;
@@ -185,7 +190,7 @@ function PlanCard({
         // hộp thư bật lên, trong khi hệ thống thừa sức tự bán.  #Huynh
         <button
           type="button"
-          disabled={isFree || unpayable || buying}
+          disabled={isFree || unpayable || buying || disabled}
           onClick={() => onBuy(plan)}
           className={cn(
             "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
@@ -237,15 +242,42 @@ export function SubscriptionPage() {
   //   1. `?intent=` trên URL — cho phép mở thẳng bằng link (tiện lúc test).
   //   2. sessionStorage — đường thường: id được nhớ ngay trước khi rời trang sang MoMo,
   //      vì `return_url` không mang được id (xem `handleBuy`).
-  const [intentId] = useState<string | null>(
-    () =>
+  //
+  // Kết quả MoMo đá kèm trên URL, đọc MỘT LẦN lúc mount (dưới đây sẽ dọn khỏi thanh địa chỉ).
+  // Khi người dùng bấm HUỶ trên MoMo thì không có IPN nào được gửi → intent bên backend nằm
+  // nguyên ở `pending` → nếu chỉ tin backend thì trang kẹt vĩnh viễn ở "Đang xác nhận thanh
+  // toán với MoMo…".  #Huynh
+  const [momoReturn] = useState(() => readMomoReturn(window.location.search));
+  const momoRejected = momoReturn !== null && (momoReturn.outcome === "cancelled" || momoReturn.outcome === "failed");
+
+  const [intentId] = useState<string | null>(() => {
+    // MoMo đã nói rõ là hỏng/huỷ → không có gì để chờ, đừng mở vòng hỏi lại.
+    if (momoRejected) return null;
+    return (
       new URLSearchParams(window.location.search).get(INTENT_PARAM) ??
       sessionStorage.getItem(INTENT_PARAM)
-  );
-  const { data: intent } = usePaymentIntent(intentId);
+    );
+  });
+  const { data: intent, pollTimedOut } = usePaymentIntent(intentId);
   const checkout = useCreateCheckout();
 
+  // Nút nào đang bấm — theo ID GÓI, không phải một cờ boolean dùng chung. Dùng
+  // `checkout.isPending` cho mọi thẻ thì bấm một thẻ là cả ba thẻ cùng quay spinner.  #Huynh
+  const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
+
+  // Dọn query param MoMo ngay sau khi đã đọc: F5 một cái mà còn `resultCode` cũ thì trang
+  // báo lại kết quả của một giao dịch đã qua. Giữ nguyên `?tab=` để không nhảy tab.
+  useEffect(() => {
+    stripMomoParams();
+  }, []);
+
+  // MoMo báo hỏng/huỷ thì quên intent đang nhớ đi, để lần vào sau không hỏi lại nó nữa.
+  useEffect(() => {
+    if (momoRejected) sessionStorage.removeItem(INTENT_PARAM);
+  }, [momoRejected]);
+
   async function handleBuy(plan: PlanResponse) {
+    setUpgradingPlanId(plan.id);
     try {
       const created = await checkout.mutateAsync({
         planId: plan.id,
@@ -258,6 +290,7 @@ export function SubscriptionPage() {
       const link = created.payment_link?.url;
       if (!link) {
         toast.error("MoMo không trả về link thanh toán. Thử lại giúp mình nhé.");
+        setUpgradingPlanId(null);
         return;
       }
 
@@ -265,9 +298,12 @@ export function SubscriptionPage() {
       // hành trình trong CÙNG một tab: người dùng sang MoMo rồi quay lại. Dùng
       // localStorage thì một tab khác mở sau đó cũng tưởng mình đang chờ thanh toán.
       sessionStorage.setItem(INTENT_PARAM, created.id);
+      // Không tắt spinner ở đây: trang đang rời đi, giữ nguyên trạng thái "đang mở trang
+      // thanh toán" cho tới lúc trình duyệt chuyển đi thật.
       window.location.href = link;
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Không mở được trang thanh toán. Thử lại giúp mình nhé."));
+      setUpgradingPlanId(null);
     }
   }
 
@@ -311,12 +347,31 @@ export function SubscriptionPage() {
           Hiện cả trạng thái "đang chờ": tiền vào qua IPN — một đường server-to-server chạy
           song song với việc trình duyệt quay về — nên lúc trang mở lại backend có thể chưa
           kịp nhận. Không nói gì thì người dùng tưởng trả tiền hụt và bấm mua lần nữa. */}
+      {/* MoMo đã nói rõ là huỷ/hỏng ngay trên URL quay về → nói thẳng, đừng chờ backend.
+          Đây chính là ca `resultCode=1006` (người dùng bấm huỷ): không có IPN nào được gửi
+          nên hỏi backend bao lâu cũng chỉ nhận lại `pending`.  #Huynh */}
+      {momoRejected && momoReturn && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <X className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {momoReturn.outcome === "cancelled"
+              ? "Bạn đã huỷ thanh toán trên MoMo. Gói hiện tại giữ nguyên — bấm nâng cấp lại bất cứ lúc nào."
+              : `Thanh toán không thành công${momoReturn.message ? `: ${momoReturn.message}` : "."} Bạn có thể bấm nâng cấp lại.`}
+          </span>
+        </div>
+      )}
+
       {intent && (
         <div
           role="status"
           className={cn(
             "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
-            intent.status === "succeeded"
+            pollTimedOut
+              ? "border-orange-200 bg-orange-50 text-orange-700"
+              : intent.status === "succeeded"
               ? "border-success/30 bg-success/10 text-success"
               : intent.status === "pending" || intent.status === "processing"
                 ? "border-border bg-muted/40 text-muted-foreground"
@@ -324,10 +379,21 @@ export function SubscriptionPage() {
           )}
         >
           {intent.status === "pending" || intent.status === "processing" ? (
-            <>
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-              <span>Đang xác nhận thanh toán với MoMo… Bạn cứ ở lại trang này một lát nhé.</span>
-            </>
+            pollTimedOut ? (
+              // Hỏi hoài không ra kết quả thì phải NÓI, chứ không quay spinner mãi.
+              <>
+                <X className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Chưa nhận được xác nhận từ MoMo. Nếu tiền đã bị trừ, gói sẽ tự kích hoạt khi
+                  MoMo báo về — bạn tải lại trang sau ít phút để kiểm tra.
+                </span>
+              </>
+            ) : (
+              <>
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                <span>Đang xác nhận thanh toán với MoMo… Bạn cứ ở lại trang này một lát nhé.</span>
+              </>
+            )
           ) : intent.status === "succeeded" ? (
             <>
               <Check className="mt-0.5 h-4 w-4 shrink-0" />
@@ -430,7 +496,10 @@ export function SubscriptionPage() {
               plan={plan}
               isCurrent={subscription?.plan_slug === plan.slug}
               onBuy={handleBuy}
-              buying={checkout.isPending}
+              // Chỉ thẻ VỪA BẤM mới quay spinner…
+              buying={upgradingPlanId === plan.id}
+              // …còn các thẻ khác thì khoá tạm, để không mở hai phiên thanh toán cùng lúc.
+              disabled={upgradingPlanId !== null && upgradingPlanId !== plan.id}
             />
           ))}
         </div>

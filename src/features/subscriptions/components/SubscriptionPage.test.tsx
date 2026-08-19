@@ -72,6 +72,19 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
           max_deals: null,
           max_ai_generations_per_month: 0,
         },
+        // Gói trả phí THỨ HAI: cần có để bắt lỗi "bấm một thẻ, cả ba thẻ cùng quay spinner".
+        {
+          id: "plan-agency",
+          name: "Agency",
+          slug: "agency",
+          price_monthly: "499000.00",
+          currency: "VND",
+          can_use_ai: true,
+          can_export_pdf: true,
+          max_clients: null,
+          max_deals: null,
+          max_ai_generations_per_month: 500,
+        },
       ],
       isLoading: false,
     }),
@@ -149,7 +162,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     );
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getByRole("button", { name: /nâng cấp qua momo/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
 
     await waitFor(() => expect(mockCheckout).toHaveBeenCalledTimes(1));
     const arg = mockCheckout.mock.calls[0][0];
@@ -166,7 +179,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     });
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getByRole("button", { name: /nâng cấp qua momo/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
 
     await waitFor(() =>
       expect(mockToastError).toHaveBeenCalledWith("Gói free không cần thanh toán.")
@@ -177,7 +190,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     mockCheckout.mockResolvedValue(intentStub());
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getByRole("button", { name: /nâng cấp qua momo/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
     expect(sessionStorage.getItem("intent")).toBeNull();
@@ -213,11 +226,65 @@ describe("<SubscriptionPage /> — mua gói", () => {
 
   it("chỉ gói trả phí mới có nút thanh toán", () => {
     // Gói hiện tại là "Pro Test" nên nó hiện "Đang sử dụng"; Free và Pro đều render nút.
-    // Chỉ Pro được mua — khẳng định số lượng để ai đó gắn nhầm nút mua vào gói 0đ là test đổ.
+    // Pro và Agency mua được (abc dưới mức tối thiểu MoMo) — khẳng định số lượng để ai đó
+    // gắn nhầm nút mua vào gói 0đ là test đổ.
     render(<SubscriptionPage />, { wrapper });
 
-    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(2);
     expect(screen.getByText(/đang sử dụng/i)).toBeInTheDocument();
+  });
+
+  it("MoMo đá về với resultCode=1006 (người dùng huỷ) thì báo ĐÃ HUỶ, không kẹt ở 'đang xác nhận'", () => {
+    // Lỗi thật: huỷ trên MoMo thì KHÔNG có IPN nào được gửi → intent bên backend nằm mãi ở
+    // `pending` → trang hỏi lại 3 giây một lần và kẹt vĩnh viễn ở "Đang xác nhận…".  #Huynh
+    sessionStorage.setItem("intent", "intent-1");
+    window.history.replaceState(
+      {},
+      "",
+      "/?tab=subscription&partnerCode=MOMO&orderId=o-1&resultCode=1006" +
+        "&message=" + encodeURIComponent("Giao dịch bị từ chối bởi người dùng.")
+    );
+
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/đã huỷ thanh toán/i);
+    expect(screen.queryByText(/đang xác nhận/i)).not.toBeInTheDocument();
+    // Không còn intent nào để hỏi lại → không có vòng lặp nào chạy tiếp.
+    expect(sessionStorage.getItem("intent")).toBeNull();
+    // Dọn param để F5 không báo lại giao dịch cũ, nhưng phải giữ đúng tab.
+    expect(window.location.search).toBe("?tab=subscription");
+  });
+
+  it("resultCode khác 0 và không phải huỷ thì hiện lý do MoMo trả", () => {
+    window.history.replaceState({}, "", "/?tab=subscription&resultCode=1001&message=" + encodeURIComponent("Số dư không đủ"));
+
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Số dư không đủ");
+  });
+
+  it("resultCode=0 thì vẫn hỏi backend xác nhận, không tự nhận thành công từ URL", () => {
+    // URL do người dùng sửa tay được — thành công phải do backend nói.
+    sessionStorage.setItem("intent", "intent-1");
+    window.history.replaceState({}, "", "/?tab=subscription&resultCode=0");
+    mockIntent.mockReturnValue({ data: intentStub({ status: "pending" }) });
+
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/đang xác nhận/i);
+  });
+
+  it("bấm nâng cấp ở một thẻ thì CHỈ thẻ đó quay spinner", async () => {
+    // Trước đây `buying` lấy chung `checkout.isPending` nên cả ba thẻ cùng quay.  #Huynh
+    mockCheckout.mockReturnValue(new Promise(() => {})); // treo mãi: giữ trạng thái đang bấm
+
+    render(<SubscriptionPage />, { wrapper });
+    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /đang mở trang thanh toán/i })).toBeInTheDocument()
+    );
+    expect(screen.queryAllByRole("button", { name: /đang mở trang thanh toán/i })).toHaveLength(1);
   });
 
   it("gói 0đ KHÔNG mua được, dù giá về dạng chuỗi Decimal", () => {
@@ -243,8 +310,8 @@ describe("<SubscriptionPage /> — mua gói", () => {
   it("gói ngoài hạn mức không làm phát sinh thêm nút mua nào", () => {
     render(<SubscriptionPage />, { wrapper });
 
-    // Vẫn đúng một nút mua (gói Pro). Gắn nút mua vào gói 200đ là test này đổ.
-    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(1);
+    // Vẫn đúng hai nút mua (Pro và Agency). Gắn nút mua vào gói 200đ là test này đổ.
+    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(2);
   });
 
   it("gói tự tạo xếp xuống cuối bảng giá, không nhảy lên trước gói Free", () => {

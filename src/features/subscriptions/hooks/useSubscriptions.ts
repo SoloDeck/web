@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createCheckout,
@@ -63,11 +64,30 @@ export function useCreateCheckout() {
  *
  * Khi thành công thì làm mới luôn `subscriptions/me` — gói đã đổi, mọi chỗ khác trong app
  * (hạn mức AI, nhãn gói) phải thấy ngay.  #Huynh
+ *
+ * Có TRẦN thời gian: `SETTLED_PAYMENT_STATUSES` chỉ dừng vòng lặp khi backend thật sự chốt
+ * trạng thái. Nếu IPN không bao giờ tới (MoMo im lặng, người dùng bỏ ngang, mạng đứt) thì
+ * intent nằm mãi ở `pending` và trang hỏi lại 3 giây một lần cho tới khi tab bị đóng. Sau
+ * `MAX_POLL_MS` thì ngừng hỏi và trả `pollTimedOut` để chỗ gọi nói cho người dùng biết,
+ * thay vì quay spinner vô hạn.
  */
+const MAX_POLL_MS = 2 * 60 * 1000;
+
 export function usePaymentIntent(intentId: string | null) {
   const qc = useQueryClient();
+  // Lưu ID của intent đã hết giờ chứ không phải một cờ boolean: đổi sang intent khác là
+  // đồng hồ tự tính lại, khỏi phải setState reset ngay trong effect.
+  const [timedOutFor, setTimedOutFor] = useState<string | null>(null);
 
-  return useQuery({
+  useEffect(() => {
+    if (!intentId) return;
+    const timer = setTimeout(() => setTimedOutFor(intentId), MAX_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [intentId]);
+
+  const timedOut = intentId !== null && timedOutFor === intentId;
+
+  const query = useQuery({
     queryKey: subscriptionKeys.intent(intentId ?? ""),
     queryFn: async () => {
       const intent = await getPaymentIntent(intentId!);
@@ -77,9 +97,15 @@ export function usePaymentIntent(intentId: string | null) {
       return intent;
     },
     enabled: Boolean(intentId),
-    refetchInterval: (query) =>
-      query.state.data && SETTLED_PAYMENT_STATUSES.includes(query.state.data.status)
-        ? false
-        : 3000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && SETTLED_PAYMENT_STATUSES.includes(data.status)) return false;
+      if (timedOut) return false;
+      return 3000;
+    },
   });
+
+  const settled = query.data ? SETTLED_PAYMENT_STATUSES.includes(query.data.status) : false;
+
+  return { ...query, pollTimedOut: timedOut && !settled };
 }
