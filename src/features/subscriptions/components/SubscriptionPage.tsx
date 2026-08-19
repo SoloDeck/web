@@ -17,6 +17,7 @@ import {
   type PlanResponse,
 } from "@/services/subscriptionsService";
 import { readMomoReturn, stripMomoParams } from "@/features/subscriptions/lib/momoReturn";
+import { forgetIntent, readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -193,7 +194,7 @@ function PlanCard({
           disabled={isFree || unpayable || buying || disabled}
           onClick={() => onBuy(plan)}
           className={cn(
-            "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
+            "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all disabled:pointer-events-none",
             isFree || unpayable
               ? "border border-border text-muted-foreground"
               : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
@@ -255,7 +256,7 @@ export function SubscriptionPage() {
     if (momoRejected) return null;
     return (
       new URLSearchParams(window.location.search).get(INTENT_PARAM) ??
-      sessionStorage.getItem(INTENT_PARAM)
+      readRememberedIntent()
     );
   });
   const { data: intent, pollTimedOut } = usePaymentIntent(intentId);
@@ -273,7 +274,7 @@ export function SubscriptionPage() {
 
   // MoMo báo hỏng/huỷ thì quên intent đang nhớ đi, để lần vào sau không hỏi lại nó nữa.
   useEffect(() => {
-    if (momoRejected) sessionStorage.removeItem(INTENT_PARAM);
+    if (momoRejected) forgetIntent();
   }, [momoRejected]);
 
   async function handleBuy(plan: PlanResponse) {
@@ -297,7 +298,7 @@ export function SubscriptionPage() {
       // Nhớ TRƯỚC khi rời trang. sessionStorage (không phải localStorage) vì đây là một
       // hành trình trong CÙNG một tab: người dùng sang MoMo rồi quay lại. Dùng
       // localStorage thì một tab khác mở sau đó cũng tưởng mình đang chờ thanh toán.
-      sessionStorage.setItem(INTENT_PARAM, created.id);
+      rememberIntent(created.id);
       // Không tắt spinner ở đây: trang đang rời đi, giữ nguyên trạng thái "đang mở trang
       // thanh toán" cho tới lúc trình duyệt chuyển đi thật.
       window.location.href = link;
@@ -310,7 +311,7 @@ export function SubscriptionPage() {
   // Chốt xong thì dọn, để lần vào sau không hỏi lại một giao dịch cũ.
   useEffect(() => {
     if (intent && SETTLED_PAYMENT_STATUSES.includes(intent.status)) {
-      sessionStorage.removeItem(INTENT_PARAM);
+      forgetIntent();
     }
   }, [intent]);
 
