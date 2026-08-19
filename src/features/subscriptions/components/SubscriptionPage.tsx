@@ -194,7 +194,7 @@ function PlanCard({
           disabled={isFree || unpayable || buying || disabled}
           onClick={() => onBuy(plan)}
           className={cn(
-            "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
+            "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all disabled:pointer-events-none",
             isFree || unpayable
               ? "border border-border text-muted-foreground"
               : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
