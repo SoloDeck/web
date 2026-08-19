@@ -205,6 +205,10 @@ export async function logout(): Promise<void> {
       storage.removeItem(SESSION_KEY);
       storage.removeItem(REFRESH_KEY);
     }
+    // Tắt One Tap auto-select của Google, nếu không GIS sẽ tự đăng nhập lại
+    // ngay khi GoogleButton render lại (browser vẫn còn phiên Google).
+    (window as { google?: { accounts?: { id?: { disableAutoSelect?: () => void } } } }).google
+      ?.accounts?.id?.disableAutoSelect?.();
   }
 }
 
