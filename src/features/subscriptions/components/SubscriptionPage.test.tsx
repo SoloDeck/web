@@ -6,6 +6,7 @@ import { StrictMode } from "react";
 import type React from "react";
 import { SubscriptionPage } from "./SubscriptionPage";
 import type { PaymentIntentResponse } from "@/services/subscriptionsService";
+import { readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 
 const mockCheckout = vi.fn();
 const mockIntent = vi.fn(() => ({ data: undefined }) as { data?: PaymentIntentResponse });
@@ -170,7 +171,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     // Backend chỉ nhận http(s) tuyệt đối — đường dẫn tương đối bị từ chối.
     expect(arg.returnUrl).toMatch(/^https?:\/\/.+\?tab=subscription$/);
     // Phải nhớ id TRƯỚC khi rời trang, vì return_url không mang được id.
-    expect(sessionStorage.getItem("intent")).toBe("intent-1");
+    expect(readRememberedIntent()).toBe("intent-1");
   });
 
   it("checkout lỗi thì hiện đúng câu backend trả, không phải câu chung chung", async () => {
@@ -237,7 +238,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
   it("MoMo đá về với resultCode=1006 (người dùng huỷ) thì báo ĐÃ HUỶ, không kẹt ở 'đang xác nhận'", () => {
     // Lỗi thật: huỷ trên MoMo thì KHÔNG có IPN nào được gửi → intent bên backend nằm mãi ở
     // `pending` → trang hỏi lại 3 giây một lần và kẹt vĩnh viễn ở "Đang xác nhận…".  #Huynh
-    sessionStorage.setItem("intent", "intent-1");
+    rememberIntent("intent-1");
     window.history.replaceState(
       {},
       "",
@@ -265,7 +266,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
 
   it("resultCode=0 thì vẫn hỏi backend xác nhận, không tự nhận thành công từ URL", () => {
     // URL do người dùng sửa tay được — thành công phải do backend nói.
-    sessionStorage.setItem("intent", "intent-1");
+    rememberIntent("intent-1");
     window.history.replaceState({}, "", "/?tab=subscription&resultCode=0");
     mockIntent.mockReturnValue({ data: intentStub({ status: "pending" }) });
 
