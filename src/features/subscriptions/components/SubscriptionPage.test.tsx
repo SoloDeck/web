@@ -136,7 +136,10 @@ function intentStub(over: Partial<PaymentIntentResponse> = {}): PaymentIntentRes
     payment_link: { type: "checkout_url", url: null, qr_code_url: null, instructions: null },
     provider_reference: null,
     paid_at: null,
-    expires_at: "2026-01-01T00:30:00Z",
+    // Tương đối theo thời điểm chạy test, không phải mốc cố định: giá trị này đi qua
+    // `handleBuy()` -> `rememberIntent(created.id, created.expires_at)` thật ở test dòng
+    // 174, nên một chuỗi cố định trong quá khứ sẽ bị `intentStorage` coi là hết hạn ngay.
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
     failure_reason: null,
     ...over,
   };
@@ -249,7 +252,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
   it("MoMo đá về với resultCode=1006 (người dùng huỷ) thì báo ĐÃ HUỶ, không kẹt ở 'đang xác nhận'", () => {
     // Lỗi thật: huỷ trên MoMo thì KHÔNG có IPN nào được gửi → intent bên backend nằm mãi ở
     // `pending` → trang hỏi lại 3 giây một lần và kẹt vĩnh viễn ở "Đang xác nhận…".  #Huynh
-    rememberIntent("intent-1");
+    rememberIntent("intent-1", new Date(Date.now() + 5 * 60_000).toISOString());
     window.history.replaceState(
       {},
       "",
@@ -277,7 +280,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
 
   it("resultCode=0 thì vẫn hỏi backend xác nhận, không tự nhận thành công từ URL", () => {
     // URL do người dùng sửa tay được — thành công phải do backend nói.
-    rememberIntent("intent-1");
+    rememberIntent("intent-1", new Date(Date.now() + 5 * 60_000).toISOString());
     window.history.replaceState({}, "", "/?tab=subscription&resultCode=0");
     mockIntent.mockReturnValue({ data: intentStub({ status: "pending" }) });
 
