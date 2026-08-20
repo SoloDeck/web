@@ -8,6 +8,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useUpdateClient } from "@/features/clients/hooks/useClients";
 import type {
   ClientRecord,
@@ -27,6 +34,14 @@ const STATUS_OPTIONS: { value: ClientStatus; label: string }[] = [
   { value: "inactive", label: "Ngưng hợp tác" },
   { value: "archived", label: "Lưu trữ" },
 ];
+
+const TYPE_ITEMS: Record<string, string> = Object.fromEntries(
+  TYPE_OPTIONS.map((opt) => [opt.value, opt.label])
+);
+
+const STATUS_ITEMS: Record<string, string> = Object.fromEntries(
+  STATUS_OPTIONS.map((opt) => [opt.value, opt.label])
+);
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-65";
@@ -141,31 +156,41 @@ export function ClientEditDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Loại khách hàng</label>
-              <select
+              <Select
+                items={TYPE_ITEMS}
                 value={form.type}
-                onChange={(e) => patch({ type: e.target.value as ClientType })}
-                className={INPUT_CLASS}
+                onValueChange={(v) => v && patch({ type: v })}
               >
-                {TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={INPUT_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium">Trạng thái</label>
-              <select
+              <Select
+                items={STATUS_ITEMS}
                 value={form.status}
-                onChange={(e) => patch({ status: e.target.value as ClientStatus })}
-                className={INPUT_CLASS}
+                onValueChange={(v) => v && patch({ status: v })}
               >
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={INPUT_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

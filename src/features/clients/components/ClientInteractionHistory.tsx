@@ -18,6 +18,13 @@ import {
 } from "@/features/clients/hooks/useClients";
 import { useClientDeals, useDealHistories } from "@/features/deals/hooks/useDeals";
 import { buildClientTimeline } from "@/features/clients/clientTimeline";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Pager } from "@/components/solodesk/Pager";
 import { pageSlice } from "@/utils/paging";
 
@@ -31,6 +38,10 @@ const CHANNEL_OPTIONS: { value: string; label: string; icon: typeof Mail }[] = [
 ];
 
 const CHANNEL_MAP = new Map(CHANNEL_OPTIONS.map((opt) => [opt.value, opt]));
+
+const CHANNEL_ITEMS: Record<string, string> = Object.fromEntries(
+  CHANNEL_OPTIONS.map((opt) => [opt.value, opt.label])
+);
 
 /**
  * Số dòng mỗi trang. Một khách chạy nhiều dự án là dòng thời gian dài rất nhanh.
@@ -145,17 +156,22 @@ export function ClientInteractionHistory({ clientId }: { clientId: string }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Kênh liên hệ</label>
-              <select
+              <Select
+                items={CHANNEL_ITEMS}
                 value={channel}
-                onChange={(e) => setChannel(e.target.value)}
-                className={INPUT_CLASS}
+                onValueChange={(v) => v && setChannel(v)}
               >
-                {CHANNEL_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={INPUT_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CHANNEL_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Thời điểm</label>

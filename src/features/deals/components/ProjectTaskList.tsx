@@ -34,6 +34,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
@@ -242,19 +249,23 @@ export function ProjectTaskPanel({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <label className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                <CalendarDays className="h-4 w-4" />
-                <select
-                  value={sortMode}
-                  onChange={(event) => setSortMode(event.target.value as TaskSortMode)}
+              <Select
+                value={sortMode}
+                onValueChange={(value) => setSortMode(value as TaskSortMode)}
+              >
+                <SelectTrigger
                   aria-label="Sắp xếp công việc"
-                  className="bg-transparent text-sm font-medium text-foreground outline-none"
+                  className="h-auto gap-2 rounded-lg border-border bg-background px-3 py-2 text-sm font-medium text-foreground"
                 >
-                  <option value="order">Theo thứ tự dự án</option>
-                  <option value="newest">Mới tạo trước</option>
-                  <option value="oldest">Cũ hơn trước</option>
-                </select>
-              </label>
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="order">Theo thứ tự dự án</SelectItem>
+                  <SelectItem value="newest">Mới tạo trước</SelectItem>
+                  <SelectItem value="oldest">Cũ hơn trước</SelectItem>
+                </SelectContent>
+              </Select>
               <button
                 type="button"
                 onClick={openAdd}

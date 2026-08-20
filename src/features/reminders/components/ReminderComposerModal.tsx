@@ -15,6 +15,13 @@ import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   formatDateForInput,
   formatRelative,
   formatTimeForInput,
@@ -251,24 +258,29 @@ export function ReminderComposerModal({
           {/* CỘT TRÁI — cấu hình. Cuộn riêng nên dài bao nhiêu cũng không ăn chỗ xem trước. */}
           <aside className="flex max-h-[45%] shrink-0 flex-col gap-4 overflow-y-auto border-b border-border p-5 lg:max-h-none lg:w-[400px] lg:border-b-0 lg:border-r">
             <Field label="Loại nhắc">
-              <select
+              <Select
+                items={REMINDER_TYPES}
                 value={type}
-                onChange={(event) => {
-                  const next = event.target.value as ReminderType;
+                onValueChange={(value) => {
+                  const next = value as ReminderType;
                   setType(next);
                   // Đổi loại nhắc cũng đổi mẫu — nhưng vẫn giữ nguyên chữ người dùng đã gõ.
                   if (isUntouchedTemplate(message, vars)) {
                     setMessage(reminderTemplate(next, vars, tone));
                   }
                 }}
-                className={selectClass}
               >
-                {REMINDER_TYPES.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={triggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REMINDER_TYPES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
 
             {/* Nhắc thanh toán mà thư không có chỗ nào chỉ cách trả tiền thì khách đọc xong
@@ -285,23 +297,28 @@ export function ReminderComposerModal({
             )}
 
             <Field label="Kênh gửi">
-              <select
+              <Select
+                items={CHANNELS}
                 value={channel}
-                onChange={(event) => setChannel(event.target.value as ReminderChannel)}
-                className={selectClass}
+                onValueChange={(value) => setChannel(value as ReminderChannel)}
               >
-                {CHANNELS.map((item) => (
-                  <option
-                    key={item.value}
-                    value={item.value}
-                    disabled={item.value === "zalo" && !zaloConnected}
-                  >
-                    {item.value === "zalo" && !zaloConnected
-                      ? `${item.label} (chưa kết nối)`
-                      : item.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={triggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CHANNELS.map((item) => (
+                    <SelectItem
+                      key={item.value}
+                      value={item.value}
+                      disabled={item.value === "zalo" && !zaloConnected}
+                    >
+                      {item.value === "zalo" && !zaloConnected
+                        ? `${item.label} (chưa kết nối)`
+                        : item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <span className="mt-1 block text-[11px] text-muted-foreground">
                 {channel === "zalo" && !zaloConnected
                   ? "Chưa kết nối Zalo OA. Vào Cài đặt hồ sơ › Zalo OA để kết nối."
@@ -545,6 +562,8 @@ export function ReminderComposerModal({
 
 const selectClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary";
+
+const triggerClass = "h-auto w-full rounded-md border-border bg-background px-3 py-2";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

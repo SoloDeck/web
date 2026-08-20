@@ -16,6 +16,13 @@ import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { ClientEditDialog } from "@/features/clients/components/ClientEditDialog";
 import { ClientInteractionHistory } from "@/features/clients/components/ClientInteractionHistory";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Pager } from "@/components/solodesk/Pager";
 import { pageSlice } from "@/utils/paging";
 import { useClient } from "@/features/clients/hooks/useClients";
@@ -34,6 +41,10 @@ const DEAL_SORT_OPTIONS: { value: DealSort; label: string }[] = [
   { value: "oldest", label: "Cũ nhất" },
   { value: "value", label: "Giá trị cao" },
 ];
+
+const DEAL_SORT_ITEMS: Record<string, string> = Object.fromEntries(
+  DEAL_SORT_OPTIONS.map((opt) => [opt.value, opt.label])
+);
 
 export function ClientDetailPage({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
@@ -273,21 +284,29 @@ export function ClientDetailPage({ clientId }: { clientId: string }) {
                         className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                       />
                     </div>
-                    <select
+                    <Select
+                      items={DEAL_SORT_ITEMS}
                       value={dealSort}
-                      onChange={(e) => {
-                        setDealSort(e.target.value as DealSort);
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        setDealSort(v);
                         setDealPage(1);
                       }}
-                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      aria-label="Sắp xếp dự án"
                     >
-                      {DEAL_SORT_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        className="rounded-lg bg-background px-3 py-2 focus:ring-2 focus:ring-ring"
+                        aria-label="Sắp xếp dự án"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DEAL_SORT_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 

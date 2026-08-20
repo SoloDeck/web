@@ -420,11 +420,21 @@ describe("<AdminPlansPage /> — xoá gói", () => {
  * danh sách nhà cung cấp sai (có `ollama` backend không nhận, thiếu `openai` backend có).
  */
 describe("<AdminAiConfigPage />", () => {
-  it("chỉ cho chọn đúng ba nhà cung cấp backend chấp nhận", () => {
+  // Ô chọn giờ là <Select> dùng chung (base-ui), KHÔNG phải <select> thuần: danh sách nằm
+  // trong portal và chỉ tồn tại sau khi bấm mở. Mọi khẳng định về lựa chọn phải mở nó ra
+  // trước, thay vì đọc thẳng <option> con như thời native select.
+  async function moOChon(nhan: RegExp) {
+    await userEvent.click(screen.getByLabelText(nhan));
+    return screen.findByRole("listbox");
+  }
+
+  it("chỉ cho chọn đúng ba nhà cung cấp backend chấp nhận", async () => {
     render(<AdminAiConfigPage />);
 
-    const select = screen.getByLabelText(/nhà cung cấp ai/i);
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+    const danhSach = await moOChon(/nhà cung cấp ai/i);
+    const options = within(danhSach)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
 
     expect(options).toEqual(["Groq", "Gemini", "OpenAI"]);
   });
@@ -440,7 +450,8 @@ describe("<AdminAiConfigPage />", () => {
   it("lưu chỉ gửi llm_provider, không gửi llm_model", async () => {
     render(<AdminAiConfigPage />);
 
-    await userEvent.selectOptions(screen.getByLabelText(/nhà cung cấp ai/i), "gemini");
+    const danhSach = await moOChon(/nhà cung cấp ai/i);
+    await userEvent.click(within(danhSach).getByRole("option", { name: "Gemini" }));
     await userEvent.click(screen.getByRole("button", { name: /lưu cấu hình/i }));
 
     expect(mockUpdateProvider).toHaveBeenCalledTimes(1);

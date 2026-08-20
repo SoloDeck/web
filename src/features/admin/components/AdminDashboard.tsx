@@ -29,6 +29,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TemplateDocEditor } from "@/features/admin/components/TemplateDocEditor";
 import {
   useAdminPlans,
@@ -271,32 +278,38 @@ export function AdminUsersPage() {
               className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
-          <select
+          <Select
             value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value as "all" | AdminUserRole)}
-            className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
-            aria-label="Lọc quyền"
+            onValueChange={(value) => setRoleFilter(value as "all" | AdminUserRole)}
           >
-            <option value="all">Tất cả quyền</option>
-            {USER_ROLE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc quyền">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả quyền</SelectItem>
+              {USER_ROLE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "all" | AdminUserStatus)}
-            className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
-            aria-label="Lọc trạng thái"
+            onValueChange={(value) => setStatusFilter(value as "all" | AdminUserStatus)}
           >
-            <option value="all">Tất cả trạng thái</option>
-            {USER_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc trạng thái">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              {USER_STATUS_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-border bg-background">
@@ -363,35 +376,35 @@ function UserRow({ user }: { user: AdminUser }) {
       </div>
 
       {editing ? (
-        <select
-          value={role}
-          onChange={(event) => setRole(event.target.value as AdminUserRole)}
-          className="w-full min-w-0 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none"
-          aria-label="Quyền"
-        >
-          {USER_ROLE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <Select value={role} onValueChange={(value) => setRole(value as AdminUserRole)}>
+          <SelectTrigger className="w-full min-w-0 rounded-lg" aria-label="Quyền">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {USER_ROLE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : (
         <RolePill role={user.role} />
       )}
 
       {editing ? (
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value as AdminUserStatus)}
-          className="w-full min-w-0 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none"
-          aria-label="Trạng thái"
-        >
-          {USER_STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <Select value={status} onValueChange={(value) => setStatus(value as AdminUserStatus)}>
+          <SelectTrigger className="w-full min-w-0 rounded-lg" aria-label="Trạng thái">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {USER_STATUS_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : (
         <StatusPill status={user.status} />
       )}
@@ -1220,10 +1233,10 @@ function PlanCell({ user }: { user: AdminUser }) {
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <select
+      <Select
         defaultValue={sub.plan_id}
-        onChange={(event) => {
-          const planId = event.target.value;
+        onValueChange={(value) => {
+          const planId = value as string;
           if (planId === sub.plan_id) {
             setOpen(false);
             return;
@@ -1234,15 +1247,18 @@ function PlanCell({ user }: { user: AdminUser }) {
           );
         }}
         disabled={override.isPending}
-        className="w-full min-w-0 rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none"
-        aria-label="Đổi gói"
       >
-        {(plans ?? []).map((plan) => (
-          <option key={plan.id} value={plan.id}>
-            {plan.name}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="w-full min-w-0 rounded-lg" aria-label="Đổi gói">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(plans ?? []).map((plan) => (
+            <SelectItem key={plan.id} value={plan.id}>
+              {plan.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {override.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
       ) : (
@@ -1377,27 +1393,35 @@ export function AdminTemplatesPage() {
       >
         {/* Bộ lọc theo loại + nghề — đúng cách admin duyệt thư viện "theo nhóm nghề". */}
         <div className="mb-4 flex flex-wrap gap-2">
-          <select
+          <Select
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as AdminTemplateType | "")}
-            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            onValueChange={(value) => setTypeFilter(value as AdminTemplateType | "")}
           >
-            <option value="">Tất cả loại</option>
-            <option value="proposal">Báo giá</option>
-            <option value="contract">Hợp đồng</option>
-          </select>
-          <select
+            <SelectTrigger className="rounded-lg" aria-label="Lọc loại tài liệu">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Tất cả loại</SelectItem>
+              <SelectItem value="proposal">Báo giá</SelectItem>
+              <SelectItem value="contract">Hợp đồng</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
             value={professionFilter}
-            onChange={(e) => setProfessionFilter(e.target.value)}
-            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            onValueChange={(value) => setProfessionFilter(value as string)}
           >
-            <option value="">Tất cả nghề</option>
-            {PROFESSIONS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="rounded-lg" aria-label="Lọc nghề">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Tất cả nghề</SelectItem>
+              {PROFESSIONS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Form soạn mẫu nằm trong CỬA SỔ RIÊNG.
@@ -1724,20 +1748,23 @@ export function AdminAiConfigPage() {
             Nhà cung cấp AI
           </label>
 
-          <select
-            id="ai-provider"
+          {/* `items` để nút hiện "Groq"/"Gemini"/"OpenAI" chứ không phải mã máy trần. */}
+          <Select
+            items={AI_PROVIDER_OPTIONS}
             value={selectedProvider}
-            onChange={(event) =>
-              setSelectedProvider(event.target.value as LLMProvider)
-            }
-            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            onValueChange={(value) => setSelectedProvider(value as LLMProvider)}
           >
-            {AI_PROVIDER_OPTIONS.map((provider) => (
-              <option key={provider.value} value={provider.value}>
-                {provider.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="ai-provider" className="h-10 w-full rounded-lg">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AI_PROVIDER_OPTIONS.map((provider) => (
+                <SelectItem key={provider.value} value={provider.value}>
+                  {provider.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="rounded-xl border border-border bg-muted/30 p-4">

@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Coins, Loader2, Receipt, RotateCcw, Search, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AdminErrorState,
   AdminLoadingState,
   EmptyState,
@@ -235,44 +242,57 @@ export function AdminPaymentTransactionsPage() {
               className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
-          <select
+          <Select
             value={status}
-            onChange={(event) => changeFilter(() => setStatus(event.target.value as AdminPaymentStatus | "all"))}
-            className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
-            aria-label="Lọc trạng thái"
+            onValueChange={(value) =>
+              changeFilter(() => setStatus(value as AdminPaymentStatus | "all"))
+            }
           >
-            <option value="all">Tất cả trạng thái</option>
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc trạng thái">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              {STATUS_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={provider}
-            onChange={(event) => changeFilter(() => setProvider(event.target.value as AdminPaymentProviderFilter | "all"))}
-            className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
-            aria-label="Lọc kênh thanh toán"
+            onValueChange={(value) =>
+              changeFilter(() => setProvider(value as AdminPaymentProviderFilter | "all"))
+            }
           >
-            <option value="all">Tất cả kênh</option>
-            {PROVIDER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc kênh thanh toán">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả kênh</SelectItem>
+              {PROVIDER_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={sort}
-            onChange={(event) => changeFilter(() => setSort(event.target.value))}
-            className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
-            aria-label="Sắp xếp"
+            onValueChange={(value) => changeFilter(() => setSort(value as string))}
           >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Sắp xếp">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mb-4 flex flex-wrap items-end gap-3">
