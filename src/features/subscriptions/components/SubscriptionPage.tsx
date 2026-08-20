@@ -309,7 +309,7 @@ export function SubscriptionPage() {
       // Nhớ TRƯỚC khi rời trang. sessionStorage (không phải localStorage) vì đây là một
       // hành trình trong CÙNG một tab: người dùng sang MoMo rồi quay lại. Dùng
       // localStorage thì một tab khác mở sau đó cũng tưởng mình đang chờ thanh toán.
-      rememberIntent(created.id);
+      rememberIntent(created.id, created.expires_at);
       // Không tắt spinner ở đây: trang đang rời đi, giữ nguyên trạng thái "đang mở trang
       // thanh toán" cho tới lúc trình duyệt chuyển đi thật.
       window.location.href = link;
@@ -371,8 +371,8 @@ export function SubscriptionPage() {
           <X className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             {momoReturn.outcome === "cancelled"
-              ? "Bạn đã huỷ thanh toán trên MoMo. Gói hiện tại giữ nguyên — bấm nâng cấp lại bất cứ lúc nào."
-              : `Thanh toán không thành công${momoReturn.message ? `: ${momoReturn.message}` : "."} Bạn có thể bấm nâng cấp lại.`}
+              ? "Bạn đã huỷ thanh toán trên MoMo."
+              : `Thanh toán không thành công${momoReturn.message ? `: ${momoReturn.message}` : "."}`}
           </span>
         </div>
       )}
@@ -436,8 +436,8 @@ export function SubscriptionPage() {
               <span>
                 {intent.failure_reason?.trim() ||
                   (intent.status === "expired"
-                    ? "Phiên thanh toán đã hết hạn. Bạn có thể bấm nâng cấp lại."
-                    : "Giao dịch chưa hoàn tất. Bạn có thể bấm nâng cấp lại.")}
+                    ? "Phiên thanh toán đã hết hạn."
+                    : "Giao dịch chưa hoàn tất.")}
               </span>
             </>
           )}

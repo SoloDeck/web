@@ -26,6 +26,7 @@ import {
 } from "@/features/profile/types";
 import { changePassword } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
+import { groupThousands, parseGrouped } from "@/utils/format";
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload";
 import { ReminderRulesSettings } from "@/features/reminders/components/ReminderRulesSettings";
 import { ZaloConnectionSettings } from "@/features/profile/components/ZaloConnectionSettings";
@@ -235,11 +236,14 @@ export function ProfileSettings({ profile, onSave }: Props) {
                   </Field>
                 </div>
 
-                {/* Hồ sơ năng lực — SRS định nghĩa gồm nghề, kỹ năng, mức giá, portfolio.
-                    Ba ô dưới đây từng bị gỡ ở 5f57449 nên trước đó chỉ onboarding điền được
-                    một lần rồi thôi: kỹ năng là chuỗi cứng theo preset (ai cùng preset thì
-                    giống hệt nhau), còn mức giá và portfolio thì không đường nào đặt được —
-                    trong khi trang công khai vẫn render sẵn nút Portfolio.  #Huynh */}
+                {/* Hồ sơ năng lực — kỹ năng, mức giá, portfolio.
+
+                    GIỮ ô "Mức giá theo giờ" dù `users.default_hourly_rate` hiện KHÔNG module
+                    nào đọc (kể cả AI soạn báo giá — nó tự ước giá thị trường từ mô tả dự án):
+                    phiếu đề tài đòi hồ sơ chuyên nghiệp cấu hình được "pricing tier", và hai
+                    mục cùng dòng đó (điều khoản hợp đồng mặc định, Zalo OA credentials) đã
+                    không có. Gỡ nốt cái này là dòng phiếu trống hẳn. Đã thử gỡ 19/08 rồi
+                    dựng lại vì lý do đó.  #Huynh */}
                 <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
                   <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <Tag className="h-3.5 w-3.5" /> Hồ sơ năng lực
@@ -251,23 +255,20 @@ export function ProfileSettings({ profile, onSave }: Props) {
                       onChange={(skills) => setDraft({ ...draft, skills })}
                     />
                   </Field>
-                  <p className="text-xs text-muted-foreground">
-                    Hiện thành các thẻ trên trang công khai của bạn. Lúc đăng ký đã điền sẵn
-                    theo mảng bạn chọn — sửa lại cho đúng mình nhé.
-                  </p>
-
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field label="Mức giá theo giờ (VND)">
+                      {/* Gõ tới đâu chấm hàng nghìn hiện tới đó: "300000" là một dãy số phải
+                          đếm bằng mắt, "300.000" thì không. Đây cũng là cách hai ô tiền còn
+                          lại trong app (báo giá, bảng giá) đang làm — ô này lệch nhịp vì nó là
+                          `type="number"`, mà kiểu đó không nhận nổi chuỗi có dấu chấm.  #Huynh */}
                       <input
-                        type="number"
-                        min={0}
-                        step={1000}
-                        value={draft.hourlyRate || ""}
+                        inputMode="numeric"
+                        value={draft.hourlyRate ? groupThousands(draft.hourlyRate) : ""}
                         onChange={(e) =>
-                          setDraft({ ...draft, hourlyRate: Number(e.target.value) || 0 })
+                          setDraft({ ...draft, hourlyRate: parseGrouped(e.target.value) })
                         }
-                        placeholder="VD: 300000"
-                        className={inputCls}
+                        placeholder="VD: 300.000"
+                        className={`${inputCls} tabular-nums`}
                       />
                     </Field>
                     <Field label="Link portfolio">
