@@ -170,7 +170,7 @@ describe("<ProfileSettings /> — Hồ sơ năng lực", () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ skills: [] }));
   });
 
-  it("mức giá và portfolio lưu được — trước đây không có ô nào để nhập", async () => {
+  it("mức giá và portfolio lưu được — phiếu đề tài đòi hồ sơ cấu hình được bậc giá", async () => {
     const { user, onSave } = moTabHoSo();
 
     await user.type(screen.getByLabelText(/mức giá theo giờ/i), "300000");
@@ -183,5 +183,24 @@ describe("<ProfileSettings /> — Hồ sơ năng lực", () => {
         portfolioUrl: "https://behance.net/toi",
       }),
     );
+  });
+
+  it("mức giá chấm hàng nghìn ngay lúc gõ, nhưng gửi lên vẫn là số trơn", async () => {
+    const { user, onSave } = moTabHoSo();
+    const oGia = screen.getByLabelText(/mức giá theo giờ/i);
+
+    await user.type(oGia, "300000");
+    expect(oGia).toHaveValue("300.000");
+
+    // Dấu chấm là chuyện của mắt người đọc — cái đi lên backend phải là 300000, không
+    // phải "300.000".
+    await luu(user);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ hourlyRate: 300000 }));
+  });
+
+  it("mức giá có sẵn trong hồ sơ hiện ra đã chấm sẵn, không đợi gõ lại", () => {
+    moTabHoSo({ hourlyRate: 1500000 });
+
+    expect(screen.getByLabelText(/mức giá theo giờ/i)).toHaveValue("1.500.000");
   });
 });

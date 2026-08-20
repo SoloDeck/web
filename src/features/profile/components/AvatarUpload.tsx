@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Camera, Trash2 } from "lucide-react";
+import { Camera } from "lucide-react";
 import { toast } from "sonner";
 import { AVATAR_COMPRESS, compressImageToDataUrl } from "@/lib/image";
 
@@ -86,16 +86,6 @@ export function AvatarUpload({
           </span>
         )}
       </div>
-
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="h-3 w-3" /> Xóa ảnh
-        </button>
-      )}
 
       <input
         ref={fileRef}
