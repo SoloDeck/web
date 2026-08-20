@@ -258,7 +258,7 @@ export function SubscriptionPage() {
       readRememberedIntent()
     );
   });
-  const { data: intent, pollTimedOut } = usePaymentIntent(intentId);
+  const { data: intent, pollTimedOut, intentUnresolvable } = usePaymentIntent(intentId);
   const checkout = useCreateCheckout();
 
   // Gói đang chờ người dùng gật đầu. Bấm nút trên thẻ KHÔNG dựng phiên thanh toán ngay:
@@ -377,6 +377,23 @@ export function SubscriptionPage() {
         </div>
       )}
 
+      {/* Mã đơn tra không ra — của tài khoản khác, hoặc đã bị xoá.
+          Trước đây ca này KHÔNG hiện gì cả: khối bên dưới bọc trong `{intent && ...}`, mà
+          lỗi thì `intent` là `undefined`. Trang cứ đứng yên trong khi ngầm dò một mã đơn
+          chết suốt 2 phút — người dùng không biết đường nào mà lần.  #Huynh */}
+      {intentUnresolvable && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700"
+        >
+          <X className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Không tìm thấy giao dịch đang theo dõi — có thể nó đã cũ hoặc không thuộc tài
+            khoản này. Nếu bạn vừa thanh toán, hãy tải lại trang để xem gói mới nhất.
+          </span>
+        </div>
+      )}
+
       {intent && (
         <div
           role="status"
@@ -397,8 +414,9 @@ export function SubscriptionPage() {
               <>
                 <X className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
-                  Chưa nhận được xác nhận từ MoMo. Nếu tiền đã bị trừ, gói sẽ tự kích hoạt khi
-                  MoMo báo về — bạn tải lại trang sau ít phút để kiểm tra.
+                  Sau 2 phút vẫn chưa xác nhận được giao dịch này. Nếu bạn đã bị trừ tiền,
+                  tải lại trang giúp mình — hệ thống sẽ hỏi lại MoMo. Vẫn chưa lên gói thì
+                  báo hỗ trợ, tiền của bạn không mất đi đâu.
                 </span>
               </>
             ) : (
