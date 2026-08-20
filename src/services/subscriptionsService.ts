@@ -175,7 +175,11 @@ export async function createCheckout(params: {
 }): Promise<PaymentIntentResponse> {
   const { data } = await axiosClient.post<ApiResponse<PaymentIntentResponse>>(
     "/subscriptions/checkout",
-    { plan_id: params.planId, provider: "momo", return_url: params.returnUrl }
+    // `params.provider`, KHÔNG phải chuỗi "momo" cứng. Dòng này từng ghi đè mọi lựa chọn
+    // của người dùng thành momo ngay trước khi rời trình duyệt — chọn SePay vẫn ra MoMo.
+    // Không test nào bắt được vì test nào cũng mock chính hàm này; chỗ canh thật nằm ở
+    // `subscriptionsService.test.ts`, nơi bắt thân request đi ra bằng adapter axios.
+    { plan_id: params.planId, provider: params.provider, return_url: params.returnUrl }
   );
   return data.data;
 }
