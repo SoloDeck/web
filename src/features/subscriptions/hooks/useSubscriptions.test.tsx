@@ -149,12 +149,18 @@ describe("usePaymentIntent — mã đơn tra không ra", () => {
    *
    * Người dùng vừa trả tiền thật thì không bao giờ thấy giao dịch của mình.
    */
+  /** Mốc hết hạn còn hiệu lực — `readRememberedIntent` dựa vào `expires_at` server trả
+   *  về (xem PR #62), hết hạn thì nó tự quên và test sẽ mất tiền đề. */
+  function conHan() {
+    return new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  }
+
   function loi404() {
     return Object.assign(new Error("Not Found"), { response: { status: 404 } });
   }
 
   it("404 thì QUÊN mã đơn, để lần mở trang sau không kẹt lại", async () => {
-    rememberIntent("intent-cua-nguoi-khac");
+    rememberIntent("intent-cua-nguoi-khac", conHan());
     expect(readRememberedIntent()).toBe("intent-cua-nguoi-khac");
     mockGetPaymentIntent.mockRejectedValue(loi404());
 
@@ -176,7 +182,7 @@ describe("usePaymentIntent — mã đơn tra không ra", () => {
   });
 
   it("lỗi KHÔNG phải 404 thì GIỮ mã đơn — mạng chớp một nhịp không được vứt giao dịch thật", async () => {
-    rememberIntent("intent-that");
+    rememberIntent("intent-that", conHan());
     mockGetPaymentIntent.mockRejectedValue(
       Object.assign(new Error("Server Error"), { response: { status: 500 } })
     );
