@@ -1748,7 +1748,9 @@ export function AdminAiConfigPage() {
             Nhà cung cấp AI
           </label>
 
+          {/* `items` để nút hiện "Groq"/"Gemini"/"OpenAI" chứ không phải mã máy trần. */}
           <Select
+            items={AI_PROVIDER_OPTIONS}
             value={selectedProvider}
             onValueChange={(value) => setSelectedProvider(value as LLMProvider)}
           >

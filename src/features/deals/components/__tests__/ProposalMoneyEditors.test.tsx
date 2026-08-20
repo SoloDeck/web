@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LineItemsEditor } from "@/features/deals/components/ProposalMoneyEditors";
 import { splitDeposit, type CostItem } from "@/features/deals/proposalHtml";
@@ -173,19 +174,32 @@ describe("LineItemsEditor — hàng phí trả trước", () => {
 });
 
 describe("LineItemsEditor — thời điểm thu của hạng mục thường", () => {
-  function optionsOfRow(index: number): string[] {
-    const select = screen.getAllByLabelText(/^Thời điểm thu hạng mục/)[index];
-    return Array.from(select.querySelectorAll("option")).map((o) => o.textContent ?? "");
+  /**
+   * Ô chọn thời điểm thu giờ là <Select> dùng chung (base-ui): nó là một nút, danh sách nằm
+   * trong portal và chỉ dựng ra sau khi bấm mở. Không còn <option> nào để đọc thẳng từ DOM
+   * như thời <select> thuần — phải mở ra xem rồi đóng lại.
+   */
+  async function optionsOfRow(index: number): Promise<string[]> {
+    const trigger = screen.getAllByLabelText(/^Thời điểm thu hạng mục/)[index];
+    await userEvent.click(trigger);
+    const danhSach = await screen.findByRole("listbox");
+    const nhan = within(danhSach)
+      .getAllByRole("option")
+      .map((o) => o.textContent ?? "");
+    // Đóng lại: mỗi test đọc nhiều hàng, để hở một danh sách là hàng sau tìm nhầm.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    return nhan;
   }
 
-  it('không còn mời chọn "Khi ký hợp đồng" — khoản thu trước đã có hàng riêng', () => {
+  it('không còn mời chọn "Khi ký hợp đồng" — khoản thu trước đã có hàng riêng', async () => {
     // Để lựa chọn này ở đây nữa là hai đường làm cùng một việc: freelancer đặt hai hạng mục
     // "khi ký" thì tờ báo giá có hai khoản đòi trước mà không dòng nào tên là tạm ứng.
     renderEditor(WITH_DEPOSIT);
-    expect(optionsOfRow(0)).toEqual(["Khi hoàn thành hạng mục", "Khác…"]);
+    expect(await optionsOfRow(0)).toEqual(["Khi hoàn thành hạng mục", "Khác…"]);
   });
 
-  it("báo giá CŨ đang để khi ký hợp đồng thì vẫn hiện, không âm thầm đổi", () => {
+  it("báo giá CŨ đang để khi ký hợp đồng thì vẫn hiện, không âm thầm đổi", async () => {
     // Báo giá sinh dưới luật cũ ("hạng mục đầu mặc định thu khi ký") vẫn còn trong kho. Bỏ
     // hẳn khỏi danh sách là ô chọn hiện trống, rồi chạm vào một cái là đổi thời điểm thu của
     // một khoản tiền mà không ai chủ ý.
@@ -195,10 +209,15 @@ describe("LineItemsEditor — thời điểm thu của hạng mục thường", 
     ];
     renderEditor(legacy);
 
-    expect(optionsOfRow(0)).toContain("Khi ký hợp đồng");
-    expect(screen.getAllByLabelText(/^Thời điểm thu hạng mục/)[0]).toHaveValue("on_signing");
+    expect(await optionsOfRow(0)).toContain("Khi ký hợp đồng");
+    // Ô chọn phải BÀY RA nhãn tiếng Việt của giá trị đang giữ. Đọc `.value` không còn nghĩa
+    // gì (nó là một cái nút), mà thứ người dùng thấy mới là thứ cần khoá: hiện trống hay
+    // hiện "on_signing" đều là mất dấu một khoản tiền.
+    expect(screen.getAllByLabelText(/^Thời điểm thu hạng mục/)[0]).toHaveTextContent(
+      "Khi ký hợp đồng",
+    );
     // Hạng mục không dính luật cũ thì vẫn không được mời chọn.
-    expect(optionsOfRow(1)).toEqual(["Khi hoàn thành hạng mục", "Khác…"]);
+    expect(await optionsOfRow(1)).toEqual(["Khi hoàn thành hạng mục", "Khác…"]);
   });
 });
 

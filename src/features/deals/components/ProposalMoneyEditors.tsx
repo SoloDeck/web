@@ -55,6 +55,19 @@ import {
 const inputClass =
   "min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary";
 
+/**
+ * Nhãn cho MỌI thời điểm thu, kể cả cái không còn nằm trong danh sách mời chọn.
+ *
+ * Ô chọn lọc bớt "Khi ký hợp đồng", nhưng báo giá cũ vẫn mang giá trị đó — nếu chỗ tra nhãn
+ * cũng thiếu nó thì nút hiện mã máy trần.
+ */
+const DUE_TYPE_ITEMS: Array<{ value: DueType; label: string }> = (
+  Object.keys(DUE_TYPE_LABELS) as DueType[]
+).map((type) => ({
+  value: type,
+  label: type === DUE_CUSTOM ? "Khác…" : DUE_TYPE_LABELS[type],
+}));
+
 /** Chỉ giữ chữ số — gõ "200.000.000" hay "200000000" đều ra cùng một số. */
 function onlyDigits(value: string): number {
   const digits = value.replace(/\D/g, "");
@@ -137,7 +150,11 @@ function SortableCostRow({
       {/* THỜI ĐIỂM THU — LOẠI có sẵn chứ không phải chữ tự do: bản trước để gõ chữ, và giao
         diện phải đoán xem câu đó có nghĩa "thu trước" không bằng cách dò từ khoá tiếng Việt —
         gõ "Ngay sau khi hai bên xác nhận" là đoán trượt, cảnh báo hiện sai.  #Huynh */}
+      {/* `items` KHÔNG thừa: <Select> dùng chung tra nhãn từ đây để vẽ chữ trên nút. Bỏ đi
+        thì lúc chưa mở danh sách, ô hiện thẳng mã máy ("on_completion") thay vì câu tiếng
+        Việt — và danh sách bên trong lại lọc bớt nên không tra nhãn thay được. */}
       <Select
+        items={DUE_TYPE_ITEMS}
         value={item.due_type ?? DUE_ON_COMPLETION}
         disabled={disabled}
         onValueChange={(value) => onPatch({ due_type: value as DueType })}

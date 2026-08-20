@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReminderComposerModal } from "./ReminderComposerModal";
 import { previewReminder, uploadReminderImage } from "@/services/remindersService";
@@ -56,6 +56,20 @@ beforeEach(() => {
   });
 });
 
+/**
+ * Ô "Loại nhắc" giờ là <Select> dùng chung (base-ui), không còn là <select> thuần: danh
+ * sách nằm trong portal và chỉ dựng ra sau khi bấm mở, nên `selectOptions` không dùng được
+ * nữa. Phải mở rồi bấm đúng dòng, đúng như người dùng làm.
+ */
+async function chonLoaiNhac(
+  user: ReturnType<typeof userEvent.setup>,
+  nhanDong: string,
+) {
+  await user.click(screen.getByRole("combobox", { name: /loại nhắc/i }));
+  const danhSach = await screen.findByRole("listbox");
+  await user.click(within(danhSach).getByRole("option", { name: nhanDong }));
+}
+
 describe("<ReminderComposerModal />", () => {
   it("xem trước lấy từ SERVER, không phải frontend tự vẽ", async () => {
     render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
@@ -82,10 +96,7 @@ describe("<ReminderComposerModal />", () => {
     const user = userEvent.setup();
     render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /loại nhắc/i }),
-      "payment_overdue",
-    );
+    await chonLoaiNhac(user, "Nhắc thanh toán quá hạn");
     await user.click(screen.getByRole("button", { name: /dùng mẫu có sẵn/i }));
 
     // Mẫu quá hạn nói đúng việc, và KHÔNG tự viết số tài khoản — khối thanh toán do server
@@ -127,7 +138,7 @@ describe("<ReminderComposerModal />", () => {
     const user = userEvent.setup();
     render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: /loại nhắc/i }), "payment_due");
+    await chonLoaiNhac(user, "Nhắc thanh toán đến hạn");
 
     expect(screen.getByText(/chưa có thông tin chuyển khoản/i)).toBeInTheDocument();
   });
