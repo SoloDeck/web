@@ -594,7 +594,7 @@ function PlanCard({ plan }: { plan: AdminPlan }) {
         <div className="flex shrink-0 items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="size-4" />
-            Sửa gói
+            Sửa
           </Button>
           {plan.slug !== FREE_PLAN_SLUG && (
             <Button
@@ -680,11 +680,19 @@ function PlanForm({
     // một dòng hướng dẫn suốt thời gian mở form thì lại thành nhiễu, đọc vài lần là hết
     // nhìn. Chỉ nói khi người dùng đã nói xong.
     //
-    // 0đ = gói miễn phí, không đi qua cổng thanh toán nên không chịu hạn mức nào.  #Huynh
+    // 0đ CHỈ dành cho gói `free` có sẵn của hệ thống. Trước đây form nhận 0đ cho mọi gói,
+    // và một gói 0đ tự tạo là thứ không ai dùng được: backend từ chối mở phiên thanh toán
+    // cho nó (`initiate_checkout` ném `PlanNotPurchasableError` khi giá <= 0), còn MoMo thì
+    // không nhận giao dịch dưới 1.000đ. Kết quả là một gói nằm chình ình trong bảng giá với
+    // cái nút chết — mà lại kèm hạn mức hào phóng, nên ai đăng ký trúng là dùng chùa.
+    //   #Huynh
+    const isSystemFreePlan = isEditing && draft.slug === FREE_PLAN_SLUG;
     const price = Number(onlyDigits(draft.price_monthly) || "0");
-    if (price !== 0 && !isMomoPayableAmount(price)) {
+    if (!(isSystemFreePlan && price === 0) && !isMomoPayableAmount(price)) {
       setPriceError(
-        "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo), hoặc để 0 nếu là gói miễn phí."
+        isSystemFreePlan
+          ? "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo), hoặc để 0 vì đây là gói miễn phí."
+          : "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo). Chỉ gói Free của hệ thống mới được để 0đ — gói 0đ tự tạo thì không ai đăng ký được."
       );
       return;
     }
@@ -1093,7 +1101,7 @@ function toPlanDraft(plan?: AdminPlan): PlanDraft {
   return {
     name: plan?.name ?? "",
     slug: plan?.slug ?? "",
-    price_monthly: plan ? groupThousands(onlyDigits(String(plan.price_monthly))) : "",
+    price_monthly: plan ? groupThousands(wholeVndDigits(plan.price_monthly)) : "",
     can_use_ai: plan?.can_use_ai ?? false,
     can_export_pdf: plan?.can_export_pdf ?? false,
     max_clients: plan?.max_clients == null ? "" : String(plan.max_clients),
@@ -1128,6 +1136,21 @@ function toNullableNumber(value: string): number | null {
 
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+}
+
+/**
+ * Phần NGUYÊN của giá, dạng chuỗi chữ số: "599000.00" -> "599000".
+ *
+ * Cột là `NUMERIC(10,2)` nên backend luôn trả kèm hai số lẻ. Thả thẳng vào `onlyDigits` thì
+ * dấu chấm thập phân bị nuốt như thể nó là dấu ngăn nghìn — "599000.00" ra "59900000", và
+ * form sửa gói mở lên hiện 59.900.000 cho một gói 599.000. Tệ hơn: admin chỉ sửa tên gói
+ * rồi bấm Lưu là con số phồng lên đó được gửi ngược lên server, GẤP 100 LẦN giá thật.
+ *
+ * Cắt ở dấu chấm chứ không làm tròn: tiền Việt không có hào, hai số lẻ kia luôn là "00".
+ *   #Huynh
+ */
+function wholeVndDigits(value: string | number): string {
+  return onlyDigits(String(value).split(".")[0]);
 }
 
 function clamp(value: number): number {
