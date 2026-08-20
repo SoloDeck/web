@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forgetIntent } from "@/features/subscriptions/lib/intentStorage";
 import { getApiErrorStatus } from "@/lib/api-error";
+import { pollDeadline, pollIntervalMs } from "@/features/subscriptions/lib/pollPlan";
 import {
+  cancelPaymentIntent,
   createCheckout,
   getMySubscription,
   getPaymentIntent,
   listPlans,
   SETTLED_PAYMENT_STATUSES,
 } from "@/services/subscriptionsService";
+import type { PaymentIntentResponse } from "@/services/subscriptionsService";
 
 export const subscriptionKeys = {
   plans: ["subscriptions", "plans"] as const,
@@ -52,9 +55,43 @@ export function useCanUseAi(): boolean | undefined {
   return plans.data.find((plan) => plan.id === mine.data.plan_id)?.can_use_ai ?? false;
 }
 
-/** Mở một lần thanh toán. Chỗ gọi tự quyết định điều hướng sang MoMo. */
+/**
+ * Mở một lần thanh toán. Chỗ gọi tự quyết định điều hướng hay mở màn chuyển khoản.
+ *
+ * `setQueryData` không phải tối ưu vặt: với cổng chuyển khoản, trang KHÔNG rời đi, nên nó
+ * mở màn QR ngay lập tức trong khi `usePaymentIntent` còn chưa kịp gọi GET lần nào —
+ * `data` là `undefined` và màn QR chớp một khung rỗng (không QR, không số tài khoản).
+ *
+ * Response của POST và của GET là **cùng một schema**, nên dùng luôn nó làm dữ liệu đầu
+ * tiên cho query. Nhờ vậy đường "vừa tạo đơn" và đường "vừa F5" dùng chung đúng một mạch
+ * code, chỉ khác ở chỗ ai nạp dữ liệu đầu.  #Huynh
+ */
 export function useCreateCheckout() {
-  return useMutation({ mutationFn: createCheckout });
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createCheckout,
+    onSuccess: (intent) => {
+      qc.setQueryData(subscriptionKeys.intent(intent.id), intent);
+    },
+  });
+}
+
+/**
+ * Huỷ một đơn còn treo.
+ *
+ * Cần thiết vì giờ có ba cổng: người dùng chọn chuyển khoản, đổi ý muốn trả bằng ví, mà
+ * không có đường huỷ thì đơn cũ nằm lại trong sessionStorage và banner cứ báo "đang chờ
+ * thanh toán" cho tới khi hết hạn.
+ */
+export function useCancelPaymentIntent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: cancelPaymentIntent,
+    onSuccess: (intent) => {
+      qc.setQueryData(subscriptionKeys.intent(intent.id), intent);
+      forgetIntent();
+    },
+  });
 }
 
 /**
@@ -67,25 +104,51 @@ export function useCreateCheckout() {
  * Khi thành công thì làm mới luôn `subscriptions/me` — gói đã đổi, mọi chỗ khác trong app
  * (hạn mức AI, nhãn gói) phải thấy ngay.  #Huynh
  *
- * Có TRẦN thời gian: `SETTLED_PAYMENT_STATUSES` chỉ dừng vòng lặp khi backend thật sự chốt
- * trạng thái. Nếu IPN không bao giờ tới (MoMo im lặng, người dùng bỏ ngang, mạng đứt) thì
- * intent nằm mãi ở `pending` và trang hỏi lại 3 giây một lần cho tới khi tab bị đóng. Sau
- * `MAX_POLL_MS` thì ngừng hỏi và trả `pollTimedOut` để chỗ gọi nói cho người dùng biết,
- * thay vì quay spinner vô hạn.
+ * Có TRẦN thời gian, và trần đó KHÁC NHAU THEO CỔNG (xem `lib/pollPlan.ts`): cổng chuyển
+ * hướng chỉ chờ hai phút vì tiền đã trả xong từ trước, còn chuyển khoản phải chờ tới lúc
+ * đơn hết hạn — người dùng đang mở app ngân hàng, đăng nhập, nhập số, xác thực. Dùng chung
+ * hai phút cho cả hai là mọi đơn chuyển khoản đều kết thúc bằng màn "hết giờ" sai sự thật.
  */
-const MAX_POLL_MS = 2 * 60 * 1000;
-
 export function usePaymentIntent(intentId: string | null) {
   const qc = useQueryClient();
   // Lưu ID của intent đã hết giờ chứ không phải một cờ boolean: đổi sang intent khác là
   // đồng hồ tự tính lại, khỏi phải setState reset ngay trong effect.
   const [timedOutFor, setTimedOutFor] = useState<string | null>(null);
+  // Mốc bắt đầu dò của ĐƠN NÀY. Giữ trong `ref` chứ không phải state, vì nó CHỈ được đọc
+  // bên trong hẹn giờ dưới đây — ghi ref không kéo theo lượt render nào.
+  //
+  // Để nó là state thì kẹt giữa hai luật ngược nhau: gán trong render là gọi `Date.now()`
+  // giữa render (không thuần khiết), còn gán trong effect là setState đồng bộ (render dây
+  // chuyền). Ref thoát cả hai mà không phải tắt luật nào.
+  const startedAtRef = useRef<{ id: string | null; at: number }>({ id: null, at: 0 });
+
+  const cached = qc.getQueryData<PaymentIntentResponse>(subscriptionKeys.intent(intentId ?? ""));
+  // Bóc ra HAI TRƯỜNG chứ không để cả object vào dep: `data` đổi identity sau MỖI nhịp dò,
+  // nên để nguyên object là dựng lại đồng hồ mỗi 3 giây và hạn không bao giờ tới. Hai
+  // trường này thì bất biến trong đời một đơn, đổi đúng một lần lúc dữ liệu về.
+  const provider = cached?.provider;
+  const expiresAt = cached?.expires_at;
 
   useEffect(() => {
     if (!intentId) return;
-    const timer = setTimeout(() => setTimedOutFor(intentId), MAX_POLL_MS);
+    // Chỉ lấy mốc mới khi ĐỔI SANG ĐƠN KHÁC. Effect này còn chạy lại lúc dữ liệu đơn về,
+    // mà lần đó phải giữ nguyên mốc cũ chứ không được tính lại từ đầu.
+    if (startedAtRef.current.id !== intentId) {
+      startedAtRef.current = { id: intentId, at: Date.now() };
+    }
+    const deadlineAt = pollDeadline(
+      startedAtRef.current.at,
+      provider && expiresAt ? { provider, expires_at: expiresAt } : undefined
+    );
+    // `Math.max(0, …)` chứ không rẽ nhánh gọi thẳng `setTimedOutFor`: hạn đã qua từ trước
+    // (đơn khôi phục sau F5) vẫn phải đi qua một hẹn giờ 0ms. Gọi thẳng là setState đồng bộ
+    // ngay trong effect, kéo theo một lượt render dây chuyền — và eslint chặn đúng chỗ đó.
+    const timer = setTimeout(
+      () => setTimedOutFor(intentId),
+      Math.max(0, deadlineAt - Date.now())
+    );
     return () => clearTimeout(timer);
-  }, [intentId]);
+  }, [intentId, provider, expiresAt]);
 
   const timedOut = intentId !== null && timedOutFor === intentId;
 
@@ -111,7 +174,13 @@ export function usePaymentIntent(intentId: string | null) {
       const data = query.state.data;
       if (data && SETTLED_PAYMENT_STATUSES.includes(data.status)) return false;
       if (timedOut) return false;
-      return 3000;
+      // Thưa dần: chuyển khoản dò tới 30 phút, giữ nhịp 3 giây suốt là 600 lượt gọi cho
+      // MỘT đơn. Phút đầu vẫn dày vì đó là lúc người dùng đang nhìn màn hình.
+      // Đọc ref trong callback thì hợp lệ (không phải lúc render). `|| Date.now()` để phòng
+      // lượt gọi nào rơi vào trước khi effect kịp đặt mốc: coi như vừa bắt đầu, tức nhịp dày
+      // nhất — sai về phía an toàn.
+      const batDau = startedAtRef.current.at || Date.now();
+      return pollIntervalMs(Date.now() - batDau);
     },
   });
 

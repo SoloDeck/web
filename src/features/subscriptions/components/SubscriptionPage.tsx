@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot, Check, CreditCard, Loader2, Shield, Sparkles, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api-error";
 import {
+  useCancelPaymentIntent,
   useCreateCheckout,
   useMySubscription,
   usePaymentIntent,
@@ -11,14 +12,18 @@ import {
 } from "@/features/subscriptions/hooks/useSubscriptions";
 import { useAiUsage } from "@/features/revenue/hooks/useAnalytics";
 import {
-  isMomoPayableAmount,
+  isPayableAmount,
   planPrice,
   SETTLED_PAYMENT_STATUSES,
+  type PaymentProvider,
   type PlanResponse,
 } from "@/services/subscriptionsService";
 import { readMomoReturn, stripMomoParams } from "@/features/subscriptions/lib/momoReturn";
 import { forgetIntent, readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
-import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { isNavigableCheckout, redirectTo } from "@/features/subscriptions/lib/paymentLink";
+import { PROVIDER_LABEL, providerLabel } from "@/features/subscriptions/lib/providerLabels";
+import { PaymentTransferDialog } from "@/features/subscriptions/components/PaymentTransferDialog";
+import { PlanCheckoutDialog } from "@/features/subscriptions/components/PlanCheckoutDialog";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,7 +117,7 @@ function PlanCard({
   // ngoài hạn mức thì bấm vào là chắc chắn lỗi — tắt nút ngay tại thẻ kèm lý do, đừng bắt
   // người dùng đi một vòng sang backend chỉ để nhận về toast đỏ nói về một con số họ
   // không đặt ra và cũng không sửa được.  #Huynh
-  const unpayable = !isFree && !isMomoPayableAmount(price);
+  const unpayable = !isFree && !isPayableAmount(price);
 
   return (
     <div
@@ -219,7 +224,7 @@ function PlanCard({
 
       {unpayable && (
         <p className="mt-2 text-xs leading-4 text-muted-foreground">
-          Giá gói này nằm ngoài khoảng MoMo hỗ trợ (1.000đ – 50.000.000đ). Bạn liên hệ quản
+          Giá gói này nằm ngoài khoảng thanh toán hỗ trợ (1.000đ – 50.000.000đ). Bạn liên hệ quản
           trị viên để được chỉnh lại giúp nhé.
         </p>
       )}
@@ -250,7 +255,11 @@ export function SubscriptionPage() {
   const [momoReturn] = useState(() => readMomoReturn(window.location.search));
   const momoRejected = momoReturn !== null && (momoReturn.outcome === "cancelled" || momoReturn.outcome === "failed");
 
-  const [intentId] = useState<string | null>(() => {
+  // CÓ SETTER, không phải chỉ đọc một lần. Với MoMo/ZaloPay thì trang rời đi ngay nên
+  // không cần; nhưng SePay KHÔNG điều hướng đi đâu cả, nên không có lần mount nào để đọc
+  // lại storage. Thiếu setter thì vòng dò không bao giờ chạy cho đơn vừa tạo và màn QR
+  // đứng im vĩnh viễn.  #Huynh
+  const [intentId, setIntentId] = useState<string | null>(() => {
     // MoMo đã nói rõ là hỏng/huỷ → không có gì để chờ, đừng mở vòng hỏi lại.
     if (momoRejected) return null;
     return (
@@ -258,7 +267,13 @@ export function SubscriptionPage() {
       readRememberedIntent()
     );
   });
-  const { data: intent, pollTimedOut, intentUnresolvable } = usePaymentIntent(intentId);
+  const {
+    data: intent,
+    pollTimedOut,
+    intentUnresolvable,
+    refetch: refetchIntent,
+    isFetching: intentFetching,
+  } = usePaymentIntent(intentId);
   const checkout = useCreateCheckout();
 
   // Gói đang chờ người dùng gật đầu. Bấm nút trên thẻ KHÔNG dựng phiên thanh toán ngay:
@@ -275,6 +290,22 @@ export function SubscriptionPage() {
   // `checkout.isPending` cho mọi thẻ thì bấm một thẻ là cả ba thẻ cùng quay spinner.  #Huynh
   const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
 
+  // Màn chuyển khoản đang mở hay không. Tách khỏi `intent` vì người dùng đóng được nó rồi
+  // mở lại bằng nút trên banner — đơn vẫn sống nguyên.
+  const [transferOpen, setTransferOpen] = useState(false);
+  // Đơn nào đã tự mở màn QR rồi, để đóng xong thì nhịp dò sau không tự bật lại.
+  const autoOpenedFor = useRef<string | null>(null);
+  const cancelIntent = useCancelPaymentIntent();
+
+  // Đóng cửa sổ QR KHÔNG huỷ đơn — đơn vẫn sống tới `expires_at` (30 phút). Không có đường
+  // mở lại thì lỡ tay đóng là mất luôn số tài khoản lẫn nội dung chuyển khoản, mà đó là hai
+  // thứ duy nhất đưa được tiền tới đúng đơn. Chỉ hiện cho cổng chuyển khoản: MoMo/ZaloPay
+  // không có gì để mở lại, người dùng quay về từ trang cổng chứ không ngồi chờ ở đây.
+  const canReopenTransfer =
+    !transferOpen &&
+    intent?.payment_link?.type === "bank_transfer_instruction" &&
+    (intent.status === "pending" || intent.status === "processing");
+
   // Dọn query param MoMo ngay sau khi đã đọc: F5 một cái mà còn `resultCode` cũ thì trang
   // báo lại kết quả của một giao dịch đã qua. Giữ nguyên `?tab=` để không nhảy tab.
   useEffect(() => {
@@ -286,33 +317,51 @@ export function SubscriptionPage() {
     if (momoRejected) forgetIntent();
   }, [momoRejected]);
 
-  async function handleBuy(plan: PlanResponse) {
+  async function handleBuy(plan: PlanResponse, provider: PaymentProvider) {
     setUpgradingPlanId(plan.id);
     try {
       const created = await checkout.mutateAsync({
         planId: plan.id,
+        provider,
         // Không nhét id vào đây được: id do chính lời gọi này sinh ra, nên lúc gửi
         // `return_url` thì chưa có. Vì vậy URL quay về chỉ trỏ đúng tab, còn id thì nhớ
         // bằng sessionStorage ngay bên dưới.  #Huynh
         returnUrl: `${window.location.origin}/?tab=subscription`,
       });
 
-      const link = created.payment_link?.url;
-      if (!link) {
-        toast.error("MoMo không trả về link thanh toán. Thử lại giúp mình nhé.");
-        setUpgradingPlanId(null);
-        // Đóng hộp thoại luôn, nếu không toast đỏ nằm sau lớp overlay.
+      // NHỚ TRƯỚC MỌI NHÁNH THOÁT. Bản trước `return` ở nhánh "không có link" TRƯỚC dòng
+      // này, nên một đơn CÓ THẬT bên backend bị client bỏ rơi — người dùng không còn đường
+      // nào nhìn lại nó, kể cả khi tiền đã đi.
+      //
+      // sessionStorage (không phải localStorage) vì đây là hành trình trong CÙNG một tab.
+      rememberIntent(created.id, created.expires_at);
+      // Bật vòng dò cho đơn vừa tạo. BẮT BUỘC với chuyển khoản: trang không rời đi nên
+      // không có lần mount nào đọc lại storage.
+      setIntentId(created.id);
+
+      // Chuyển khoản: ở lại trang, mở màn QR. `payment_link.url` của SePay là ẢNH PNG —
+      // điều hướng vào đó là quăng người dùng ra một tấm ảnh trần.
+      if (created.payment_link?.type === "bank_transfer_instruction") {
         setPlanToConfirm(null);
+        setUpgradingPlanId(null);
+        autoOpenedFor.current = created.id;
+        setTransferOpen(true);
         return;
       }
 
-      // Nhớ TRƯỚC khi rời trang. sessionStorage (không phải localStorage) vì đây là một
-      // hành trình trong CÙNG một tab: người dùng sang MoMo rồi quay lại. Dùng
-      // localStorage thì một tab khác mở sau đó cũng tưởng mình đang chờ thanh toán.
-      rememberIntent(created.id, created.expires_at);
-      // Không tắt spinner ở đây: trang đang rời đi, giữ nguyên trạng thái "đang mở trang
-      // thanh toán" cho tới lúc trình duyệt chuyển đi thật.
-      window.location.href = link;
+      if (isNavigableCheckout(created.payment_link)) {
+        // Không tắt spinner: trang đang rời đi, giữ nguyên trạng thái cho tới lúc chuyển
+        // đi thật.
+        redirectTo(created.payment_link.url);
+        return;
+      }
+
+      toast.error(
+        `${PROVIDER_LABEL[provider]} không trả về link thanh toán. Thử lại giúp mình nhé.`
+      );
+      setUpgradingPlanId(null);
+      // Đóng hộp thoại luôn, nếu không toast đỏ nằm sau lớp overlay.
+      setPlanToConfirm(null);
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Không mở được trang thanh toán. Thử lại giúp mình nhé."));
       setPlanToConfirm(null);
@@ -325,6 +374,22 @@ export function SubscriptionPage() {
     if (intent && SETTLED_PAYMENT_STATUSES.includes(intent.status)) {
       forgetIntent();
     }
+  }, [intent]);
+
+  // F5 giữa lúc đang chờ chuyển khoản thì mở lại màn QR — bằng không người dùng mất luôn
+  // số tài khoản và mã đơn, dù đơn vẫn sống.
+  //
+  // Chốt theo id đơn nên chỉ tự mở ĐÚNG MỘT LẦN cho mỗi đơn: đóng đi thì nhịp dò 3 giây
+  // sau không dựng nó lên lại. Đây là effect ĐỒNG BỘ GIAO DIỆN, không phải fetch.
+  // Xét `payment_link.type` chứ KHÔNG xét `provider === "sepay"`: `type` mới là trường
+  // backend dựng ra để phân loại, và hai chỗ còn lại (lúc tạo đơn, nút mở lại) đều xét nó.
+  // Xét theo tên cổng là ba chỗ dùng hai tiêu chí khác nhau cho cùng một quyết định.
+  useEffect(() => {
+    if (!intent || intent.payment_link?.type !== "bank_transfer_instruction") return;
+    if (SETTLED_PAYMENT_STATUSES.includes(intent.status)) return;
+    if (autoOpenedFor.current === intent.id) return;
+    autoOpenedFor.current = intent.id;
+    setTransferOpen(true);
   }, [intent]);
 
   const isLoading = plansLoading || subLoading;
@@ -414,15 +479,23 @@ export function SubscriptionPage() {
               <>
                 <X className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
-                  Sau 2 phút vẫn chưa xác nhận được giao dịch này. Nếu bạn đã bị trừ tiền,
-                  tải lại trang giúp mình — hệ thống sẽ hỏi lại MoMo. Vẫn chưa lên gói thì
-                  báo hỗ trợ, tiền của bạn không mất đi đâu.
+                  {/* CHỈ MoMo mới có đường tự đối soát bên backend. Khuyên người trả bằng
+                      ZaloPay/SePay "tải lại trang, hệ thống sẽ hỏi lại" là hứa suông. */}
+                  Chưa xác nhận được giao dịch này. Nếu bạn đã bị trừ tiền,{" "}
+                  {intent.provider === "momo"
+                    ? "tải lại trang giúp mình — hệ thống sẽ hỏi lại MoMo."
+                    : "tiền của bạn không mất đi đâu."}{" "}
+                  Vẫn chưa lên gói thì nhắn hỗ trợ
+                  {intent.order_code ? ` kèm mã đơn ${intent.order_code}` : ""}.
                 </span>
               </>
             ) : (
               <>
                 <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-                <span>Đang xác nhận thanh toán với MoMo… Bạn cứ ở lại trang này một lát nhé.</span>
+                <span>
+                  Đang xác nhận thanh toán với {providerLabel(intent.provider)}… Bạn cứ ở lại
+                  trang này một lát nhé.
+                </span>
               </>
             )
           ) : intent.status === "succeeded" ? (
@@ -440,6 +513,16 @@ export function SubscriptionPage() {
                     : "Giao dịch chưa hoàn tất.")}
               </span>
             </>
+          )}
+
+          {canReopenTransfer && (
+            <button
+              type="button"
+              onClick={() => setTransferOpen(true)}
+              className="ml-auto shrink-0 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+            >
+              Xem mã QR
+            </button>
           )}
         </div>
       )}
@@ -540,26 +623,37 @@ export function SubscriptionPage() {
           trông giống hệt nhau, nên trượt tay một ô là sang thẳng cổng thanh toán với số
           tiền của gói bên cạnh. Câu hỏi này nói rõ TÊN GÓI và SỐ TIỀN — hai thứ mà cái
           nút trên thẻ không tự nói được.  #Huynh */}
-      <ConfirmDialog
+      <PlanCheckoutDialog
         open={planToConfirm !== null}
         onOpenChange={(open) => {
           if (!open) setPlanToConfirm(null);
         }}
-        title={planToConfirm ? `Nâng cấp lên gói ${planToConfirm.name}?` : ""}
-        description={
-          planToConfirm
-            ? `Bạn sẽ được chuyển sang MoMo để thanh toán ${formatPrice(
-                planPrice(planToConfirm),
-                planToConfirm.currency
-              )} cho một kỳ 30 ngày. Gói hiện tại giữ nguyên cho tới khi MoMo báo đã thu tiền.`
-            : undefined
-        }
-        confirmLabel="Tới trang thanh toán"
-        cancelLabel="Để sau"
+        plan={planToConfirm}
         isLoading={planToConfirm !== null && upgradingPlanId === planToConfirm.id}
-        onConfirm={() => {
-          if (planToConfirm) void handleBuy(planToConfirm);
+        onConfirm={(provider) => {
+          if (planToConfirm) void handleBuy(planToConfirm, provider);
         }}
+      />
+
+      <PaymentTransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        intent={intent}
+        planName={plans?.find((plan) => plan.id === intent?.plan_id)?.name ?? null}
+        onRecheck={() => void refetchIntent()}
+        rechecking={intentFetching}
+        onCancelOrder={() => {
+          if (!intent) return;
+          cancelIntent.mutate(intent.id, {
+            onSuccess: () => {
+              setTransferOpen(false);
+              setIntentId(null);
+            },
+            onError: (err) =>
+              toast.error(getApiErrorMessage(err, "Không huỷ được đơn. Thử lại giúp mình nhé.")),
+          });
+        }}
+        cancelling={cancelIntent.isPending}
       />
 
       {/* Email HỖ TRỢ, không phải cách để nâng cấp.
@@ -572,7 +666,7 @@ export function SubscriptionPage() {
         <a href="mailto:solodeskai@gmail.com" className="text-primary underline underline-offset-2">
           solodeskai@gmail.com
         </a>{" "}
-        kèm mã giao dịch MoMo giúp mình nhé.
+        kèm mã đơn giúp mình nhé.
       </p>
     </div>
   );

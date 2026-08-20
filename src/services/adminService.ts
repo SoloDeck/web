@@ -268,8 +268,26 @@ export async function listAiCosts(): Promise<AdminAiCostPage> {
 // khác từ phía web.  #Huynh
 // ---------------------------------------------------------------------------
 
-/** Kênh thanh toán. Khớp enum DB `payment_provider` / `PaymentProvider` trong contract. */
-export type AdminPaymentProvider = "momo" | "bank_transfer" | "vnpay" | "manual";
+/**
+ * Kênh thanh toán CÓ THỂ nằm trong một dòng giao dịch.
+ *
+ * Khớp `PaymentProvider` trong `subscription_payment.py` — enum này chỉ có ĐÚNG ba giá trị,
+ * và cả ba đều đã chạy được.
+ */
+export type AdminPaymentProvider = "momo" | "zalopay" | "sepay";
+
+/**
+ * Kênh thanh toán LỌC ĐƯỢC — cố ý KHÁC danh sách trên.
+ *
+ * Router admin khai cứng `Literal["momo", "bank_transfer", "vnpay", "manual"]`
+ * (`admin/api/router.py:286`), một danh sách đã lạc hậu so với chính enum của nó: hai giá
+ * trị đang chạy thật là `zalopay`/`sepay` thì thiếu, còn ba giá trị có mặt thì không giá
+ * trị nào sinh ra được. Gửi `zalopay` lên là ăn 422 chứ không phải "lọc ra rỗng".
+ *
+ * Nên tách làm hai kiểu chứ không gộp một: gộp lại thì hoặc bảng hiện sai nhãn, hoặc ô lọc
+ * bắn ra request chắc chắn hỏng. Vá thật nằm ở backend — một dòng — và không thuộc đợt này.
+ */
+export type AdminPaymentProviderFilter = "momo" | "bank_transfer" | "vnpay" | "manual";
 
 /**
  * Trạng thái giao dịch — dùng lại `PaymentIntentStatus` đã khai ở `subscriptionsService`
@@ -306,7 +324,7 @@ export type AdminPaymentSortBy = "created_at" | "paid_at" | "amount";
 
 export type AdminPaymentFilters = {
   status?: AdminPaymentStatus;
-  provider?: AdminPaymentProvider;
+  provider?: AdminPaymentProviderFilter;
   /** Khớp gần đúng, không phân biệt hoa thường, trên email HOẶC họ tên người mua. */
   search?: string;
   /** ISO 8601. Chặn dưới của `created_at` (KHÔNG phải `paid_at`). */

@@ -113,6 +113,14 @@ vi.mock("@/features/revenue/hooks/useAnalytics", () => ({
 }));
 
 const mockToastError = vi.fn();
+const mockRedirectTo = vi.fn();
+vi.mock("@/features/subscriptions/lib/paymentLink", async () => {
+  const actual = await vi.importActual<typeof import("@/features/subscriptions/lib/paymentLink")>(
+    "@/features/subscriptions/lib/paymentLink"
+  );
+  return { ...actual, redirectTo: (...args: unknown[]) => mockRedirectTo(...args) };
+});
+
 vi.mock("sonner", () => ({ toast: { error: (m: string) => mockToastError(m) } }));
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -131,9 +139,10 @@ function intentStub(over: Partial<PaymentIntentResponse> = {}): PaymentIntentRes
     plan_id: "plan-pro",
     provider: "momo",
     status: "pending",
-    amount: 199000,
+    amount: "199000.00",
     currency: "VND",
     payment_link: { type: "checkout_url", url: null, qr_code_url: null, instructions: null },
+    order_code: "SDTEST0001",
     provider_reference: null,
     paid_at: null,
     // Tương đối theo thời điểm chạy test, không phải mốc cố định: giá trị này đi qua
@@ -141,6 +150,8 @@ function intentStub(over: Partial<PaymentIntentResponse> = {}): PaymentIntentRes
     // 174, nên một chuỗi cố định trong quá khứ sẽ bị `intentStorage` coi là hết hạn ngay.
     expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
     failure_reason: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
     ...over,
   };
 }
@@ -154,14 +165,19 @@ describe("<SubscriptionPage /> — mua gói", () => {
   });
 
   /**
-   * Bấm nút nâng cấp trên thẻ gói RỒI gật đầu ở hộp xác nhận.
+   * Bấm nút nâng cấp trên thẻ gói, chọn cổng, RỒI gật đầu.
    *
-   * Hai bước, không phải một: nút trên thẻ giờ chỉ mở hộp thoại. Test nào chỉ bấm thẻ mà
-   * mong `mockCheckout` được gọi là đang mô tả luồng đã bỏ.
+   * Ba bước, không phải một: nút trên thẻ chỉ mở hộp thoại, và hộp thoại giờ còn hỏi trả
+   * bằng cách nào. Test nào chỉ bấm thẻ mà mong `mockCheckout` được gọi là đang mô tả một
+   * luồng đã bỏ.
    */
-  async function nangCap(thuTu = 0) {
+  async function nangCap(thuTu = 0, cong: "momo" | "zalopay" | "sepay" = "momo") {
     await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[thuTu]);
-    await userEvent.click(await screen.findByRole("button", { name: /tới trang thanh toán/i }));
+    if (cong !== "momo") {
+      const viTri = cong === "zalopay" ? 1 : 2;
+      await userEvent.click((await screen.findAllByRole("radio"))[viTri]);
+    }
+    await userEvent.click(await screen.findByRole("button", { name: /tiến hành thanh toán/i }));
   }
 
   it("bấm nâng cấp thì gọi checkout kèm return_url tuyệt đối và nhớ id trước khi rời trang", async () => {
@@ -184,8 +200,14 @@ describe("<SubscriptionPage /> — mua gói", () => {
     expect(arg.planId).toBe("plan-pro");
     // Backend chỉ nhận http(s) tuyệt đối — đường dẫn tương đối bị từ chối.
     expect(arg.returnUrl).toMatch(/^https?:\/\/.+\?tab=subscription$/);
+    // Cổng phải đi kèm: trước đây nó bị hardcode "momo" trong service nên hai cổng còn
+    // lại không ai chạm tới được.
+    expect(arg.provider).toBe("momo");
     // Phải nhớ id TRƯỚC khi rời trang, vì return_url không mang được id.
     expect(readRememberedIntent()).toBe("intent-1");
+    // Và phải điều hướng thật. Bản trước không kiểm được điều này vì `window.location.href`
+    // gán thẳng trong component.
+    expect(mockRedirectTo).toHaveBeenCalledWith("https://test-payment.momo.vn/pay/abc");
   });
 
   it("checkout lỗi thì hiện đúng câu backend trả, không phải câu chung chung", async () => {
@@ -201,14 +223,126 @@ describe("<SubscriptionPage /> — mua gói", () => {
     );
   });
 
-  it("MoMo không trả link thì báo lỗi thay vì điều hướng đi đâu đó", async () => {
+  it("cổng không trả link thì báo lỗi, KHÔNG điều hướng, nhưng VẪN nhớ đơn", async () => {
+    // Khẳng định cuối đã bị LẬT so với bản trước. Bản trước bắt phải quên đơn đi — nhưng
+    // đơn đó CÓ THẬT bên backend rồi: quên nó là giấu mất một lần tiêu tiền có thật, người
+    // dùng không còn đường nào tra lại.
     mockCheckout.mockResolvedValue(intentStub());
 
     render(<SubscriptionPage />, { wrapper });
     await nangCap();
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
-    expect(sessionStorage.getItem("intent")).toBeNull();
+    expect(mockRedirectTo).not.toHaveBeenCalled();
+    expect(readRememberedIntent()).toBe("intent-1");
+  });
+
+  it("chọn SePay thì MỞ màn chuyển khoản, tuyệt đối không điều hướng trình duyệt", async () => {
+    // `payment_link.url` của SePay là ẢNH PNG — điều hướng vào đó là quăng người dùng ra
+    // một tấm ảnh trần, không có đường quay lại.
+    const qr = "https://vietqr.app/img?acc=40104887&bank=ACB&amount=199000&des=SDDYFM83AS";
+    const donSepay = intentStub({
+      provider: "sepay",
+      payment_link: {
+        type: "bank_transfer_instruction",
+        url: qr,
+        qr_code_url: qr,
+        instructions:
+          "Chuyển khoản 199.000đ tới số tài khoản 40104887 (ACB), nội dung ghi đúng: SDDYFM83AS",
+      },
+    });
+    mockCheckout.mockResolvedValue(donSepay);
+    // Trang đọc đơn từ `usePaymentIntent`, và ở bản chạy thật `useCreateCheckout` gieo sẵn
+    // đơn vừa tạo vào cache nên đọc ra ngay. Ở đây `usePaymentIntent` bị mock thẳng nên phải
+    // dựng lại điều đó bằng tay. Chính dòng gieo cache đó được canh riêng ở
+    // `useSubscriptions.test.tsx` — bỏ nó đi thì test kia đỏ.
+    //
+    // Phải theo ĐÚNG THỨ TỰ THỜI GIAN chứ không trả sẵn từ đầu: đơn chỉ tồn tại sau khi
+    // checkout xong. Trả sẵn thì trang tưởng đang có đơn treo dở và tự mở màn QR ngay lúc
+    // mount, che mất nút "Nâng cấp" — đúng hành vi khôi phục sau F5, nhưng sai ca đang tả.
+    mockIntent.mockImplementation(() => ({
+      data: mockCheckout.mock.calls.length ? donSepay : undefined,
+    }));
+
+    render(<SubscriptionPage />, { wrapper });
+    await nangCap(0, "sepay");
+
+    await waitFor(() => expect(mockCheckout).toHaveBeenCalledTimes(1));
+    expect(mockCheckout.mock.calls[0][0].provider).toBe("sepay");
+    expect(mockRedirectTo).not.toHaveBeenCalled();
+    expect(await screen.findByText("40104887")).toBeInTheDocument();
+  });
+
+  it("mở lại trang giữa lúc chờ chuyển khoản thì màn QR hiện lại, không mất trắng", async () => {
+    // Người dùng đang ngồi đợi ngân hàng mà lỡ F5 (hoặc quay lại từ app ngân hàng) thì đơn
+    // vẫn còn sống tới 30 phút — nhưng nếu màn QR không tự mở lại thì họ mất luôn số tài
+    // khoản và nội dung chuyển khoản, coi như bế tắc.
+    const qr = "https://vietqr.app/img?acc=40104887&bank=ACB&amount=199000&des=SDDYFM83AS";
+    mockIntent.mockReturnValue({
+      data: intentStub({
+        provider: "sepay",
+        status: "pending",
+        payment_link: {
+          type: "bank_transfer_instruction",
+          url: qr,
+          qr_code_url: qr,
+          instructions: "Chuyển khoản 199.000đ tới số tài khoản 40104887 (ACB)",
+        },
+      }),
+    });
+    rememberIntent("intent-1", new Date(Date.now() + 20 * 60_000).toISOString());
+
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(await screen.findByText("40104887")).toBeInTheDocument();
+    expect(mockCheckout).not.toHaveBeenCalled();
+  });
+
+  it("đóng màn QR rồi vẫn mở lại được từ banner — đóng KHÔNG phải là huỷ đơn", async () => {
+    const qr = "https://vietqr.app/img?acc=40104887&bank=ACB&amount=199000&des=SDDYFM83AS";
+    mockIntent.mockReturnValue({
+      data: intentStub({
+        provider: "sepay",
+        status: "pending",
+        payment_link: {
+          type: "bank_transfer_instruction",
+          url: qr,
+          qr_code_url: qr,
+          instructions: "Chuyển khoản 199.000đ tới số tài khoản 40104887 (ACB)",
+        },
+      }),
+    });
+    rememberIntent("intent-1", new Date(Date.now() + 20 * 60_000).toISOString());
+
+    render(<SubscriptionPage />, { wrapper });
+    await userEvent.click(await screen.findByRole("button", { name: /^đóng$/i }));
+
+    // Đóng xong thì đơn vẫn còn — banner phải chìa ra đường quay lại.
+    const moLai = await screen.findByRole("button", { name: /xem mã qr/i });
+    await userEvent.click(moLai);
+
+    expect(await screen.findByText("40104887")).toBeInTheDocument();
+  });
+
+  it("chọn ZaloPay thì đơn được tạo với đúng cổng zalopay", async () => {
+    mockCheckout.mockResolvedValue(
+      intentStub({
+        provider: "zalopay",
+        payment_link: {
+          type: "checkout_url",
+          url: "https://sbgateway.zalopay.vn/pay?token=abc",
+          qr_code_url: null,
+          instructions: null,
+        },
+      })
+    );
+
+    render(<SubscriptionPage />, { wrapper });
+    await nangCap(0, "zalopay");
+
+    await waitFor(() => expect(mockCheckout).toHaveBeenCalledTimes(1));
+    expect(mockCheckout.mock.calls[0][0].provider).toBe("zalopay");
+    expect(mockRedirectTo).toHaveBeenCalledWith("https://sbgateway.zalopay.vn/pay?token=abc");
   });
 
   it("quay về mà backend chưa nhận IPN thì nói ĐANG CHỜ, không nói thất bại", () => {
@@ -376,14 +510,14 @@ describe("<SubscriptionPage /> — mua gói", () => {
     expect(nutFree).toBeDisabled();
   });
 
-  it("gói giá dưới mức tối thiểu của MoMo thì không bày nút mua, và nói rõ vì sao", () => {
+  it("gói giá dưới mức tối thiểu thì không bày nút mua, và nói rõ vì sao", () => {
     // Trước bản vá, gói 200đ vẫn hiện nút "Nâng cấp qua MoMo" bình thường. Bấm vào là
     // MoMo trả HTTP 400, và người dùng nhận về "Could not reach MoMo" — một câu vừa
     // không nói được nguyên nhân, vừa chỉ sai hướng.  #Huynh
     render(<SubscriptionPage />, { wrapper });
 
     expect(screen.getByRole("button", { name: /chưa mua được/i })).toBeDisabled();
-    expect(screen.getByText(/ngoài khoảng momo hỗ trợ/i)).toBeInTheDocument();
+    expect(screen.getByText(/ngoài khoảng thanh toán hỗ trợ/i)).toBeInTheDocument();
   });
 
   it("gói ngoài hạn mức không làm phát sinh thêm nút mua nào", () => {

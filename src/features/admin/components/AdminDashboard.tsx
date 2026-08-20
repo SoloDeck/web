@@ -58,7 +58,7 @@ import type {
   AdminUserStatus,
   LLMProvider,
 } from "@/services/adminService";
-import { isMomoPayableAmount } from "@/services/subscriptionsService";
+import { isPayableAmount } from "@/services/subscriptionsService";
 
 /**
  * Mã gói miễn phí. Đây là gói HỆ THỐNG, không phải một mặt hàng trong bảng giá: người
@@ -695,11 +695,11 @@ function PlanForm({
     //   #Huynh
     const isSystemFreePlan = isEditing && draft.slug === FREE_PLAN_SLUG;
     const price = Number(onlyDigits(draft.price_monthly) || "0");
-    if (!(isSystemFreePlan && price === 0) && !isMomoPayableAmount(price)) {
+    if (!(isSystemFreePlan && price === 0) && !isPayableAmount(price)) {
       setPriceError(
         isSystemFreePlan
-          ? "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo), hoặc để 0 vì đây là gói miễn phí."
-          : "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức MoMo). Chỉ gói Free của hệ thống mới được để 0đ — gói 0đ tự tạo thì không ai đăng ký được."
+          ? "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức của cổng thanh toán), hoặc để 0 vì đây là gói miễn phí."
+          : "Giá gói phải từ 1.000đ đến 50.000.000đ (hạn mức của cổng thanh toán). Chỉ gói Free của hệ thống mới được để 0đ — gói 0đ tự tạo thì không ai đăng ký được."
       );
       return;
     }

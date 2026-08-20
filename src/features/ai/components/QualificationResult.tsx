@@ -2,21 +2,20 @@ import {
   AlertTriangle,
   ArrowRight,
   BadgeCheck,
-  Check,
   CheckCircle2,
-  Copy,
   Flame,
   MessageSquareQuote,
   PencilLine,
   SearchX,
   TrendingUp,
   } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import type { LeadScore } from "@/features/deals/types";
 import type { ScoreDelta } from "@/features/deals/hooks/useDealQualifications";
 import type { QualificationGap, QualificationScoreGaps } from "@/services/dealsService";
 import { cn } from "@/lib/utils";
+import { CopyButton } from "@/components/solodesk/CopyButton";
 import {
   CRITERION_ORDER,
   EMPTY_EVIDENCE,
@@ -425,46 +424,6 @@ function GapSummary({
 /** "Khách nêu CON SỐ..." -> "khách nêu CON SỐ..." để ghép được sau chữ "nếu". */
 function lowerFirst(text: string): string {
   return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
-}
-
-function CopyButton({
-  text,
-  label,
-  copiedLabel,
-  iconOnly = false,
-  className,
-}: {
-  text: string;
-  label: string;
-  copiedLabel?: string;
-  iconOnly?: boolean;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  // `navigator.clipboard` không tồn tại trên http thường và trong jsdom — không chắn thì
-  // bấm nút là nổ TypeError giữa màn kết quả.
-  const canCopy = typeof navigator !== "undefined" && Boolean(navigator.clipboard);
-
-  if (!canCopy) return null;
-
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      className={className}
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1600);
-        });
-      }}
-    >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      {!iconOnly && <span>{copied ? (copiedLabel ?? "Đã sao chép") : label}</span>}
-    </button>
-  );
 }
 
 function PanelCard({
