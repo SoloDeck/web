@@ -4,6 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { usePaymentIntent, useMySubscription } from "@/features/subscriptions/hooks/useSubscriptions";
+import { readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 import type { PaymentIntentResponse, SubscriptionResponse } from "@/services/subscriptionsService";
 
 /**
@@ -131,5 +132,59 @@ describe("usePaymentIntent — trả tiền xong thì gói phải đổi", () =>
 
     await waitFor(() => expect(intent.result.current.isPending).toBe(true));
     expect(mockGetPaymentIntent).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("usePaymentIntent — mã đơn tra không ra", () => {
+  /**
+   * Ca thật, gặp ngày 20/08/2026 khi đang test tay: trang mở bằng một link có sẵn
+   * `?intent=` của TÀI KHOẢN KHÁC. Backend trả 404 cho mọi lần hỏi.
+   *
+   * Hậu quả lúc đó: `refetchInterval` chỉ xét `data`, mà lỗi thì `data` là `undefined`,
+   * nên nó rơi thẳng xuống `return 3000` và dò một mã đơn chết suốt 2 phút. Khối hiển thị
+   * trạng thái lại bọc trong `{intent && ...}` nên KHÔNG hiện gì. Và `forgetIntent()` chỉ
+   * chạy khi intent CÓ dữ liệu, nên mã hỏng nằm lại sessionStorage — mọi lần mở trang sau
+   * đó trong cùng tab đều kẹt y như vậy.
+   *
+   * Người dùng vừa trả tiền thật thì không bao giờ thấy giao dịch của mình.
+   */
+  function loi404() {
+    return Object.assign(new Error("Not Found"), { response: { status: 404 } });
+  }
+
+  it("404 thì QUÊN mã đơn, để lần mở trang sau không kẹt lại", async () => {
+    rememberIntent("intent-cua-nguoi-khac");
+    expect(readRememberedIntent()).toBe("intent-cua-nguoi-khac");
+    mockGetPaymentIntent.mockRejectedValue(loi404());
+
+    const hook = renderHook(() => usePaymentIntent("intent-cua-nguoi-khac"), { wrapper });
+
+    await waitFor(() => expect(hook.result.current.intentUnresolvable).toBe(true));
+    expect(readRememberedIntent()).toBeNull();
+  });
+
+  it("404 thì NGỪNG dò — không gõ cửa một mã đơn chết mỗi 3 giây", async () => {
+    mockGetPaymentIntent.mockRejectedValue(loi404());
+
+    const hook = renderHook(() => usePaymentIntent("intent-chet"), { wrapper });
+    await waitFor(() => expect(hook.result.current.intentUnresolvable).toBe(true));
+
+    const soLanDaGoi = mockGetPaymentIntent.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 3500));
+    expect(mockGetPaymentIntent.mock.calls.length).toBe(soLanDaGoi);
+  });
+
+  it("lỗi KHÔNG phải 404 thì GIỮ mã đơn — mạng chớp một nhịp không được vứt giao dịch thật", async () => {
+    rememberIntent("intent-that");
+    mockGetPaymentIntent.mockRejectedValue(
+      Object.assign(new Error("Server Error"), { response: { status: 500 } })
+    );
+
+    const hook = renderHook(() => usePaymentIntent("intent-that"), { wrapper });
+
+    await waitFor(() => expect(hook.result.current.isError).toBe(true));
+    expect(hook.result.current.intentUnresolvable).toBe(false);
+    expect(readRememberedIntent()).toBe("intent-that");
   });
 });

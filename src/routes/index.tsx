@@ -13,7 +13,11 @@ export const Route = createFileRoute("/")({
   // Tab hiện tại được lưu ở query param `?tab=` để nút back và link chia sẻ mở đúng màn hình.
   validateSearch: (search: Record<string, unknown>): IndexSearch => {
     const tab = search.tab as NavKey | undefined;
-    return { tab: tab && NAV_KEYS.includes(tab) ? tab : undefined };
+    // `intent` phải được GIỮ LẠI: những gì hàm này không trả về sẽ bị router xoá khỏi URL,
+    // và `SubscriptionPage` đọc `?intent=` để biết cần theo dõi giao dịch nào sau khi MoMo
+    // đá người dùng về. Bỏ sót nó ở đây là lặng lẽ vô hiệu cả đường mở-thẳng-bằng-link.
+    const intent = typeof search.intent === "string" ? search.intent : undefined;
+    return { tab: tab && NAV_KEYS.includes(tab) ? tab : undefined, intent };
   },
   beforeLoad: async () => {
     const { isAuthenticated, user } = useAuthStore.getState();

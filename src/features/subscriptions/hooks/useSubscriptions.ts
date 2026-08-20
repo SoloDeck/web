@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { forgetIntent } from "@/features/subscriptions/lib/intentStorage";
+import { getApiErrorStatus } from "@/lib/api-error";
 import {
   createCheckout,
   getMySubscription,
@@ -97,7 +99,15 @@ export function usePaymentIntent(intentId: string | null) {
       return intent;
     },
     enabled: Boolean(intentId),
+    // CỐ Ý không đặt `retry` ở đây. Đặt là đè lên `retry: 1` của app (configs/query-client.ts)
+    // cho riêng một query — vừa lệch với phần còn lại, vừa thành hai nguồn sự thật khi ai đó
+    // sửa cấu hình chung. Một lần thử lại thừa cho 404 là cái giá rẻ hơn nhiều.
     refetchInterval: (query) => {
+      // Hỏng thì DỪNG. Bản trước chỉ xét `data`, mà lúc lỗi thì `data` là `undefined` nên
+      // nhánh này rơi thẳng xuống `return 3000` — trang dò một mã đơn chết suốt 2 phút,
+      // trong khi khối hiển thị trạng thái bọc trong `{intent && ...}` nên KHÔNG hiện gì.
+      // Người dùng nhìn một màn hình đứng yên, không biết có chuyện gì đang xảy ra.
+      if (query.state.status === "error") return false;
       const data = query.state.data;
       if (data && SETTLED_PAYMENT_STATUSES.includes(data.status)) return false;
       if (timedOut) return false;
@@ -107,5 +117,15 @@ export function usePaymentIntent(intentId: string | null) {
 
   const settled = query.data ? SETTLED_PAYMENT_STATUSES.includes(query.data.status) : false;
 
-  return { ...query, pollTimedOut: timedOut && !settled };
+  // Mã đơn tra không ra thì QUÊN nó đi, bằng không nó nằm lại sessionStorage và mọi lần mở
+  // trang sau đó trong cùng tab lại kẹt y như vậy cho tới khi hết TTL 15 phút.
+  //
+  // Ca thật gặp phải: mở trang bằng link có sẵn `?intent=` của một tài khoản khác. Trang dò
+  // mãi, 404 mãi, và không bao giờ nhìn thấy giao dịch THẬT mà người dùng vừa tạo.  #Huynh
+  const unresolvable = getApiErrorStatus(query.error) === 404;
+  useEffect(() => {
+    if (unresolvable) forgetIntent();
+  }, [unresolvable]);
+
+  return { ...query, pollTimedOut: timedOut && !settled, intentUnresolvable: unresolvable };
 }
