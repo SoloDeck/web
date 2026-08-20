@@ -28,6 +28,7 @@ import { Route as AdminPlansRouteImport } from './routes/admin.plans'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
 import { Route as AdminAiCostsRouteImport } from './routes/admin.ai-costs'
+import { Route as AdminPaymentTransactionsRouteImport } from './routes/admin.payment-transactions'
 import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as IndexRouteImport } from './routes/index'
@@ -75,6 +76,11 @@ const AdminAiConfigRoute = AdminAiConfigRouteImport.update({
 const AdminAiCostsRoute = AdminAiCostsRouteImport.update({
   id: '/ai-costs',
   path: '/ai-costs',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminPaymentTransactionsRoute = AdminPaymentTransactionsRouteImport.update({
+  id: '/payment-transactions',
+  path: '/payment-transactions',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminAuditRoute = AdminAuditRouteImport.update({
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/payment-transactions': typeof AdminPaymentTransactionsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/': typeof IndexRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/payment-transactions': typeof AdminPaymentTransactionsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/': typeof IndexRoute
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/ai-config': typeof AdminAiConfigRoute
   '/admin/ai-costs': typeof AdminAiCostsRoute
+  '/admin/payment-transactions': typeof AdminPaymentTransactionsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/home': typeof HomeRoute
   '/': typeof IndexRoute
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
+    | '/admin/payment-transactions'
     | '/admin/audit'
     | '/home'
     | '/'
@@ -241,6 +251,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
+    | '/admin/payment-transactions'
     | '/admin/audit'
     | '/home'
     | '/'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/ai-config'
     | '/admin/ai-costs'
+    | '/admin/payment-transactions'
     | '/admin/audit'
     | '/home'
     | '/'
@@ -345,6 +357,13 @@ declare module '@tanstack/react-router' {
       path: '/ai-costs'
       fullPath: '/admin/ai-costs'
       preLoaderRoute: typeof AdminAiCostsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/payment-transactions': {
+      id: '/admin/payment-transactions'
+      path: '/payment-transactions'
+      fullPath: '/admin/payment-transactions'
+      preLoaderRoute: typeof AdminPaymentTransactionsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/audit': {
@@ -448,6 +467,7 @@ interface AdminRouteChildren {
   AdminTemplatesRoute: typeof AdminTemplatesRoute
   AdminAiConfigRoute: typeof AdminAiConfigRoute
   AdminAiCostsRoute: typeof AdminAiCostsRoute
+  AdminPaymentTransactionsRoute: typeof AdminPaymentTransactionsRoute
   AdminAuditRoute: typeof AdminAuditRoute
 }
 
@@ -458,6 +478,7 @@ const adminRouteChildren: AdminRouteChildren = {
   AdminTemplatesRoute: AdminTemplatesRoute,
   AdminAiConfigRoute: AdminAiConfigRoute,
   AdminAiCostsRoute: AdminAiCostsRoute,
+  AdminPaymentTransactionsRoute: AdminPaymentTransactionsRoute,
   AdminAuditRoute: AdminAuditRoute,
 }
 

@@ -1,5 +1,6 @@
 import axiosClient from "@/configs/axios";
 import type { ApiResponse } from "@/features/auth/types";
+import type { PaymentIntentStatus } from "@/services/subscriptionsService";
 
 // ---------------------------------------------------------------------------
 // Types - mirror backend admin schemas
@@ -256,6 +257,90 @@ export async function listAiCosts(): Promise<AdminAiCostPage> {
     params: { page_size: 50 },
   });
   return data.data;
+}
+
+// ---------------------------------------------------------------------------
+// Giao dịch thanh toán — sổ CHỈ ĐỌC của bảng `subscription_payments`
+//
+// Ai mua gói nào, lúc nào, bao nhiêu tiền, kết cục ra sao. Hợp đồng đã CHỐT
+// (`_workspace/01_contract_admin_payments_shape.md` + `backend/contracts/openapi.yaml`):
+// KHÔNG có hoàn tiền, KHÔNG có xuất file — đừng ghép hai việc đó bằng cách gọi endpoint
+// khác từ phía web.  #Huynh
+// ---------------------------------------------------------------------------
+
+/** Kênh thanh toán. Khớp enum DB `payment_provider` / `PaymentProvider` trong contract. */
+export type AdminPaymentProvider = "momo" | "bank_transfer" | "vnpay" | "manual";
+
+/**
+ * Trạng thái giao dịch — dùng lại `PaymentIntentStatus` đã khai ở `subscriptionsService`
+ * thay vì khai thêm một union thứ hai y hệt. Contract cố ý gộp làm MỘT vòng đời thanh
+ * toán; hai bản sao thì chỉ cần một bên thêm giá trị là hai bên lặng lẽ lệch nhau.
+ */
+export type AdminPaymentStatus = PaymentIntentStatus;
+
+export type AdminPayment = {
+  id: string;
+  user_id: string;
+  /** LEFT OUTER JOIN `users` — null khi hàng user đã bị xoá. */
+  user_email: string | null;
+  user_full_name: string | null;
+  plan_id: string;
+  /** LEFT OUTER JOIN `subscription_plans` — null khi gói đã bị xoá. */
+  plan_name: string | null;
+  provider: AdminPaymentProvider;
+  status: AdminPaymentStatus;
+  /**
+   * CHUỖI, không phải số. pydantic v2 tuần tự hoá `Decimal` thành `"199000.00"` — y hệt
+   * `AdminAiCost.estimated_cost_usd`. Luôn `Number(...)` trước khi tính hay định dạng.
+   */
+  amount: string | number;
+  /** ISO-4217, 3 ký tự. */
+  currency: string;
+  provider_reference: string | null;
+  /** Null trừ khi `status === "succeeded"`. */
+  paid_at: string | null;
+  created_at: string;
+};
+
+export type AdminPaymentSortBy = "created_at" | "paid_at" | "amount";
+
+export type AdminPaymentFilters = {
+  status?: AdminPaymentStatus;
+  provider?: AdminPaymentProvider;
+  /** Khớp gần đúng, không phân biệt hoa thường, trên email HOẶC họ tên người mua. */
+  search?: string;
+  /** ISO 8601. Chặn dưới của `created_at` (KHÔNG phải `paid_at`). */
+  from_date?: string;
+  /** ISO 8601. Chặn trên của `created_at`. */
+  to_date?: string;
+  sort_by?: AdminPaymentSortBy;
+  sort_order?: "asc" | "desc";
+  page?: number;
+  /** Tối đa 100 — backend chặn `le=100`. */
+  page_size?: number;
+};
+
+export type AdminPaymentPage = Paginated<AdminPayment>;
+
+/**
+ * GET /admin/payments — danh sách giao dịch mua gói, có phân trang PHÍA MÁY CHỦ.
+ *
+ * Vỏ trả về lồng `data` HAI LẦN (`ApiResponse<AdminPaymentPagedResponse>`), giống
+ * `/admin/ai-costs`: `data.data` là trang, `data.data.data` mới là các dòng.
+ */
+export async function listAdminPayments(
+  filters: AdminPaymentFilters = {},
+): Promise<AdminPaymentPage> {
+  const { data } = await axiosClient.get<ApiResponse<AdminPaymentPage>>("/admin/payments", {
+    params: filters,
+  });
+  const page = data.data;
+  return {
+    data: page?.data ?? [],
+    total: page?.total ?? 0,
+    page: page?.page ?? filters.page ?? 1,
+    page_size: page?.page_size ?? filters.page_size ?? 20,
+  };
 }
 
 // ---------------------------------------------------------------------------

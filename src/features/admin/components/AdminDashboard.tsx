@@ -428,13 +428,14 @@ function UserRow({ user }: { user: AdminUser }) {
   );
 }
 
-function PaginationFooter({
+export function PaginationFooter({
   currentPage,
   pageCount,
   firstVisible,
   lastVisible,
   total,
   onPageChange,
+  unit = "tài khoản",
 }: {
   currentPage: number;
   pageCount: number;
@@ -442,6 +443,12 @@ function PaginationFooter({
   lastVisible: number;
   total: number;
   onPageChange: (page: number) => void;
+  /**
+   * Danh từ đếm được của thứ đang phân trang. Trước đây câu "Hiển thị 1-5 trong 12 tài
+   * khoản" bị ghi cứng ngay trong component dùng chung, nên mọi bảng khác mượn nó về đều
+   * nói sai tên dữ liệu của chính mình.  #Huynh
+   */
+  unit?: string;
 }) {
   const pages = Array.from({ length: pageCount }, (_, index) => index + 1);
   const canGoPrevious = currentPage > 1;
@@ -450,7 +457,7 @@ function PaginationFooter({
   return (
     <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
       <span>
-        Hiển thị {firstVisible}-{lastVisible} trong {total} tài khoản
+        Hiển thị {firstVisible}-{lastVisible} trong {total} {unit}
       </span>
       <div className="flex items-center gap-1">
         <Button
@@ -787,7 +794,7 @@ function PlanForm({
   );
 }
 
-function PanelShell({
+export function PanelShell({
   title,
   icon: Icon,
   action,
@@ -820,7 +827,7 @@ function PanelShell({
   );
 }
 
-function MetricCard({
+export function MetricCard({
   icon: Icon,
   label,
   value,
@@ -908,7 +915,7 @@ function DistributionBar({
   );
 }
 
-function AdminLoadingState() {
+export function AdminLoadingState() {
   return (
     <PanelShell>
       <div className="grid min-h-80 place-items-center text-sm text-muted-foreground">
@@ -921,7 +928,7 @@ function AdminLoadingState() {
   );
 }
 
-function AdminErrorState({ onRefresh }: { onRefresh: () => void }) {
+export function AdminErrorState({ onRefresh }: { onRefresh: () => void }) {
   return (
     <PanelShell>
       <div className="grid min-h-80 place-items-center text-center text-sm text-muted-foreground">
@@ -1037,7 +1044,7 @@ function PlanStatePill({ active }: { active: boolean }) {
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+export function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
       <FileText className="mx-auto mb-3 size-8 text-muted-foreground/60" />

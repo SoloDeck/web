@@ -21,3 +21,4 @@ export {
   AdminAiCostsPage,
   AdminAuditPage,
 } from "./AdminDashboard";
+export { AdminPaymentTransactionsPage } from "./AdminPaymentTransactionsPage";
