@@ -85,7 +85,10 @@ const plan: AdminPlan = {
   id: "p1",
   name: "Pro",
   slug: "pro",
-  price_monthly: "199000",
+  // ĐÚNG hình dạng backend trả: cột là `NUMERIC(10,2)` nên Decimal serialize ra kèm hai số
+  // lẻ. Fixture cũ ghi "199000" trơn — vì thế bộ test này bỏ lọt lỗi form sửa gói đọc
+  // "199000.00" thành 19.900.000.  #Huynh
+  price_monthly: "199000.00",
   currency: "VND",
   can_use_ai: true,
   can_export_pdf: true,
@@ -97,11 +100,13 @@ const plan: AdminPlan = {
 };
 
 const mockCreatePlan = vi.fn();
+const mockUpdatePlan = vi.fn();
 const mockDeletePlan = vi.fn();
 const mockUpdateProvider = vi.fn();
 
 beforeEach(() => {
   mockCreatePlan.mockClear();
+  mockUpdatePlan.mockClear();
   mockDeletePlan.mockClear();
   mockUpdateProvider.mockClear();
 
@@ -139,7 +144,7 @@ beforeEach(() => {
     isPending: false,
   } as unknown as ReturnType<typeof useCreateAdminPlan>);
   vi.mocked(useUpdateAdminPlan).mockReturnValue({
-    mutate: vi.fn(),
+    mutate: mockUpdatePlan,
     isPending: false,
   } as unknown as ReturnType<typeof useUpdateAdminPlan>);
   vi.mocked(useDeleteAdminPlan).mockReturnValue({
@@ -258,12 +263,37 @@ describe("<AdminPlansPage /> — hạn mức giá gói", () => {
     expect(mockCreatePlan).not.toHaveBeenCalled();
   });
 
-  it("giá 0đ lưu được — đó là gói miễn phí, không đi qua cổng thanh toán", async () => {
+  it("gói TỰ TẠO để 0đ thì bị chặn — không ai đăng ký được một gói như thế", async () => {
+    // Đảo chiều so với bản trước, và đây là chỗ dễ hiểu nhầm nhất: 0đ nghe như "miễn phí"
+    // nên tưởng vô hại. Thực tế backend từ chối mở phiên thanh toán cho mọi gói giá <= 0
+    // (`initiate_checkout` → `PlanNotPurchasableError`), còn MoMo không nhận giao dịch dưới
+    // 1.000đ — nên gói kiểu này nằm trong bảng giá chỉ để bày một cái nút bấm không được.
+    //   #Huynh
     await dienForm("Dùng thử", "0");
     await userEvent.click(nutLuu());
 
-    expect(mockCreatePlan).toHaveBeenCalledTimes(1);
-    expect(mockCreatePlan.mock.calls[0][0]).toMatchObject({ price_monthly: "0" });
+    expect(screen.getByText(/chỉ gói free của hệ thống mới được để 0đ/i)).toBeInTheDocument();
+    expect(mockCreatePlan).not.toHaveBeenCalled();
+  });
+
+  it("SỬA gói Free của hệ thống thì 0đ vẫn hợp lệ", async () => {
+    // Gói `free` là gói seed, ai đăng ký cũng rơi vào nó và nó vốn không đi qua cổng thanh
+    // toán. Chặn luôn cả nó là admin không lưu nổi một thay đổi nào trên gói Free.
+    vi.mocked(useAdminPlans).mockReturnValue({
+      data: [{ ...plan, id: "p-free", name: "Free", slug: "free", price_monthly: "0.00" }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useAdminPlans>);
+
+    render(<AdminPlansPage />);
+    await userEvent.click(screen.getByRole("button", { name: /^sửa$/i }));
+    await userEvent.clear(screen.getByLabelText("Giá tháng (VND)"));
+    await userEvent.click(screen.getByRole("button", { name: /lưu gói/i }));
+
+    expect(screen.queryByText(/hạn mức MoMo/i)).not.toBeInTheDocument();
+    expect(mockUpdatePlan).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePlan.mock.calls[0][0].payload).toMatchObject({ price_monthly: "0" });
   });
 
   it("giá đúng hạn mức thì lưu được", async () => {
@@ -274,6 +304,40 @@ describe("<AdminPlansPage /> — hạn mức giá gói", () => {
     expect(mockCreatePlan.mock.calls[0][0]).toMatchObject({
       price_monthly: "99000",
       currency: "VND",
+    });
+  });
+});
+
+/**
+ * Sửa gói — đọc giá cũ về form.
+ *
+ * Gói 199.000đ mở form sửa ra hiện 19.900.000: hai số lẻ của `NUMERIC(10,2)` bị đọc như
+ * chữ số hàng đơn vị. Nhìn đã sai, nhưng phần nguy hiểm nằm ở nút Lưu — admin vào sửa mỗi
+ * cái tên rồi bấm Lưu là con số phồng 100 lần đó đi thẳng lên server.
+ */
+describe("<AdminPlansPage /> — sửa gói đọc lại giá cũ", () => {
+  async function moFormSua() {
+    render(<AdminPlansPage />);
+    await userEvent.click(screen.getByRole("button", { name: /^sửa$/i }));
+  }
+
+  it("giá 199.000 mở form sửa ra ĐÚNG 199.000, không phải 19.900.000", async () => {
+    await moFormSua();
+
+    expect(screen.getByLabelText("Giá tháng (VND)")).toHaveValue("199.000");
+  });
+
+  it("chỉ sửa tên rồi lưu thì giá gửi lên vẫn nguyên, không gấp 100 lần", async () => {
+    await moFormSua();
+
+    await userEvent.clear(screen.getByLabelText("Tên gói"));
+    await userEvent.type(screen.getByLabelText("Tên gói"), "Pro 2026");
+    await userEvent.click(screen.getByRole("button", { name: /lưu gói/i }));
+
+    expect(mockUpdatePlan).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePlan.mock.calls[0][0]).toMatchObject({
+      id: "p1",
+      payload: expect.objectContaining({ name: "Pro 2026", price_monthly: "199000" }),
     });
   });
 });
@@ -344,7 +408,7 @@ describe("<AdminPlansPage /> — xoá gói", () => {
     render(<AdminPlansPage />);
 
     expect(screen.queryByRole("button", { name: /^xoá$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sửa gói/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sửa$/i })).toBeInTheDocument();
   });
 });
 
