@@ -16,6 +16,13 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { PROFESSIONS } from "@/features/profile/types";
 import { previewAdminTemplate } from "@/services/adminService";
@@ -178,39 +185,44 @@ export function TemplateDocEditor({
             />
           </label>
 
-          <label className="block text-sm">
+          <div className="block text-sm">
             <span className="mb-1 block font-medium">Loại tài liệu</span>
-            <select
+            <Select
               value={templateType}
-              onChange={(e) => setTemplateType(e.target.value as AdminTemplateType)}
+              onValueChange={(value) => setTemplateType(value as AdminTemplateType)}
               disabled={!!template}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="proposal">Báo giá</option>
-              <option value="contract">Hợp đồng</option>
-            </select>
+              <SelectTrigger className="w-full rounded-lg" aria-label="Loại tài liệu">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="proposal">Báo giá</SelectItem>
+                <SelectItem value="contract">Hợp đồng</SelectItem>
+              </SelectContent>
+            </Select>
             {template && (
               <span className="mt-1 block text-xs text-muted-foreground">
                 Không đổi được loại sau khi tạo.
               </span>
             )}
-          </label>
+          </div>
 
-          <label className="block text-sm">
+          <div className="block text-sm">
             <span className="mb-1 block font-medium">Áp dụng cho nghề</span>
-            <select
-              value={profession}
-              onChange={(e) => setProfession(e.target.value)}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Dùng chung cho mọi nghề</option>
-              {PROFESSIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <Select value={profession} onValueChange={(value) => setProfession(value as string)}>
+              <SelectTrigger className="w-full rounded-lg" aria-label="Áp dụng cho nghề">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Dùng chung cho mọi nghề</SelectItem>
+                {PROFESSIONS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Hạn hiệu lực là một CON SỐ ngày, còn trên giấy in ra một NGÀY cụ thể (phụ thuộc
             lúc freelancer gửi) — nên nó không sửa tại chỗ được, phải có ô riêng ở đây.  #Huynh */}

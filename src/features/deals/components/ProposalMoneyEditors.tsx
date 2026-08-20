@@ -19,6 +19,13 @@ import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, Check, GripVertical, Plus, Trash2 } from "lucide-react";
 import { formatVND } from "@/utils/format";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   DEPOSIT_DEFAULT_PERCENT,
   DUE_CUSTOM,
   DUE_ON_COMPLETION,
@@ -130,12 +137,10 @@ function SortableCostRow({
       {/* THỜI ĐIỂM THU — LOẠI có sẵn chứ không phải chữ tự do: bản trước để gõ chữ, và giao
         diện phải đoán xem câu đó có nghĩa "thu trước" không bằng cách dò từ khoá tiếng Việt —
         gõ "Ngay sau khi hai bên xác nhận" là đoán trượt, cảnh báo hiện sai.  #Huynh */}
-      <select
+      <Select
         value={item.due_type ?? DUE_ON_COMPLETION}
         disabled={disabled}
-        aria-label={`Thời điểm thu hạng mục ${ordinal}`}
-        onChange={(event) => onPatch({ due_type: event.target.value as DueType })}
-        className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary"
+        onValueChange={(value) => onPatch({ due_type: value as DueType })}
       >
         {/* "Khi ký hợp đồng" KHÔNG còn là lựa chọn của hạng mục thường.
           Khoản thu trước giờ có hàng riêng ghim đầu bảng; để lựa chọn này ở đây nữa là hai
@@ -145,14 +150,22 @@ function SortableCostRow({
           VẪN hiện nếu hạng mục ĐANG mang giá trị đó — báo giá cũ sinh ra dưới luật "hạng mục
           đầu mặc định thu khi ký". Bỏ khỏi danh sách mà không chừa là ô chọn hiện trống rỗng,
           rồi chạm vào một cái là âm thầm đổi thời điểm thu của một khoản tiền.  #Huynh */}
-        {(Object.keys(DUE_TYPE_LABELS) as DueType[])
-          .filter((type) => type !== DUE_ON_SIGNING || item.due_type === DUE_ON_SIGNING)
-          .map((type) => (
-            <option key={type} value={type}>
-              {type === DUE_CUSTOM ? "Khác…" : DUE_TYPE_LABELS[type]}
-            </option>
-          ))}
-      </select>
+        <SelectTrigger
+          aria-label={`Thời điểm thu hạng mục ${ordinal}`}
+          className="h-auto w-full rounded-md border-border bg-background px-2 py-1 text-xs"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(Object.keys(DUE_TYPE_LABELS) as DueType[])
+            .filter((type) => type !== DUE_ON_SIGNING || item.due_type === DUE_ON_SIGNING)
+            .map((type) => (
+              <SelectItem key={type} value={type}>
+                {type === DUE_CUSTOM ? "Khác…" : DUE_TYPE_LABELS[type]}
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
       {/* Ô ghi chú CHỈ hiện khi chọn "Khác" — hợp đồng thật hay có điều kiện riêng ("khi
         bên A duyệt bản demo"), ép về hai câu cố định là làm nghèo tờ giấy. Nhưng bày sẵn
         một ô trống cho mọi dòng thì panel tốn ba dòng mỗi hạng mục mà hầu như không ai

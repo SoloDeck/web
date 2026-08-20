@@ -9,6 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getClients, createClient, type ClientRecord } from "@/services/clientsService";
 import { createDeal, updateDeal, type DealPayload } from "@/services/dealsService";
 import { uploadDealAttachment } from "@/services/dealAttachmentsService";
@@ -144,7 +151,7 @@ export function NewDealModal({
   }, [deal, open]);
 
   const set = (field: keyof Form) =>
-    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       dispatch({ [field]: event.target.value });
 
   const setEstimatedValue = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -506,18 +513,22 @@ export function NewDealModal({
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Nguồn</label>
-                <select
+                <Select
                   value={form.source}
-                  onChange={set("source")}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  onValueChange={(value) => dispatch({ source: String(value) })}
                 >
-                  <option value="">— Chọn nguồn —</option>
-                  {SOURCE_OPTIONS.map((source) => (
-                    <option key={source.value} value={source.value}>
-                      {source.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-auto w-full rounded-lg px-3 py-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">— Chọn nguồn —</SelectItem>
+                    {SOURCE_OPTIONS.map((source) => (
+                      <SelectItem key={source.value} value={source.value}>
+                        {source.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div>

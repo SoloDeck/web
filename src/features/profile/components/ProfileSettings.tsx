@@ -24,6 +24,13 @@ import {
   type Profile,
   PROFESSIONS,
 } from "@/features/profile/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { changePassword } from "@/services/usersService";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { groupThousands, parseGrouped } from "@/utils/format";
@@ -199,18 +206,25 @@ export function ProfileSettings({ profile, onSave }: Props) {
                       </div>
 
                       <Field label="Nghề chính">
-                        <select
+                        <Select
+                          items={PROFESSIONS}
                           value={draft.profession}
-                          onChange={(e) => setDraft({ ...draft, profession: e.target.value })}
-                          className={inputCls}
+                          onValueChange={(value) =>
+                            setDraft({ ...draft, profession: value ?? "" })
+                          }
                         >
-                          <option value="">— Chọn nghề —</option>
-                          {PROFESSIONS.map((p) => (
-                            <option key={p.value} value={p.value}>
-                              {p.label}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="h-auto w-full rounded-md border-border bg-background px-3 py-2">
+                            <SelectValue placeholder="— Chọn nghề —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">— Chọn nghề —</SelectItem>
+                            {PROFESSIONS.map((p) => (
+                              <SelectItem key={p.value} value={p.value}>
+                                {p.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </Field>
                       <p className="text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">Nghề chính</span> giúp AI

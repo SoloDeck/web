@@ -5,6 +5,13 @@ import {
   ChevronLeft, ChevronRight, Clock, MessageCircle,
   Eye, Trash2,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { type ClientRecord, type ClientStatus } from "@/services/clientsService";
 import { useClients, useUpdateClient } from "@/features/clients/hooks/useClients";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
@@ -326,6 +333,19 @@ function ClientCard({
 
 type Filter = "all" | "prospect" | "active" | "inactive" | "archived";
 type SortKey = "newest" | "most_deals";
+
+const FILTER_ITEMS: Record<Filter, string> = {
+  all: "Trạng thái: Tất cả",
+  prospect: "Tiềm năng",
+  active: "Đang hoạt động",
+  inactive: "Không hoạt động",
+  archived: "Lưu trữ",
+};
+
+const SORT_ITEMS: Record<SortKey, string> = {
+  newest: "Sắp xếp: Mới nhất",
+  most_deals: "Hợp tác nhiều lần nhất",
+};
 type ViewMode = "table" | "card";
 
 export function ClientRecords({
@@ -433,25 +453,30 @@ export function ClientRecords({
               placeholder="Tìm tên, email, số điện thoại..."
               className="bg-transparent text-sm flex-1 outline-none" />
           </div>
-          <select
-            value={filter}
-            onChange={(e) => handleFilter(e.target.value as Filter)}
-            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
-          >
-            <option value="all">Trạng thái: Tất cả</option>
-            <option value="prospect">Tiềm năng</option>
-            <option value="active">Đang hoạt động</option>
-            <option value="inactive">Không hoạt động</option>
-            <option value="archived">Lưu trữ</option>
-          </select>
-          <select
-            value={sort}
-            onChange={(e) => handleSort(e.target.value as SortKey)}
-            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none cursor-pointer hover:bg-secondary transition-colors"
-          >
-            <option value="newest">Sắp xếp: Mới nhất</option>
-            <option value="most_deals">Hợp tác nhiều lần nhất</option>
-          </select>
+          <Select items={FILTER_ITEMS} value={filter} onValueChange={(v) => v && handleFilter(v)}>
+            <SelectTrigger className="rounded-lg bg-background px-3 py-1.5 cursor-pointer hover:bg-secondary transition-colors">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(FILTER_ITEMS) as Filter[]).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {FILTER_ITEMS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select items={SORT_ITEMS} value={sort} onValueChange={(v) => v && handleSort(v)}>
+            <SelectTrigger className="rounded-lg bg-background px-3 py-1.5 cursor-pointer hover:bg-secondary transition-colors">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SORT_ITEMS) as SortKey[]).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {SORT_ITEMS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="flex items-center rounded-lg border border-border overflow-hidden">
             <button onClick={() => setView("table")} title="Dạng bảng"
               className={`p-2 transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>

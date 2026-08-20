@@ -303,12 +303,7 @@ function AdminNavLink({
       )}
     >
       <item.icon className="size-4" />
-      <div className="min-w-0">
-        <div className="font-semibold">{item.label}</div>
-        <div className={cn("truncate text-xs", active ? "text-[#475467]" : "text-white/35")}>
-          {item.description}
-        </div>
-      </div>
+      <div className="min-w-0 truncate font-semibold">{item.label}</div>
     </Link>
   );
 }

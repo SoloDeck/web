@@ -1,6 +1,13 @@
 import { useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Loader2, MessageSquareText, Zap } from "lucide-react";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import { useReminderRules, useUpdateReminderRule } from "@/features/reminders/hooks/useReminders";
 import type { ReminderChannel, ReminderRule } from "@/services/remindersService";
@@ -41,6 +48,11 @@ const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
   { value: "both", label: "Gửi email + nhắc tôi" },
   { value: "zalo", label: "Gửi Zalo cho khách" },
 ];
+
+const HOURS: Array<{ value: number; label: string }> = Array.from(
+  { length: 24 },
+  (_, hour) => ({ value: hour, label: `${String(hour).padStart(2, "0")}:00` })
+);
 
 export function ReminderRulesSettings() {
   const rulesQuery = useReminderRules();
@@ -180,40 +192,50 @@ export function ReminderRulesSettings() {
 
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Kênh</span>
-                  <select
+                  <Select
+                    items={CHANNELS}
                     value={normalizeChannel(rule.channel)}
-                    onChange={(event) =>
-                      patch(rule, { channel: event.target.value as ReminderChannel })
+                    onValueChange={(value) =>
+                      patch(rule, { channel: value as ReminderChannel })
                     }
-                    className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {CHANNELS.map((channel) => {
-                      const zaloLocked = channel.value === "zalo" && !zaloConnected;
-                      return (
-                        <option
-                          key={channel.value}
-                          value={channel.value}
-                          disabled={zaloLocked}
-                        >
-                          {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
-                        </option>
-                      );
-                    })}
-                  </select>
+                    <SelectTrigger className="rounded-lg bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHANNELS.map((channel) => {
+                        const zaloLocked = channel.value === "zalo" && !zaloConnected;
+                        return (
+                          <SelectItem
+                            key={channel.value}
+                            value={channel.value}
+                            disabled={zaloLocked}
+                          >
+                            {zaloLocked ? `${channel.label} (chưa kết nối)` : channel.label}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                   <span className="text-muted-foreground">lúc</span>
-                  <select
+                  <Select
+                    items={HOURS}
                     value={rule.send_at_hour}
-                    onChange={(event) =>
-                      patch(rule, { send_at_hour: Number(event.target.value) })
+                    onValueChange={(value) =>
+                      patch(rule, { send_at_hour: Number(value) })
                     }
-                    className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {Array.from({ length: 24 }, (_, hour) => (
-                      <option key={hour} value={hour}>
-                        {String(hour).padStart(2, "0")}:00
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="rounded-lg bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {HOURS.map((hour) => (
+                        <SelectItem key={hour.value} value={hour.value}>
+                          {hour.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div
