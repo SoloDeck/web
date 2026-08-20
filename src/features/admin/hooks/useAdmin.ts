@@ -4,6 +4,7 @@ import {
   createAdminPlan,
   createAdminTemplate,
   deleteAdminPlan,
+  listAdminPayments,
   listAiCosts,
   listAuditLogs,
   listAdminPlans,
@@ -18,6 +19,7 @@ import {
   getAdminLLMProvider,
   updateAdminLLMProvider,
   type AdminUpdateLLMProviderPayload,
+  type AdminPaymentFilters,
   type AdminPlanPayload,
   type AdminTemplateCreatePayload,
   type AdminTemplateFilter,
@@ -35,6 +37,7 @@ export const adminKeys = {
   users: ["admin", "users"] as const,
   plans: ["admin", "plans"] as const,
   aiCosts: ["admin", "ai-costs"] as const,
+  payments: ["admin", "payments"] as const,
   auditLogs: ["admin", "audit-logs"] as const,
   templates: ["admin", "templates"] as const,
   aiProvider: ["admin", "ai-provider"] as const,
@@ -74,6 +77,21 @@ export function useUpdateAdminTemplate() {
 
 export function useAiCosts() {
   return useQuery({ queryKey: adminKeys.aiCosts, queryFn: listAiCosts });
+}
+
+/**
+ * Danh sách giao dịch thanh toán (chỉ đọc), lọc + phân trang PHÍA MÁY CHỦ.
+ *
+ * `filters` nằm trong khoá nên mỗi bộ lọc là một mục cache riêng — quay lại bộ lọc cũ thì
+ * có ngay, không phải chờ mạng. `placeholderData` giữ trang cũ trên màn hình trong lúc
+ * trang mới đang bay về: bấm "Sau" không làm bảng chớp trắng rồi nhảy chiều cao.  #Huynh
+ */
+export function useAdminPayments(filters: AdminPaymentFilters = {}) {
+  return useQuery({
+    queryKey: [...adminKeys.payments, filters] as const,
+    queryFn: () => listAdminPayments(filters),
+    placeholderData: (previous) => previous,
+  });
 }
 
 export function useAuditLogs() {

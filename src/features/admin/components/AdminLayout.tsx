@@ -9,6 +9,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Receipt,
   RefreshCw,
   ScrollText,
   Settings,
@@ -29,7 +30,7 @@ type AdminNavItem = {
 };
 
 /**
- * Bảy tab của khu quản trị.
+ * Tám tab của khu quản trị.
  *
  * Không còn trường `page` như bản cũ: danh tính của một tab bây giờ CHÍNH LÀ `path` của
  * nó. Trước đây `page` phải khớp tay với `path` ở hai nơi, và chỉ cần lệch một chữ là mục
@@ -53,6 +54,12 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     path: "/admin/plans",
     icon: CreditCard,
     description: "Danh mục gói và giới hạn sử dụng",
+  },
+  {
+    label: "Giao dịch thanh toán",
+    path: "/admin/payment-transactions",
+    icon: Receipt,
+    description: "Ai mua gói nào, lúc nào, bao nhiêu tiền",
   },
   {
     label: "Thư viện mẫu",
