@@ -150,6 +150,17 @@ describe("<SubscriptionPage /> — mua gói", () => {
     window.history.replaceState({}, "", "/");
   });
 
+  /**
+   * Bấm nút nâng cấp trên thẻ gói RỒI gật đầu ở hộp xác nhận.
+   *
+   * Hai bước, không phải một: nút trên thẻ giờ chỉ mở hộp thoại. Test nào chỉ bấm thẻ mà
+   * mong `mockCheckout` được gọi là đang mô tả luồng đã bỏ.
+   */
+  async function nangCap(thuTu = 0) {
+    await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[thuTu]);
+    await userEvent.click(await screen.findByRole("button", { name: /tới trang thanh toán/i }));
+  }
+
   it("bấm nâng cấp thì gọi checkout kèm return_url tuyệt đối và nhớ id trước khi rời trang", async () => {
     mockCheckout.mockResolvedValue(
       intentStub({
@@ -163,7 +174,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     );
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
+    await nangCap();
 
     await waitFor(() => expect(mockCheckout).toHaveBeenCalledTimes(1));
     const arg = mockCheckout.mock.calls[0][0];
@@ -180,7 +191,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     });
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
+    await nangCap();
 
     await waitFor(() =>
       expect(mockToastError).toHaveBeenCalledWith("Gói free không cần thanh toán.")
@@ -191,7 +202,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     mockCheckout.mockResolvedValue(intentStub());
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
+    await nangCap();
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
     expect(sessionStorage.getItem("intent")).toBeNull();
@@ -231,7 +242,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     // gắn nhầm nút mua vào gói 0đ là test đổ.
     render(<SubscriptionPage />, { wrapper });
 
-    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^nâng cấp$/i })).toHaveLength(2);
     expect(screen.getByText(/đang sử dụng/i)).toBeInTheDocument();
   });
 
@@ -275,17 +286,81 @@ describe("<SubscriptionPage /> — mua gói", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/đang xác nhận/i);
   });
 
-  it("bấm nâng cấp ở một thẻ thì CHỈ thẻ đó quay spinner", async () => {
-    // Trước đây `buying` lấy chung `checkout.isPending` nên cả ba thẻ cùng quay.  #Huynh
+
+  it("bấm nút trên thẻ thì CHƯA gọi checkout — phải hỏi lại trước đã", async () => {
+    // Ba thẻ gói xếp sát nhau, nút cùng cỡ cùng màu. Bấm là đi thẳng sang MoMo thì trượt
+    // tay một ô đã thành một lần trả tiền cho gói không định mua.  #Huynh
+    render(<SubscriptionPage />, { wrapper });
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[0]);
+
+    expect(mockCheckout).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("hộp xác nhận nói rõ TÊN GÓI và SỐ TIỀN, không hỏi trống không", async () => {
+    // Hỏi "Bạn có chắc không?" thì người dùng chỉ biết mình vừa bấm cái gì đó. Hai thứ
+    // quyết định câu trả lời — mua gói nào, hết bao nhiêu — phải nằm ngay trong câu hỏi.
+    render(<SubscriptionPage />, { wrapper });
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[0]);
+
+    const hop = await screen.findByRole("alertdialog");
+    expect(hop).toHaveTextContent(/gói Pro/i);
+    expect(hop).toHaveTextContent(/199\.000/);
+  });
+
+  it("bấm Để sau thì đóng hộp và không gọi checkout", async () => {
+    render(<SubscriptionPage />, { wrapper });
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: /để sau/i }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(mockCheckout).not.toHaveBeenCalled();
+  });
+
+  it("hộp xác nhận mở đúng gói được bấm, không phải gói đầu bảng", async () => {
+    render(<SubscriptionPage />, { wrapper });
+
+    // Thẻ trả phí thứ hai: Agency 499.000đ.
+    await userEvent.click(screen.getAllByRole("button", { name: /^nâng cấp$/i })[1]);
+
+    const hop = await screen.findByRole("alertdialog");
+    expect(hop).toHaveTextContent(/gói Agency/i);
+    expect(hop).toHaveTextContent(/499\.000/);
+  });
+
+  it("checkout hỏng thì đóng hộp xác nhận, để toast lỗi không nằm sau lớp phủ", async () => {
+    mockCheckout.mockRejectedValue({
+      response: { status: 500, data: { error: { message: "MoMo đang bận." } } },
+    });
+
+    render(<SubscriptionPage />, { wrapper });
+    await nangCap();
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("MoMo đang bận."));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+  it("xác nhận xong thì CHỈ thẻ vừa chọn quay spinner, không phải cả bảng giá", async () => {
+    // Hai lần hỏng đã gặp ở đúng chỗ này: (1) `buying` lấy chung `checkout.isPending` nên
+    // cả ba thẻ cùng quay; (2) khoá các thẻ còn lại bằng `disabled` khiến chúng đồng loạt
+    // mờ đi — không quay spinner, nhưng nhìn thì vẫn là "cả bảng giá đang tải".  #Huynh
     mockCheckout.mockReturnValue(new Promise(() => {})); // treo mãi: giữ trạng thái đang bấm
 
     render(<SubscriptionPage />, { wrapper });
-    await userEvent.click(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })[0]);
+    await nangCap();
 
+    // `hidden: true` vì hộp thoại đang mở đã gắn aria-hidden lên phần còn lại của trang.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /đang mở trang thanh toán/i })).toBeInTheDocument()
+      expect(
+        screen.getAllByRole("button", { name: /đang mở trang thanh toán/i, hidden: true })
+      ).toHaveLength(1)
     );
-    expect(screen.queryAllByRole("button", { name: /đang mở trang thanh toán/i })).toHaveLength(1);
+    // Thẻ trả phí còn lại vẫn nguyên nút bình thường, không mờ, không spinner.
+    expect(
+      screen.getAllByRole("button", { name: /^nâng cấp$/i, hidden: true })
+    ).toHaveLength(1);
   });
 
   it("gói 0đ KHÔNG mua được, dù giá về dạng chuỗi Decimal", () => {
@@ -312,7 +387,7 @@ describe("<SubscriptionPage /> — mua gói", () => {
     render(<SubscriptionPage />, { wrapper });
 
     // Vẫn đúng hai nút mua (Pro và Agency). Gắn nút mua vào gói 200đ là test này đổ.
-    expect(screen.getAllByRole("button", { name: /nâng cấp qua momo/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^nâng cấp$/i })).toHaveLength(2);
   });
 
   it("gói tự tạo xếp xuống cuối bảng giá, không nhảy lên trước gói Free", () => {

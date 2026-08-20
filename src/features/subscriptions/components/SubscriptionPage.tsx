@@ -18,6 +18,7 @@ import {
 } from "@/services/subscriptionsService";
 import { readMomoReturn, stripMomoParams } from "@/features/subscriptions/lib/momoReturn";
 import { forgetIntent, readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,15 +93,13 @@ function PlanCard({
   isCurrent,
   onBuy,
   buying,
-  disabled = false,
 }: {
   plan: PlanResponse;
   isCurrent: boolean;
+  /** Mở hộp xác nhận. KHÔNG dựng phiên thanh toán ngay — bấm nhầm một cái là mất tiền. */
   onBuy: (plan: PlanResponse) => void;
   /** ĐÚNG thẻ này đang mở phiên thanh toán — không phải "có ai đó đang mở". */
   buying: boolean;
-  /** Một thẻ KHÁC đang mở phiên thanh toán. */
-  disabled?: boolean;
 }) {
   const meta = PLAN_META[plan.slug] ?? PLAN_META.free;
   const Icon = meta.icon;
@@ -191,7 +190,7 @@ function PlanCard({
         // hộp thư bật lên, trong khi hệ thống thừa sức tự bán.  #Huynh
         <button
           type="button"
-          disabled={isFree || unpayable || buying || disabled}
+          disabled={isFree || unpayable || buying}
           onClick={() => onBuy(plan)}
           className={cn(
             "inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all disabled:pointer-events-none",
@@ -212,7 +211,7 @@ function PlanCard({
           ) : (
             <>
               <CreditCard className="h-4 w-4" />
-              Nâng cấp qua MoMo
+              Nâng cấp
             </>
           )}
         </button>
@@ -262,6 +261,16 @@ export function SubscriptionPage() {
   const { data: intent, pollTimedOut } = usePaymentIntent(intentId);
   const checkout = useCreateCheckout();
 
+  // Gói đang chờ người dùng gật đầu. Bấm nút trên thẻ KHÔNG dựng phiên thanh toán ngay:
+  // ba thẻ nằm sát nhau, nút cùng cỡ cùng màu, mà bấm nhầm một cái là bị ném thẳng sang
+  // MoMo với một số tiền không định trả. Một lần hỏi lại là đủ để chặn chuyện đó.
+  //
+  // Hộp thoại này CŨNG là cái khoá chống mở hai phiên cùng lúc: nó phủ overlay lên cả
+  // trang nên trong lúc mở không bấm được thẻ nào khác. Nhờ vậy bỏ được kiểu khoá cũ —
+  // truyền `disabled` sang mọi thẻ còn lại — thứ làm ba thẻ kia cùng mờ đi một lượt,
+  // nhìn hệt như cả ba đang tải.  #Huynh
+  const [planToConfirm, setPlanToConfirm] = useState<PlanResponse | null>(null);
+
   // Nút nào đang bấm — theo ID GÓI, không phải một cờ boolean dùng chung. Dùng
   // `checkout.isPending` cho mọi thẻ thì bấm một thẻ là cả ba thẻ cùng quay spinner.  #Huynh
   const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
@@ -292,6 +301,8 @@ export function SubscriptionPage() {
       if (!link) {
         toast.error("MoMo không trả về link thanh toán. Thử lại giúp mình nhé.");
         setUpgradingPlanId(null);
+        // Đóng hộp thoại luôn, nếu không toast đỏ nằm sau lớp overlay.
+        setPlanToConfirm(null);
         return;
       }
 
@@ -304,6 +315,7 @@ export function SubscriptionPage() {
       window.location.href = link;
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Không mở được trang thanh toán. Thử lại giúp mình nhé."));
+      setPlanToConfirm(null);
       setUpgradingPlanId(null);
     }
   }
@@ -496,23 +508,53 @@ export function SubscriptionPage() {
               key={plan.id}
               plan={plan}
               isCurrent={subscription?.plan_slug === plan.slug}
-              onBuy={handleBuy}
-              // Chỉ thẻ VỪA BẤM mới quay spinner…
+              onBuy={setPlanToConfirm}
+              // CHỈ thẻ vừa bấm mới quay spinner. Các thẻ khác không đụng tới: hộp xác
+              // nhận đã phủ overlay chặn hết rồi.
               buying={upgradingPlanId === plan.id}
-              // …còn các thẻ khác thì khoá tạm, để không mở hai phiên thanh toán cùng lúc.
-              disabled={upgradingPlanId !== null && upgradingPlanId !== plan.id}
             />
           ))}
         </div>
       )}
 
-      {/* Footer note */}
+      {/* Một lần hỏi lại trước khi rời trang sang MoMo.
+          Không phải thủ tục cho có: ba thẻ gói xếp sát nhau, nút nằm cùng một hàng và
+          trông giống hệt nhau, nên trượt tay một ô là sang thẳng cổng thanh toán với số
+          tiền của gói bên cạnh. Câu hỏi này nói rõ TÊN GÓI và SỐ TIỀN — hai thứ mà cái
+          nút trên thẻ không tự nói được.  #Huynh */}
+      <ConfirmDialog
+        open={planToConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setPlanToConfirm(null);
+        }}
+        title={planToConfirm ? `Nâng cấp lên gói ${planToConfirm.name}?` : ""}
+        description={
+          planToConfirm
+            ? `Bạn sẽ được chuyển sang MoMo để thanh toán ${formatPrice(
+                planPrice(planToConfirm),
+                planToConfirm.currency
+              )} cho một kỳ 30 ngày. Gói hiện tại giữ nguyên cho tới khi MoMo báo đã thu tiền.`
+            : undefined
+        }
+        confirmLabel="Tới trang thanh toán"
+        cancelLabel="Để sau"
+        isLoading={planToConfirm !== null && upgradingPlanId === planToConfirm.id}
+        onConfirm={() => {
+          if (planToConfirm) void handleBuy(planToConfirm);
+        }}
+      />
+
+      {/* Email HỖ TRỢ, không phải cách để nâng cấp.
+          Câu cũ ("liên hệ email để nâng cấp, kích hoạt trong 24 giờ") là di sản từ hồi
+          backend chưa bán được: nay bấm nút là sang thẳng MoMo và gói tự kích hoạt khi
+          tiền về. Để nguyên thì trang tự phủ nhận cái nút ngay phía trên nó, và người dùng
+          ngồi chờ 24 giờ cho một việc mất 2 phút.  #Huynh */}
       <p className="text-center text-xs text-muted-foreground">
-        Để nâng cấp hoặc thay đổi gói, vui lòng liên hệ{" "}
+        Thanh toán xong mà gói chưa đổi, hoặc cần hoá đơn? Nhắn cho{" "}
         <a href="mailto:solodeskai@gmail.com" className="text-primary underline underline-offset-2">
           solodeskai@gmail.com
-        </a>
-        . Chúng tôi sẽ kích hoạt trong vòng 24 giờ.
+        </a>{" "}
+        kèm mã giao dịch MoMo giúp mình nhé.
       </p>
     </div>
   );
