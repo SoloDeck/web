@@ -9,18 +9,19 @@ import type { ApiResponse } from "@/features/auth/types";
 export type PlanSlug = string;
 
 /**
- * Hạn mức MoMo nhận cho một giao dịch:
- * https://developers.momo.vn/v3/docs/payment/api/wallet/onetime/
+ * Hạn mức cho MỘT giao dịch. **Cả ba cổng đang để y hệt nhau**: 1.000đ – 50.000.000đ
+ * (`momo_min/max_amount`, `zalopay_min/max_amount`, `sepay_min/max_amount` trong
+ * `backend/src/config/settings.py`).
+ *
+ * Trước đây tên là `MOMO_*` vì chỉ có một cổng. Giữ tên đó khi đã có ba cổng là nói dối:
+ * người dùng chọn SePay mà đọc thấy "hạn mức MoMo" thì không hiểu vì sao mình bị chặn.
  *
  * Đây là BẢN SAO, không phải nguồn sự thật — backend mới là nơi chặn thật. Bản này chỉ
  * để KHÔNG BÀY RA một cái nút chắc chắn hỏng. Hai bên lệch nhau thì backend thắng, và
- * người dùng nhận đúng câu backend trả về qua toast.
- *
- * Cách còn lại là thêm một endpoint trả hạn mức, tức một vòng request cho hai con số gần
- * như không bao giờ đổi.
+ * người dùng nhận đúng câu backend trả về qua toast.  #Huynh
  */
-export const MOMO_MIN_AMOUNT_VND = 1_000;
-export const MOMO_MAX_AMOUNT_VND = 50_000_000;
+export const PAYMENT_MIN_AMOUNT_VND = 1_000;
+export const PAYMENT_MAX_AMOUNT_VND = 50_000_000;
 
 export type PlanResponse = {
   id: string;
@@ -73,25 +74,62 @@ export const SETTLED_PAYMENT_STATUSES: readonly PaymentIntentStatus[] = [
   "expired",
 ];
 
+/** Cổng thanh toán. Khớp `Literal` trong `CreateSubscriptionCheckoutRequest` bên backend. */
+export type PaymentProvider = "momo" | "zalopay" | "sepay";
+
+/**
+ * Hình dạng của `payment_link`. Backend khai bốn giá trị `type` nhưng **chỉ phát ra hai**
+ * (`_payment_link` trong `subscriptions/schemas/response.py` chỉ có hai nhánh return):
+ *
+ *   `checkout_url`              — momo, zalopay. `url` là link để ĐIỀU HƯỚNG trình duyệt.
+ *   `bank_transfer_instruction` — sepay.        `url` là **ẢNH PNG VietQR**, đừng điều hướng.
+ *
+ * CÁI BẪY: với momo/zalopay thì `instructions` KHÔNG phải câu hướng dẫn mà là **deeplink**
+ * mở app (`momo://…`, `zalopay://app?…`). Render nó thành chữ là bày ra một chuỗi vô nghĩa
+ * cho người dùng. Chỉ sepay mới có `instructions` là câu tiếng Việt đọc được.  #Huynh
+ */
+export type PaymentLink = {
+  type: "checkout_url" | "deep_link" | "qr_code" | "bank_transfer_instruction";
+  url: string | null;
+  qr_code_url: string | null;
+  instructions: string | null;
+};
+
 export type PaymentIntentResponse = {
   id: string;
   subscription_id: string;
   plan_id: string;
-  provider: "momo";
+  provider: PaymentProvider;
   status: PaymentIntentStatus;
-  amount: number;
+  /**
+   * CHUỖI, không phải số — cùng lý do với `PlanResponse.price_monthly`: backend là
+   * `Decimal` nên serialize ra `"199000.00"`. Dùng `intentAmount()` để đọc ra số.
+   */
+  amount: string;
   currency: string;
-  payment_link: {
-    type: "checkout_url" | "deep_link" | "qr_code" | "bank_transfer_instruction";
-    url: string | null;
-    qr_code_url: string | null;
-    instructions: string | null;
-  };
+  /**
+   * Mã đơn ngắn, dạng `SD` + 8 ký tự (`SD7K2M9PQR`). Người chuyển khoản phải ghi ĐÚNG mã
+   * này vào nội dung, nên nó cần một ô riêng để sao chép — đừng bóc ra từ tham số `des`
+   * của URL QR.
+   *
+   * Backend sinh cho MỌI cổng chứ không riêng sepay (`service.initiate_checkout` gọi
+   * `generate_order_code()` vô điều kiện). `null` chỉ với bản ghi tạo trước khi có cột này.
+   */
+  order_code: string | null;
+  payment_link: PaymentLink;
   provider_reference: string | null;
   paid_at: string | null;
   expires_at: string;
   failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
 };
+
+/** Số tiền của một đơn ra số. Cùng lý do với `planPrice` — backend trả chuỗi Decimal. */
+export function intentAmount(intent: Pick<PaymentIntentResponse, "amount">): number {
+  const value = Number(intent.amount);
+  return Number.isFinite(value) ? value : 0;
+}
 
 /** Giá gói ra số. Backend trả chuỗi Decimal (`"199000.00"`), đọc hỏng thì coi như 0. */
 export function planPrice(plan: Pick<PlanResponse, "price_monthly">): number {
@@ -100,13 +138,13 @@ export function planPrice(plan: Pick<PlanResponse, "price_monthly">): number {
 }
 
 /**
- * Giá này có nằm trong khoảng MoMo nhận không.
+ * Giá này có nằm trong khoảng các cổng nhận không.
  *
  * Chỉ hỏi cho gói CÓ PHÍ — gói 0đ không đi qua cổng thanh toán nên không chịu hạn mức
  * nào; phía gọi tự tách nhánh đó ra trước.
  */
-export function isMomoPayableAmount(amount: number): boolean {
-  return amount >= MOMO_MIN_AMOUNT_VND && amount <= MOMO_MAX_AMOUNT_VND;
+export function isPayableAmount(amount: number): boolean {
+  return amount >= PAYMENT_MIN_AMOUNT_VND && amount <= PAYMENT_MAX_AMOUNT_VND;
 }
 
 export async function listPlans(): Promise<PlanResponse[]> {
@@ -132,6 +170,7 @@ export async function getMySubscription(): Promise<SubscriptionResponse> {
  */
 export async function createCheckout(params: {
   planId: string;
+  provider: PaymentProvider;
   returnUrl: string;
 }): Promise<PaymentIntentResponse> {
   const { data } = await axiosClient.post<ApiResponse<PaymentIntentResponse>>(
@@ -148,6 +187,22 @@ export async function createCheckout(params: {
  * sửa tay query string, hoặc đóng tab trước khi bị chuyển hướng — trong khi tiền vẫn vào
  * qua IPN. Nên trang chỉ dùng URL để biết CẦN HỎI intent nào, còn kết quả thì hỏi backend.
  */
+/**
+ * POST /payments/intents/{id}/cancel — huỷ một đơn còn treo.
+ *
+ * Chỉ huỷ được khi đơn còn `pending`/`processing`; đã chốt rồi thì backend trả 409.
+ *
+ * CẢNH BÁO NGHIỆP VỤ: huỷ xong mà người dùng VẪN chuyển khoản thì tiền vào thật, nhưng
+ * webhook thấy trạng thái đã khác `pending` nên coi là replay và **không kích hoạt gói**.
+ * Giao diện phải nói rõ điều này trước khi cho bấm huỷ.  #Huynh
+ */
+export async function cancelPaymentIntent(intentId: string): Promise<PaymentIntentResponse> {
+  const { data } = await axiosClient.post<ApiResponse<PaymentIntentResponse>>(
+    `/payments/intents/${intentId}/cancel`
+  );
+  return data.data;
+}
+
 export async function getPaymentIntent(intentId: string): Promise<PaymentIntentResponse> {
   const { data } = await axiosClient.get<ApiResponse<PaymentIntentResponse>>(
     `/payments/intents/${intentId}`

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import type {
   AdminPayment,
   AdminPaymentFilters,
-  AdminPaymentProvider,
+  AdminPaymentProviderFilter,
   AdminPaymentSortBy,
   AdminPaymentStatus,
 } from "@/services/adminService";
@@ -30,7 +30,11 @@ const STATUS_OPTIONS: { value: AdminPaymentStatus; label: string }[] = [
   { value: "cancelled", label: "Đã huỷ" },
 ];
 
-const PROVIDER_OPTIONS: { value: AdminPaymentProvider; label: string }[] = [
+/**
+ * Các kênh ĐEM LỌC ĐƯỢC — bám theo `Literal` mà router admin nhận, không bám theo enum thật.
+ * Gửi giá trị ngoài danh sách này lên là 422. Xem ghi chú ở `AdminPaymentProviderFilter`.
+ */
+const PROVIDER_OPTIONS: { value: AdminPaymentProviderFilter; label: string }[] = [
   { value: "momo", label: "MoMo" },
   { value: "bank_transfer", label: "Chuyển khoản" },
   { value: "vnpay", label: "VNPay" },
@@ -41,9 +45,15 @@ const STATUS_LABEL: Record<string, string> = Object.fromEntries(
   STATUS_OPTIONS.map((option) => [option.value, option.label]),
 );
 
-const PROVIDER_LABEL: Record<string, string> = Object.fromEntries(
-  PROVIDER_OPTIONS.map((option) => [option.value, option.label]),
-);
+/**
+ * Nhãn để HIỂN THỊ — phải phủ cả những kênh không lọc được, vì dòng giao dịch thì vẫn về.
+ * Thiếu `zalopay`/`sepay` ở đây thì cột Kênh in ra đúng chữ `sepay` viết thường.
+ */
+const PROVIDER_LABEL: Record<string, string> = {
+  ...Object.fromEntries(PROVIDER_OPTIONS.map((option) => [option.value, option.label])),
+  zalopay: "ZaloPay",
+  sepay: "SePay",
+};
 
 /**
  * Màu của một trạng thái nói trước cả chữ.
@@ -91,7 +101,7 @@ const ROW_GRID = "lg:grid-cols-[minmax(220px,1.5fr)_minmax(130px,1fr)_140px_150p
 export function AdminPaymentTransactionsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<AdminPaymentStatus | "all">("all");
-  const [provider, setProvider] = useState<AdminPaymentProvider | "all">("all");
+  const [provider, setProvider] = useState<AdminPaymentProviderFilter | "all">("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [sort, setSort] = useState(SORT_OPTIONS[0].value);
@@ -240,7 +250,7 @@ export function AdminPaymentTransactionsPage() {
           </select>
           <select
             value={provider}
-            onChange={(event) => changeFilter(() => setProvider(event.target.value as AdminPaymentProvider | "all"))}
+            onChange={(event) => changeFilter(() => setProvider(event.target.value as AdminPaymentProviderFilter | "all"))}
             className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none"
             aria-label="Lọc kênh thanh toán"
           >

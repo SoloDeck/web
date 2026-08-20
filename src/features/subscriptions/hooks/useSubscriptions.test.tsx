@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { usePaymentIntent, useMySubscription } from "@/features/subscriptions/hooks/useSubscriptions";
+import {
+  useCreateCheckout,
+  usePaymentIntent,
+  useMySubscription,
+} from "@/features/subscriptions/hooks/useSubscriptions";
 import { readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 import type { PaymentIntentResponse, SubscriptionResponse } from "@/services/subscriptionsService";
 
@@ -22,6 +26,7 @@ import type { PaymentIntentResponse, SubscriptionResponse } from "@/services/sub
 
 const mockGetPaymentIntent = vi.fn();
 const mockGetMySubscription = vi.fn();
+const mockCreateCheckout = vi.fn();
 
 vi.mock("@/services/subscriptionsService", async () => {
   const actual =
@@ -33,7 +38,7 @@ vi.mock("@/services/subscriptionsService", async () => {
     getPaymentIntent: (...args: unknown[]) => mockGetPaymentIntent(...args),
     getMySubscription: (...args: unknown[]) => mockGetMySubscription(...args),
     listPlans: vi.fn(),
-    createCheckout: vi.fn(),
+    createCheckout: (...args: unknown[]) => mockCreateCheckout(...args),
   };
 });
 
@@ -44,13 +49,16 @@ function intentStub(over: Partial<PaymentIntentResponse> = {}): PaymentIntentRes
     plan_id: "plan-pro",
     provider: "momo",
     status: "pending",
-    amount: 199000,
+    amount: "199000.00",
     currency: "VND",
     payment_link: { type: "checkout_url", url: null, qr_code_url: null, instructions: null },
+    order_code: "SDTEST0001",
     provider_reference: null,
     paid_at: null,
     expires_at: "2026-01-01T00:30:00Z",
     failure_reason: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
     ...over,
   };
 }
@@ -192,5 +200,104 @@ describe("usePaymentIntent — mã đơn tra không ra", () => {
     await waitFor(() => expect(hook.result.current.isError).toBe(true));
     expect(hook.result.current.intentUnresolvable).toBe(false);
     expect(readRememberedIntent()).toBe("intent-that");
+  });
+});
+
+
+describe("usePaymentIntent — trần thời gian khác nhau theo cổng", () => {
+  /**
+   * Vì sao phải có: hai phút đặt cho luồng MoMo, nơi người dùng ĐÃ trả tiền xong rồi mới
+   * quay về. Chuyển khoản thì ngược hẳn — 30 phút đó là để họ mở app ngân hàng, đăng nhập,
+   * nhập số, xác thực. Dùng chung hai phút cho cả hai thì gần như MỌI đơn SePay đều kết
+   * thúc bằng màn "hết giờ" trong khi đơn vẫn còn sống gần nửa tiếng.
+   *
+   * Dùng đồng hồ giả và KHÔNG dùng `waitFor` — `waitFor` chờ theo đồng hồ thật nên treo
+   * dưới fake timers.
+   */
+  function nhinDongHoTien(ms: number) {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+  }
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("đơn SePay KHÔNG bị coi là quá giờ sau 2 phút — chuyển khoản cần tới 30 phút", () => {
+    const intent = intentStub({
+      provider: "sepay",
+      status: "pending",
+      expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+    });
+    qc.setQueryData(["payments", "intent", "intent-1"], intent);
+    mockGetPaymentIntent.mockResolvedValue(intent);
+
+    const hook = renderHook(() => usePaymentIntent("intent-1"), { wrapper });
+    nhinDongHoTien(3 * 60_000);
+
+    expect(hook.result.current.pollTimedOut).toBe(false);
+  });
+
+  it("đơn MoMo vẫn dừng ở 2 phút, không kéo dài vô cớ", () => {
+    const intent = intentStub({
+      provider: "momo",
+      status: "pending",
+      expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+    });
+    qc.setQueryData(["payments", "intent", "intent-1"], intent);
+    mockGetPaymentIntent.mockResolvedValue(intent);
+
+    const hook = renderHook(() => usePaymentIntent("intent-1"), { wrapper });
+    nhinDongHoTien(2 * 60_000 + 1_000);
+
+    expect(hook.result.current.pollTimedOut).toBe(true);
+  });
+});
+
+describe("useCreateCheckout — gieo sẵn đơn vừa tạo vào cache", () => {
+  /**
+   * Dòng `setQueryData` trong `useCreateCheckout` trông như tối ưu vặt, nhưng với SePay nó
+   * là thứ giữ cho màn QR có nội dung: trang KHÔNG rời đi, hộp QR mở ngay, mà `usePaymentIntent`
+   * lúc đó còn chưa gọi GET lần nào. Không có dòng này thì `data` là `undefined` và người
+   * dùng nhìn một hộp trống.
+   *
+   * Test của TRANG không phủ được chỗ này vì nó mock thẳng `usePaymentIntent`. Nên phải
+   * canh ở đây, đúng nơi sự thật nằm.
+   */
+  it("đơn vừa tạo đọc được NGAY, không phải chờ vòng GET đầu tiên", async () => {
+    const intent = intentStub({ id: "intent-sepay", provider: "sepay" });
+    mockCreateCheckout.mockResolvedValue(intent);
+    // Cố tình để GET không bao giờ trả lời: nếu màn QR có nội dung thì chỉ có thể là nhờ cache.
+    mockGetPaymentIntent.mockReturnValue(new Promise(() => {}));
+
+    const tao = renderHook(() => useCreateCheckout(), { wrapper });
+    await act(async () => {
+      await tao.result.current.mutateAsync({
+        planId: "plan-pro",
+        provider: "sepay",
+        returnUrl: "https://app.test/?tab=subscription",
+      });
+    });
+
+    const doc = renderHook(() => usePaymentIntent("intent-sepay"), { wrapper });
+    expect(doc.result.current.data?.id).toBe("intent-sepay");
+  });
+
+  it("cổng được truyền thẳng xuống service, không bị ghi đè thành momo", async () => {
+    // Trước đợt này service hardcode "momo" nên hai cổng kia không ai gọi tới được.
+    mockCreateCheckout.mockResolvedValue(intentStub({ provider: "zalopay" }));
+
+    const tao = renderHook(() => useCreateCheckout(), { wrapper });
+    await act(async () => {
+      await tao.result.current.mutateAsync({
+        planId: "plan-pro",
+        provider: "zalopay",
+        returnUrl: "https://app.test/?tab=subscription",
+      });
+    });
+
+    // Xét tham số ĐẦU chứ không dùng `toHaveBeenCalledWith`: TanStack v5 còn nhét thêm một
+    // tham số ngữ cảnh thứ hai, mà matcher đó thì so khớp trọn cả danh sách tham số.
+    expect(mockCreateCheckout.mock.calls[0][0]).toMatchObject({ provider: "zalopay" });
   });
 });
