@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && bun run prerender",
-    "prerender": "vite build --ssr src/entry-server.tsx --outDir dist-ssr && tsx scripts/prerender.ts",
+    "prerender": "vite build --ssr src/entry-server.tsx --outDir dist-ssr && bun scripts/prerender.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
@@ -72,7 +72,6 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "jsdom": "^29.1.1",
-    "tsx": "^4.23.12",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
