@@ -1,0 +1,25 @@
+User-agent: *
+Allow: /
+
+# Màn đăng nhập/đăng ký: không có nội dung để xếp hạng.
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /onboarding
+
+# Link riêng đã phát cho khách hàng — đoán không ra, nhưng đã lọt chỉ mục thì gỡ rất phiền.
+Disallow: /ho-so/
+Disallow: /bieu-mau/
+Disallow: /intake/
+
+# Workspace sau đăng nhập.
+Disallow: /clients/
+Disallow: /deals/
+Disallow: /admin
+Disallow: /admin/
+
+# `/` là bảng Kanban của freelancer đã đăng nhập, KHÔNG phải trang giới thiệu.
+# Neo `$` chặn ĐÚNG đường dẫn gốc; mọi `/{slug}` hồ sơ công khai vẫn được thu thập.
+Disallow: /$
+
+Sitemap: https://solodesk.space/sitemap.xml

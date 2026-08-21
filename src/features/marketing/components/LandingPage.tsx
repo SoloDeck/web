@@ -1,3 +1,5 @@
+import { Helmet } from "react-helmet-async";
+
 import { AiStagesSection } from "@/features/marketing/components/AiStagesSection";
 import { AudienceSection } from "@/features/marketing/components/AudienceSection";
 import { FactsBand } from "@/features/marketing/components/FactsBand";
@@ -7,6 +9,35 @@ import { LandingFooter, LandingNavbar } from "@/features/marketing/components/La
 import { PainPointsSection } from "@/features/marketing/components/PainPointsSection";
 import { PipelineStagesSection } from "@/features/marketing/components/PipelineStagesSection";
 import { PricingSection } from "@/features/marketing/components/PricingSection";
+import { OFFICIAL_TITLE_VI, SEO_HOME } from "@/features/marketing/content";
+import { DEFAULT_OG_IMAGE, SITE_NAME, SITE_URL, absoluteUrl } from "@/seo/config";
+
+const HOME_URL = absoluteUrl("/home");
+
+/**
+ * JSON-LD: dựng ở cấp module và chuỗi hoá MỘT lần.
+ *
+ * `<script type="application/ld+json">` chỉ nhận đúng một node chữ làm con, nên phải tự
+ * `JSON.stringify` chứ không xuống dòng JSX được.  #Huynh
+ */
+const HOME_JSON_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  alternateName: OFFICIAL_TITLE_VI,
+  url: HOME_URL,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  inLanguage: "vi-VN",
+  description: SEO_HOME.description,
+  image: DEFAULT_OG_IMAGE,
+  publisher: {
+    "@type": "Organization",
+    name: SITE_NAME,
+    url: SITE_URL,
+    logo: `${SITE_URL}/favicon.svg`,
+  },
+});
 
 /**
  * Trang giới thiệu công khai — điểm vào DUY NHẤT là đăng nhập cho freelancer.
@@ -29,6 +60,24 @@ import { PricingSection } from "@/features/marketing/components/PricingSection";
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-background">
+      <Helmet>
+        <title>{SEO_HOME.title}</title>
+        <meta name="description" content={SEO_HOME.description} />
+        <link rel="canonical" href={HOME_URL} />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={SITE_NAME} />
+        <meta property="og:locale" content="vi_VN" />
+        <meta property="og:url" content={HOME_URL} />
+        <meta property="og:title" content={SEO_HOME.title} />
+        <meta property="og:description" content={SEO_HOME.description} />
+        <meta property="og:image" content={DEFAULT_OG_IMAGE} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={SEO_HOME.title} />
+        <meta name="twitter:description" content={SEO_HOME.description} />
+        <meta name="twitter:image" content={DEFAULT_OG_IMAGE} />
+        <script type="application/ld+json">{HOME_JSON_LD}</script>
+      </Helmet>
+
       <LandingNavbar />
       <HeroSection />
       <FactsBand />
