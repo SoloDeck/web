@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { Sparkles } from "lucide-react";
 
 import {
   FOOTER_SCOPE_NOTE,
@@ -31,8 +30,8 @@ export function LandingNavbar() {
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-            <Sparkles className="h-4 w-4 text-primary-foreground" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg">
+            <img src="/favicon.svg" alt="" className="h-12 w-12" />
           </div>
           <span className="text-base font-bold tracking-tight">SoloDesk</span>
         </div>
@@ -98,8 +97,8 @@ export function LandingFooter() {
     <footer className="border-t border-border bg-card px-4 py-10 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary">
-            <Sparkles className="h-3.5 w-3.5 text-primary-foreground" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-md">
+            <img src="/favicon.svg" alt="" className="h-12 w-12" />
           </div>
           <span className="text-sm font-bold">SoloDesk</span>
         </div>
