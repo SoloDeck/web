@@ -359,3 +359,22 @@ export const NAV_ANCHORS = [
  * hộ, nhưng một hợp đồng effect không nên dựa vào việc đó.
  */
 export const NAV_ANCHOR_IDS = NAV_ANCHORS.map((a) => a.href.slice(1));
+
+// ---------------------------------------------------------------------------
+// SEO — chữ dành cho máy đọc
+// ---------------------------------------------------------------------------
+
+/**
+ * Tiêu đề và mô tả cho kết quả tìm kiếm + bản xem trước link của `/home`.
+ *
+ * Viết RIÊNG, không ghép từ `HERO`: hero chỉ có "Quản lý khách hàng và hợp đồng / cho
+ * chuyên gia dịch vụ độc lập" — đọc trong ngữ cảnh trang thì đủ, nhưng đứng một mình trên
+ * trang kết quả Google thì không có chữ nào cho biết đây là phần mềm gì, cho ai.
+ *
+ * Mô tả giữ dưới ~160 ký tự: dài hơn là Google cắt giữa câu.  #Huynh
+ */
+export const SEO_HOME = {
+  title: "SoloDesk — CRM cho freelancer và chuyên gia dịch vụ độc lập Việt Nam",
+  description:
+    "Quản lý khách hàng, hợp đồng và thanh toán trên một bảng Kanban sáu giai đoạn. SoloDesk dùng AI để chấm khách tiềm năng, soạn đề xuất và nhắc thu tiền.",
+} as const;

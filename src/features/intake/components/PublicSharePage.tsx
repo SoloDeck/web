@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { getPublicProfile } from "@/services/intakeService";
 import { PublicSharePageView } from "@/features/intake/components/PublicSharePageView";
+import { ProfileSeoHead } from "@/seo/ProfileSeoHead";
 
 /**
  * Trang công khai của freelancer — thứ DUY NHẤT khách hàng nhìn thấy.
@@ -20,7 +21,17 @@ import { PublicSharePageView } from "@/features/intake/components/PublicSharePag
  * Query hồ sơ đặt Ở ĐÂY chứ không nhét vào `IntakeForm`: giữ `IntakeForm` chỉ phụ thuộc
  * đúng ba hàm service như cũ, nhờ vậy bộ test 285 dòng của nó không phải sửa dòng nào.  #Huynh
  */
-export function PublicSharePage({ shareToken }: { shareToken: string }) {
+export function PublicSharePage({
+  shareToken,
+  seoSlug,
+}: {
+  shareToken: string;
+  /**
+   * Chỉ `/{slug}` truyền vào. Có giá trị = trang được phép lên chỉ mục, nên dựng đủ bộ thẻ
+   * canonical/OG theo hồ sơ; ba đường link token thì bỏ trống và tự gắn `noindex` ở route.
+   */
+  seoSlug?: string;
+}) {
   const {
     data: profile,
     isPending,
@@ -57,5 +68,10 @@ export function PublicSharePage({ shareToken }: { shareToken: string }) {
     );
   }
 
-  return <PublicSharePageView profile={profile} shareToken={shareToken} />;
+  return (
+    <>
+      {seoSlug ? <ProfileSeoHead profile={profile} slug={seoSlug} /> : null}
+      <PublicSharePageView profile={profile} shareToken={shareToken} />
+    </>
+  );
 }

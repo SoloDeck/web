@@ -1,6 +1,7 @@
 import { getRouteApi } from "@tanstack/react-router";
 
 import { PublicSharePage } from "@/features/intake/components/PublicSharePage";
+import { NoIndexHead } from "@/seo/NoIndexHead";
 
 /**
  * Bốn đường dẫn công khai cùng dẫn tới một trang.
@@ -20,22 +21,40 @@ const hoSoRoute = getRouteApi("/ho-so/$token");
 const bieuMauRoute = getRouteApi("/bieu-mau/$token");
 const intakeRoute = getRouteApi("/intake/$token");
 
+/** Chỉ MỘT trong bốn đường được lên chỉ mục — ba đường token là link riêng đã phát cho khách. */
+const TOKEN_PAGE_TITLE = "Gửi yêu cầu dự án · SoloDesk";
+
 export function SlugPage() {
   const { slug } = slugRoute.useParams();
-  return <PublicSharePage shareToken={slug} />;
+  return <PublicSharePage shareToken={slug} seoSlug={slug} />;
 }
 
 export function HoSoPage() {
   const { token } = hoSoRoute.useParams();
-  return <PublicSharePage shareToken={token} />;
+  return (
+    <>
+      <NoIndexHead title={TOKEN_PAGE_TITLE} />
+      <PublicSharePage shareToken={token} />
+    </>
+  );
 }
 
 export function BieuMauPage() {
   const { token } = bieuMauRoute.useParams();
-  return <PublicSharePage shareToken={token} />;
+  return (
+    <>
+      <NoIndexHead title={TOKEN_PAGE_TITLE} />
+      <PublicSharePage shareToken={token} />
+    </>
+  );
 }
 
 export function IntakePage() {
   const { token } = intakeRoute.useParams();
-  return <PublicSharePage shareToken={token} />;
+  return (
+    <>
+      <NoIndexHead title={TOKEN_PAGE_TITLE} />
+      <PublicSharePage shareToken={token} />
+    </>
+  );
 }

@@ -1,3 +1,14 @@
+# Bot của công cụ tìm kiếm và bộ xem trước link.
+#
+# Ứng dụng này dựng hoàn toàn bằng JS phía trình duyệt, nên với các bot KHÔNG chạy JS
+# (Facebook, Zalo, Telegram, Slack, LinkedIn…) mọi trang hồ sơ `/{slug}` đều chỉ là một
+# `<div id="root">` rỗng — link chia sẻ ra ngoài không có tiêu đề lẫn ảnh. Nhận diện được
+# bot thì lái sang bản HTML do backend dựng sẵn.
+map $http_user_agent $is_bot {
+    default 0;
+    ~*(googlebot|bingbot|facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot) 1;
+}
+
 server {
     listen 80;
     server_name localhost;
@@ -39,6 +50,60 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+    }
+
+    # Sitemap do BACKEND sinh: danh sách hồ sơ công khai thay đổi mỗi lần có người đăng ký,
+    # nên không thể là file tĩnh nằm trong ảnh Docker. `robots.txt` thì ngược lại — tĩnh,
+    # nằm ở `public/`, và rơi vào `location /` như mọi file khác.
+    location = /sitemap.xml {
+        proxy_pass ${API_URL}/sitemap.xml;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # PHẢI đứng trước khối regex `/{slug}` ngay dưới.
+    #
+    # nginx duyệt các location regex THEO THỨ TỰ VIẾT và dừng ở cái khớp đầu tiên, mà ba
+    # đường này khớp y hệt khuôn một đoạn của `/{slug}`. Thiếu khối này thì bot mở
+    # `/home` sẽ bị lái sang endpoint dựng hồ sơ và nhận 404 — trang giới thiệu, thứ DUY
+    # NHẤT thật sự cần lên Google, biến mất khỏi chỉ mục.
+    #
+    # `try_files $uri/index.html` chứ KHÔNG phải `$uri $uri/`: ba đường này có bản HTML
+    # dựng sẵn nằm ở `dist/home/index.html` (xem `scripts/prerender.ts`), tức `/home` khớp
+    # một THƯ MỤC — và nginx trả 301 sang `/home/` khi khớp thư mục kiểu đó. Chuyển hướng
+    # đó không làm hỏng gì nhưng nằm đúng trên đường vào của trang cần lên Google nhất.
+    # Vế `/index.html` sau vẫn giữ đường lui về vỏ SPA nếu bước dựng sẵn không chạy.
+    location ~ ^/(home|login|register)$ {
+        try_files $uri/index.html /index.html;
+    }
+
+    # Địa chỉ riêng của freelancer: `/thuthuy`. Đúng MỘT đoạn, không dấu chấm — nên
+    # `/assets/...`, `/api/...`, `/robots.txt`, `/favicon.svg` đều không lọt vào đây.
+    location ~ ^/[a-zA-Z0-9_-]+$ {
+        if ($is_bot) {
+            rewrite ^/(.*)$ /internal/render/profile/$1 last;
+        }
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Đích của lệnh rewrite ở trên.
+    #
+    # `proxy_pass` được tách ra đây thay vì đặt thẳng trong khối `if`: `proxy_pass` có
+    # chứa biến sẽ buộc nginx phân giải DNS lúc chạy và đòi thêm chỉ thị `resolver`. Ở đây
+    # địa chỉ là chuỗi tĩnh sau khi envsubst thay `${API_URL}`, giống hệt khối `/api/`.
+    #
+    # `internal` để người ngoài không gọi thẳng được endpoint dựng HTML.
+    location ^~ /internal/render/profile/ {
+        internal;
+        proxy_pass ${API_URL};
+        proxy_ssl_server_name on;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location / {

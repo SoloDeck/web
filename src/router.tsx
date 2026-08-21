@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
+import type { RouterHistory } from "@tanstack/react-router";
 import { Spinner } from "@/components/ui/spinner";
 import { routeTree } from "./routeTree.gen";
 
@@ -19,11 +20,16 @@ function RoutePending() {
   );
 }
 
-export const getRouter = () => {
+/**
+ * `history` chỉ được truyền ở bước dựng sẵn HTML (`src/entry-server.tsx`), nơi không có
+ * thanh địa chỉ để router đọc — bỏ trống thì router tự dùng history của trình duyệt như cũ.
+ */
+export const getRouter = (history?: RouterHistory) => {
   const queryClient = new QueryClient();
 
   const router = createRouter({
     routeTree,
+    history,
     context: { queryClient },
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,

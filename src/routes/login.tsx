@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
+import { NoIndexHead } from "@/seo/NoIndexHead";
 
 export const Route = createFileRoute("/login")({
   beforeLoad: () => {
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   return (
     <div className="min-h-screen flex bg-background">
+      <NoIndexHead title="Đăng nhập · SoloDesk" />
       <HeroPanel />
 
       {/* ── Right: form panel ── */}
