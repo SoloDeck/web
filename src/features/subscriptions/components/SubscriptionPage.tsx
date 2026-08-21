@@ -19,6 +19,7 @@ import {
   type PlanResponse,
 } from "@/services/subscriptionsService";
 import { readMomoReturn, stripMomoParams } from "@/features/subscriptions/lib/momoReturn";
+import { readZaloPayReturn, stripZaloPayParams } from "@/features/subscriptions/lib/zalopayReturn";
 import { forgetIntent, readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 import { isNavigableCheckout, redirectTo } from "@/features/subscriptions/lib/paymentLink";
 import { PROVIDER_LABEL, providerLabel } from "@/features/subscriptions/lib/providerLabels";
@@ -255,16 +256,30 @@ export function SubscriptionPage() {
   const [momoReturn] = useState(() => readMomoReturn(window.location.search));
   const momoRejected = momoReturn !== null && (momoReturn.outcome === "cancelled" || momoReturn.outcome === "failed");
 
+  // ZaloPay redirect về CÙNG một `redirecturl` cho cả huỷ lẫn thất bại — chỉ khác MoMo
+  // ở tên tham số (`status` thay vì `resultCode`) và không có mã "chưa xong" riêng.
+  // ZaloPay CŨNG chỉ gọi webhook khi thành công (xem docstring `ZaloPayClient`), nên đây
+  // là tín hiệu DUY NHẤT biết chuyến đi đã kết thúc trong thất bại — giống hệt lý do cần
+  // đọc `momoReturn`.  #Huynh
+  const [zaloPayReturn] = useState(() => readZaloPayReturn(window.location.search));
+  const zaloPayRejected = zaloPayReturn !== null && zaloPayReturn.outcome === "rejected";
+  const providerRejected = momoRejected || zaloPayRejected;
+
+  // Nhớ id NGAY LÚC MOUNT, trước khi nhánh dưới có thể xoá khỏi sessionStorage. ZaloPay
+  // không trả `payment.id` nguyên văn trên URL (khác MoMo), nên effect báo huỷ cho
+  // backend bên dưới cần đọc y nguyên id đã nhớ trước khi rời trang sang ZaloPay.
+  const [rememberedIntentIdAtMount] = useState(() => readRememberedIntent());
+
   // CÓ SETTER, không phải chỉ đọc một lần. Với MoMo/ZaloPay thì trang rời đi ngay nên
   // không cần; nhưng SePay KHÔNG điều hướng đi đâu cả, nên không có lần mount nào để đọc
   // lại storage. Thiếu setter thì vòng dò không bao giờ chạy cho đơn vừa tạo và màn QR
   // đứng im vĩnh viễn.  #Huynh
   const [intentId, setIntentId] = useState<string | null>(() => {
-    // MoMo đã nói rõ là hỏng/huỷ → không có gì để chờ, đừng mở vòng hỏi lại.
-    if (momoRejected) return null;
+    // Cổng đã nói rõ là hỏng/huỷ → không có gì để chờ, đừng mở vòng hỏi lại.
+    if (providerRejected) return null;
     return (
       new URLSearchParams(window.location.search).get(INTENT_PARAM) ??
-      readRememberedIntent()
+      rememberedIntentIdAtMount
     );
   });
   const {
@@ -306,16 +321,37 @@ export function SubscriptionPage() {
     intent?.payment_link?.type === "bank_transfer_instruction" &&
     (intent.status === "pending" || intent.status === "processing");
 
-  // Dọn query param MoMo ngay sau khi đã đọc: F5 một cái mà còn `resultCode` cũ thì trang
-  // báo lại kết quả của một giao dịch đã qua. Giữ nguyên `?tab=` để không nhảy tab.
+  // Dọn query param MoMo/ZaloPay ngay sau khi đã đọc: F5 một cái mà còn `resultCode`/
+  // `status` cũ thì trang báo lại kết quả của một giao dịch đã qua. Giữ nguyên `?tab=`
+  // để không nhảy tab.
   useEffect(() => {
     stripMomoParams();
+    stripZaloPayParams();
   }, []);
 
-  // MoMo báo hỏng/huỷ thì quên intent đang nhớ đi, để lần vào sau không hỏi lại nó nữa.
+  // MoMo/ZaloPay báo hỏng/huỷ thì quên intent đang nhớ đi, để lần vào sau không hỏi lại
+  // nó nữa.
+  //
+  // KHÔNG chỉ dọn phía client. Cả hai cổng đều CHỈ gửi webhook khi thanh toán THÀNH
+  // CÔNG (xem docstring `readMomoReturn` và `ZaloPayClient`), nên nếu chỉ `forgetIntent()`
+  // thì bản ghi `payment_intent` bên backend nằm nguyên ở `pending` mãi tới lúc hết hạn —
+  // trang khách báo "đã huỷ" trong khi ADMIN vẫn thấy "đang chờ thanh toán". Gọi luôn
+  // cancel để trạng thái lưu đúng "đã huỷ".
+  //
+  // Lấy id để huỷ theo TỪNG cổng: MoMo trả thẳng `orderId` trên URL — chính là
+  // `payment.id` (xem `service.py:create_payment` truyền `order_id=str(payment.id)`).
+  // ZaloPay thì KHÔNG — `apptransid` của nó là id đã mã hoá lại
+  // (`build_app_trans_id`), giải mã ngược ở tầng backend, không phải việc của client — nên
+  // dùng lại id đã nhớ trong sessionStorage NGAY LÚC MOUNT, trước khi bị xoá.  #Huynh
   useEffect(() => {
-    if (momoRejected) forgetIntent();
-  }, [momoRejected]);
+    if (!providerRejected) return;
+    forgetIntent();
+    const cancelId = momoReturn?.orderId ?? rememberedIntentIdAtMount;
+    if (cancelId) {
+      cancelIntent.mutate(cancelId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerRejected]);
 
   async function handleBuy(plan: PlanResponse, provider: PaymentProvider) {
     setUpgradingPlanId(plan.id);
@@ -439,6 +475,19 @@ export function SubscriptionPage() {
               ? "Bạn đã huỷ thanh toán trên MoMo."
               : `Thanh toán không thành công${momoReturn.message ? `: ${momoReturn.message}` : "."}`}
           </span>
+        </div>
+      )}
+
+      {/* Cùng lý do với banner MoMo phía trên, khác cổng: ZaloPay chỉ nói kết quả qua
+          `status` trên URL quay về, và cũng không có mã "chưa xong" riêng để phân biệt
+          huỷ với thất bại — nên chỉ nói chung là "không thành công".  #Huynh */}
+      {zaloPayRejected && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <X className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Thanh toán trên ZaloPay đã bị huỷ hoặc không thành công.</span>
         </div>
       )}
 

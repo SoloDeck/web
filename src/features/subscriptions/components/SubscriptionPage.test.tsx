@@ -9,6 +9,7 @@ import type { PaymentIntentResponse } from "@/services/subscriptionsService";
 import { readRememberedIntent, rememberIntent } from "@/features/subscriptions/lib/intentStorage";
 
 const mockCheckout = vi.fn();
+const mockCancel = vi.fn();
 const mockIntent = vi.fn(() => ({ data: undefined }) as { data?: PaymentIntentResponse });
 
 vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
@@ -104,6 +105,7 @@ vi.mock("@/features/subscriptions/hooks/useSubscriptions", async () => {
       isLoading: false,
     }),
     useCreateCheckout: () => ({ mutateAsync: mockCheckout, isPending: false }),
+    useCancelPaymentIntent: () => ({ mutate: mockCancel, isPending: false }),
     usePaymentIntent: () => mockIntent(),
   };
 });
@@ -402,6 +404,30 @@ describe("<SubscriptionPage /> — mua gói", () => {
     expect(sessionStorage.getItem("intent")).toBeNull();
     // Dọn param để F5 không báo lại giao dịch cũ, nhưng phải giữ đúng tab.
     expect(window.location.search).toBe("?tab=subscription");
+    // Lỗi thật ghi nhận trên admin: chỉ dọn phía client thì bản ghi backend nằm mãi ở
+    // `pending` — trang khách báo "đã huỷ" trong khi admin vẫn thấy "chờ thanh toán".
+    // `orderId` trên URL MoMo chính là `payment.id`, phải gọi cancel API với đúng nó.
+    expect(mockCancel).toHaveBeenCalledWith("o-1");
+  });
+
+  it("ZaloPay đá về với status khác 1 (huỷ/thất bại) thì báo KHÔNG THÀNH CÔNG, và gọi cancel bằng id đã nhớ", () => {
+    // Cùng lỗi với MoMo, nặng hơn: ZaloPay không trả `payment.id` trên URL (chỉ có
+    // `apptransid` đã mã hoá lại), nên chỗ duy nhất còn giữ đúng id là sessionStorage đã
+    // nhớ TRƯỚC lúc rời trang sang ZaloPay — phải dùng đúng id đó để gọi cancel.  #Huynh
+    rememberIntent("intent-zlp-1", new Date(Date.now() + 5 * 60_000).toISOString());
+    window.history.replaceState(
+      {},
+      "",
+      "/?tab=subscription&status=2&apptransid=260821_deadbeefcafebabedeadbeefcafebabe"
+    );
+
+    render(<SubscriptionPage />, { wrapper });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/không thành công/i);
+    expect(screen.queryByText(/đang xác nhận/i)).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("intent")).toBeNull();
+    expect(window.location.search).toBe("?tab=subscription");
+    expect(mockCancel).toHaveBeenCalledWith("intent-zlp-1");
   });
 
   it("resultCode khác 0 và không phải huỷ thì hiện lý do MoMo trả", () => {

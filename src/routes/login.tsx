@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   FileText,
   LayoutGrid,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { LoginForm } from "@/features/auth/components/LoginForm";
@@ -33,8 +32,8 @@ function LoginPage() {
       <div className="flex-1 flex flex-col justify-center items-center px-6 sm:px-10 lg:px-14 py-12 overflow-y-auto">
         {/* Mobile logo — hidden on desktop where HeroPanel shows */}
         <div className="lg:hidden flex items-center gap-2.5 mb-8">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-lg">
-            <Sparkles className="h-4 w-4 text-white" />
+          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-lg">
+            <img src="/favicon.svg" alt="" className="h-12 w-12" />
           </div>
           <div>
             <div className="font-bold text-lg leading-none tracking-tight">SoloDesk</div>
@@ -170,8 +169,8 @@ function HeroPanel() {
       <div className="relative flex h-full w-full flex-col gap-8 p-10 xl:p-14">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-lg">
-            <Sparkles className="h-4 w-4 text-white" />
+          <div className="h-12 w-12 rounded-xl from-primary to-primary-glow flex items-center justify-center shadow-lg">
+            <img src="/favicon.svg" alt="" className="h-12 w-12" />
           </div>
           <div>
             <div className="font-bold text-xl leading-none tracking-tight text-sidebar-foreground">
@@ -188,7 +187,7 @@ function HeroPanel() {
           <div className="space-y-4">
             {/* Badge */}
             <div className="inline-flex items-center gap-1.5 rounded-full border border-sidebar-primary/30 bg-sidebar-primary/10 px-3 py-1 text-xs font-medium text-sidebar-primary">
-              <Sparkles className="h-3 w-3" />
+              <img src="/favicon.svg" alt="" className="h-3 w-3" />
               Dành riêng cho Freelancer Việt Nam
             </div>
 
