@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { getApiErrorDetail, getApiErrorStatus } from "@/lib/api-error";
+import { getApiErrorDetail, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import {
   getPublicIntakeFormConfig,
@@ -180,11 +180,23 @@ export function IntakeForm({
             getApiErrorDetail(err, "name") ??
             getApiErrorDetail(err, "project_name"))
           : undefined;
+      // Mất mạng thì `status` là undefined — nói đúng chuyện đó, đừng bảo khách kiểm tra
+      // lại thông tin họ vừa gõ.
+      //
+      // Còn khi CÓ status: đọc tiếp `error.message` thay vì rơi thẳng về câu chung. Backend
+      // ném `ValidationError` nghiệp vụ (ví dụ "Bạn chưa điền: Số điện thoại.") qua
+      // `error.message` chứ KHÔNG qua `details`, nên đoạn dò 5 trường ở trên không với tới
+      // được. `getApiErrorMessage` đã lọc sẵn hai câu chung của backend ("Request validation
+      // failed" / "An unexpected error occurred") nên câu 422 của pydantic vẫn rơi về
+      // fallback tiếng Việt bên dưới.  #Huynh
       toast.error(
         detail ??
           (status === undefined
             ? "Không gửi được vì mất kết nối. Bạn kiểm tra mạng rồi gửi lại nhé."
-            : "Không gửi được yêu cầu. Bạn kiểm tra lại thông tin rồi thử lại."),
+            : getApiErrorMessage(
+                err,
+                "Không gửi được yêu cầu. Bạn kiểm tra lại thông tin rồi thử lại.",
+              )),
       );
     },
   });
