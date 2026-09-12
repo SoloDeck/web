@@ -1,6 +1,7 @@
 import { formatVND } from "@/utils/format";
 import type { Deal } from "@/features/deals/types";
 import type { InvoiceResponse } from "@/services/invoicesService";
+import { ngayChoApi } from "@/lib/ngayApi";
 
 /**
  * Tên và nội dung của một hóa đơn ở màn chi tiết deal — phần THUẦN, không dính React.
@@ -30,9 +31,9 @@ export type InvoiceDraftState = {
 
 export type InvoiceTone = "formal" | "friendly";
 
-function toApiDateValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+// Thân hàm chuyển sang `ngayChoApi` (giờ địa phương). `toISOString()` quy về UTC nên với
+// người dùng UTC+7, từ 0h đến 7h sáng mọi hạn thanh toán đều lùi một ngày.  #Huynh
+const toApiDateValue = ngayChoApi;
 
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
