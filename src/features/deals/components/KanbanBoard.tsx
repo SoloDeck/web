@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
   type DragEndEvent,
@@ -20,6 +21,8 @@ import {
 } from "@/features/notifications/hooks/useNotifications";
 import { STAGES, STAGE_BY_ID, VALID_TRANSITIONS, type Deal, type Stage } from "@/features/deals/types";
 import { updateDealStage } from "@/services/dealsService";
+import { dealKeys } from "@/features/deals/hooks/useDeals";
+import { lamMoiSoLieuTien } from "@/features/revenue/hooks/useAnalytics";
 
 // Kanban chỉ hiển thị các bước freelancer đang xử lý; stage lost vẫn giữ trong type/API nhưng ẩn khỏi UI.
 const VISIBLE_STAGES = STAGES.filter((stage) => stage.id !== "lost");
@@ -55,6 +58,7 @@ export function KanbanBoard({
   // khi mở web lên. Trước đây chúng nằm lẫn giữa các thẻ cũ trong cột "Deal Mới".  #Huynh
   const unseenDeals = useUnseenDealNotifications();
   const markRead = useMarkNotificationRead();
+  const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<Stage | null>(null);
 
@@ -138,6 +142,13 @@ export function KanbanBoard({
 
     try {
       await updateDealStage(draggedId, newStage);
+      // Kéo thẻ sửa THẲNG vào store Zustand, còn cache React Query của `["deals"]` vẫn
+      // giữ giai đoạn cũ. Mà `useDeals` lại nạp store TỪ cache đó mỗi lần mount — nên rời
+      // trang rồi quay lại là thẻ nhảy về đúng cột cũ, y như thao tác vừa rồi chưa từng
+      // xảy ra (dù server đã ghi nhận). Phải làm mới cache thì hai nguồn mới khớp.  #Huynh
+      void qc.invalidateQueries({ queryKey: dealKeys.all });
+      // Đổi giai đoạn là đổi cả biểu đồ phễu và số dự báo bên bảng Doanh thu.
+      lamMoiSoLieuTien(qc);
       toast.success(`Đã chuyển sang ${STAGE_BY_ID[newStage].title}.`);
     } catch {
       moveToStage(draggedId, oldStage);
