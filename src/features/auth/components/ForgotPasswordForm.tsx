@@ -100,7 +100,7 @@ export function ForgotPasswordForm() {
 
     setSubmitting(true);
     try {
-      await confirmPasswordReset(otp.trim(), password);
+      await confirmPasswordReset(email.trim(), otp.trim(), password);
       setStep("done");
       toast.success("Đã đổi mật khẩu thành công!");
     } catch (err) {

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { lamMoiSoLieuTien } from "@/features/revenue/hooks/useAnalytics";
 import {
   createInvoice,
   deleteInvoice,
@@ -45,6 +46,7 @@ export function useCreateInvoice(dealId: string | undefined) {
     mutationFn: (payload: InvoicePayload) => createInvoice(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
     },
   });
 }
@@ -56,6 +58,7 @@ export function useUpdateInvoice(dealId: string | undefined) {
       updateInvoice(invoiceId, payload),
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
     },
   });
@@ -67,6 +70,7 @@ export function useDeleteInvoice(dealId: string | undefined) {
     mutationFn: (invoiceId: string) => deleteInvoice(invoiceId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
     },
   });
 }
@@ -77,6 +81,7 @@ export function useSendInvoice(dealId: string | undefined) {
     mutationFn: (invoiceId: string) => sendInvoice(invoiceId),
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
     },
   });
@@ -88,6 +93,7 @@ export function useVoidInvoice(dealId: string | undefined) {
     mutationFn: (invoiceId: string) => voidInvoice(invoiceId),
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
     },
   });
@@ -100,6 +106,7 @@ export function useRecordInvoicePayment(dealId: string | undefined) {
       recordInvoicePayment(invoiceId, payload),
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+      lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
     },
   });

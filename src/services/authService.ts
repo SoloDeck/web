@@ -8,6 +8,7 @@ import type {
 } from "@/features/auth/types";
 import axiosClient from "@/configs/axios";
 import { getMe } from "@/services/usersService";
+import { donDuLieuPhienNguoiDung } from "@/lib/donDuLieuPhien";
 
 const SESSION_KEY = "solodesk.auth.session.v1";
 const REFRESH_KEY = "solodesk.auth.refresh.v1";
@@ -184,11 +185,21 @@ export async function requestPasswordReset(email: string): Promise<void> {
 /**
  * POST /auth/password-reset/confirm — đổi mật khẩu bằng mã OTP.
  *
- * BE chỉ nhận `otp` + `new_password`, KHÔNG cần email: mã OTP tự định danh người
- * dùng (BE tra theo hash của mã). OTP sai hoặc hết hạn (15 phút) → 401.
+ * `email` là BẮT BUỘC và không phải để tiện tra cứu. Trước đây BE tra mã trên toàn bảng
+ * `password_reset_tokens`, nên bất kỳ mã nào còn sống của bất kỳ ai cũng đặt lại được mật
+ * khẩu của người khác — chỉ cần bắn thử 000000 đi lên là chiếm được tài khoản. Nay mã
+ * được tra trong phạm vi đúng người, nên nếu bỏ trường này đi thì mọi lượt đổi mật khẩu
+ * đều trả 422.  #Huynh
+ *
+ * OTP sai hoặc hết hạn (15 phút) → 401. Gõ sai quá 5 lần thì mã bị huỷ, phải xin mã mới.
  */
-export async function confirmPasswordReset(otp: string, newPassword: string): Promise<void> {
+export async function confirmPasswordReset(
+  email: string,
+  otp: string,
+  newPassword: string
+): Promise<void> {
   await axiosClient.post("/auth/password-reset/confirm", {
+    email,
     otp,
     new_password: newPassword,
   });
@@ -205,6 +216,11 @@ export async function logout(): Promise<void> {
       storage.removeItem(SESSION_KEY);
       storage.removeItem(REFRESH_KEY);
     }
+    // Xoá nốt mọi thứ gắn với tài khoản vừa đăng xuất (bản nháp hồ sơ, việc AI đã ẩn,
+    // lịch sử deal...). Trước đây chúng nằm lại trong localStorage nên máy dùng chung là
+    // người sau thấy dữ liệu người trước — và tệ hơn, bản nháp hồ sơ cũ còn lưu ĐÈ lên
+    // hồ sơ thật của tài khoản mới.  #Huynh
+    donDuLieuPhienNguoiDung();
     // Tắt One Tap auto-select của Google, nếu không GIS sẽ tự đăng nhập lại
     // ngay khi GoogleButton render lại (browser vẫn còn phiên Google).
     (window as { google?: { accounts?: { id?: { disableAutoSelect?: () => void } } } }).google

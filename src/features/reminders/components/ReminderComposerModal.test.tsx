@@ -191,3 +191,97 @@ describe("<ReminderComposerModal />", () => {
     );
   });
 });
+
+/**
+ * Đóng cửa sổ soạn — nơi mất trắng công gõ.
+ *
+ * Người dùng chọn loại nhắc, chọn kênh, đặt ngày giờ, gõ nội dung, bấm AI soạn giúp, tải cả
+ * ảnh QR chuyển khoản lên. Bấm trượt ra nền tối một cái là mất sạch, không một câu hỏi. Tệ
+ * hơn: nút gắn nhãn "Thu nhỏ" — nhãn hứa nội dung vẫn còn — lại gọi đúng `onClose`, mà bên
+ * gọi thì gỡ hẳn component nên mọi `useState` biến mất. Chưa bấm "Đặt lịch nhắc" thì không
+ * có gì nằm trên máy chủ.  #Huynh
+ */
+describe("<ReminderComposerModal /> — đóng và thu nhỏ", () => {
+  function nenToi(): HTMLElement {
+    return document.querySelector(".fixed.inset-0") as HTMLElement;
+  }
+
+  it("bấm ra nền tối là THU NHỎ, không đóng và không mất nội dung", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReminderComposerModal deal={deal} onClose={onClose} />);
+
+    const box = document.querySelector("textarea") as HTMLTextAreaElement;
+    await user.clear(box);
+    await user.type(box, "Nội dung tôi tự viết");
+
+    await user.click(nenToi());
+
+    expect(onClose).not.toHaveBeenCalled();
+    // Cửa sổ thu nhỏ lại nhưng vẫn còn đó — mở lại là chữ vẫn nguyên.
+    await user.click(screen.getByRole("button", { name: /mở lại/i }));
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "Nội dung tôi tự viết",
+    );
+  });
+
+  it("nút 'Thu nhỏ' đúng là thu nhỏ, không phải đóng trá hình", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReminderComposerModal deal={deal} onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: /thu nhỏ/i }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /mở lại/i })).toBeInTheDocument();
+  });
+
+  it("gõ dở mà bấm Đóng thì hỏi lại, nói rõ sẽ mất gì", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReminderComposerModal deal={deal} onClose={onClose} />);
+
+    const box = document.querySelector("textarea") as HTMLTextAreaElement;
+    await user.clear(box);
+    await user.type(box, "Nội dung tôi tự viết");
+
+    await user.click(screen.getByRole("button", { name: /^đóng$/i }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    const hopThoai = screen.getByRole("alertdialog");
+    expect(hopThoai).toHaveTextContent(/sẽ mất/i);
+    expect(hopThoai).toHaveTextContent(/chưa lưu gì cả/i);
+
+    await user.click(within(hopThoai).getByRole("button", { name: /bỏ nội dung, đóng lại/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("quay lại soạn tiếp thì giữ nguyên chữ, không đóng", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReminderComposerModal deal={deal} onClose={onClose} />);
+
+    const box = document.querySelector("textarea") as HTMLTextAreaElement;
+    await user.clear(box);
+    await user.type(box, "Nội dung tôi tự viết");
+
+    await user.click(screen.getByRole("button", { name: /^đóng$/i }));
+    await user.click(screen.getByRole("button", { name: /quay lại soạn tiếp/i }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "Nội dung tôi tự viết",
+    );
+  });
+
+  it("chưa gõ gì thì đóng luôn, đừng hỏi thừa", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<ReminderComposerModal deal={deal} onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: /^đóng$/i }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

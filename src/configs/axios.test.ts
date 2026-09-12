@@ -34,7 +34,10 @@ beforeEach(() => {
   sessionStorage.clear();
   // jsdom logs/throws on real navigation; swap in a settable stub so we can
   // assert whether the interceptor tried to redirect.
-  Object.defineProperty(window, "location", { writable: true, value: { href: "" } });
+  Object.defineProperty(window, "location", {
+    writable: true,
+    value: { href: "", pathname: "/deals/3f2a9c1e" },
+  });
 });
 
 afterEach(() => {
@@ -106,3 +109,48 @@ describe("axios refresh interceptor — non-auth endpoints still refresh", () =>
   });
 });
 
+/**
+ * Phiên hết hạn giữa lúc đang gõ dở hoá đơn: màn hình nhảy về /login, không một chữ giải
+ * thích, bản nháp mất sạch. Người dùng tưởng hệ thống tự lỗi.  #Huynh
+ */
+describe("axios refresh interceptor — phiên hết hạn thì nói rõ lý do", () => {
+  it("refresh hỏng thì về /login KÈM lý do, không phải /login trơ trọi", async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ token: "old-access" }));
+    localStorage.setItem(REFRESH_KEY, "expired-refresh");
+    useAdapter((config) => fail(config, 401));
+
+    await expect(axiosClient.get("/users/me")).rejects.toBeInstanceOf(AxiosError);
+
+    expect(window.location.href).toBe("/login?reason=expired");
+    expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it("không còn refresh token thì cũng về /login kèm lý do", async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ token: "old-access" }));
+    useAdapter((config) => fail(config, 401));
+
+    await expect(axiosClient.get("/users/me")).rejects.toBeInstanceOf(AxiosError);
+
+    expect(window.location.href).toBe("/login?reason=expired");
+  });
+
+  it("khách của freelancer đang xem biểu mẫu công khai thì KHÔNG bị đá về màn đăng nhập", async () => {
+    // Họ không có tài khoản SoloDesk — đưa họ tới màn đăng nhập là vô nghĩa.
+    window.location.pathname = "/bieu-mau/abc123";
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ token: "old-access" }));
+    useAdapter((config) => fail(config, 401));
+
+    await expect(axiosClient.get("/intake-forms/abc123")).rejects.toBeInstanceOf(AxiosError);
+
+    expect(window.location.href).toBe("");
+  });
+
+  it("người chưa từng đăng nhập thì không có phiên nào để hết hạn", async () => {
+    window.location.pathname = "/thuthuy";
+    useAdapter((config) => fail(config, 401));
+
+    await expect(axiosClient.get("/public/profile")).rejects.toBeInstanceOf(AxiosError);
+
+    expect(window.location.href).toBe("");
+  });
+});

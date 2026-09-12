@@ -59,6 +59,41 @@ describe("getAiJobErrorMessage", () => {
     expect(getAiJobErrorMessage(failedJob(null))).toBeNull();
     expect(getAiJobErrorMessage(undefined)).toBeNull();
   });
+
+  // Backend chỉ soạn tiếng Việt cho AI_PROVIDER_ERROR. Mọi mã còn lại gửi sang nguyên câu
+  // tiếng Anh của Python — có mã còn kèm cả UUID. Bảng AI, Trung tâm hoạt động AI và dòng
+  // thời gian của deal đều in thẳng câu này ra màn hình.  #Huynh
+  it("lỗi bất ngờ của backend không được in ra nguyên câu tiếng Anh", () => {
+    const msg = getAiJobErrorMessage(
+      failedJob({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected error occurred",
+        retryable: false,
+      })
+    );
+    expect(msg).not.toContain("An unexpected error occurred");
+    expect(msg).toContain("Hệ thống gặp sự cố");
+  });
+
+  it("deal bị xoá thì không phun UUID ra màn hình", () => {
+    const msg = getAiJobErrorMessage(
+      failedJob({
+        code: "NOT_FOUND",
+        message: "Deal 3f2a9c1e-7b41-4a0e-9d2f-1c8b6a5e4d30 not found",
+        retryable: false,
+      })
+    );
+    expect(msg).not.toContain("3f2a9c1e");
+    expect(msg).toContain("Không tìm thấy dữ liệu");
+  });
+
+  it("mã lạ chưa dịch thì rơi về câu chung tiếng Việt, không in message thô", () => {
+    const msg = getAiJobErrorMessage(
+      failedJob({ code: "CONFLICT", message: "Job already running", retryable: false })
+    );
+    expect(msg).not.toContain("Job already running");
+    expect(msg).toBe("AI xử lý thất bại. Bạn thử lại giúp mình nhé.");
+  });
 });
 
 describe("getAiJobErrorAdvice", () => {

@@ -14,6 +14,7 @@ import {
 import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import {
   Select,
   SelectContent,
@@ -172,6 +173,33 @@ export function ReminderComposerModal({
   const plannedAt = useMemo(() => parseVietnameseDateTime(date, time), [date, time]);
   const saving = createReminder.isPending || updateReminder.isPending;
 
+  /**
+   * Thu nhỏ THẬT: cửa sổ biến khỏi màn hình nhưng component vẫn sống, nên mọi thứ đã gõ còn
+   * nguyên. Trước đây nút gắn nhãn "Thu nhỏ" lại gọi `onClose`, mà bên gọi thì gỡ hẳn
+   * component — nhãn hứa một đằng, máy làm một nẻo: mất sạch nội dung.  #Huynh
+   */
+  const [minimized, setMinimized] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  /** Giá trị lúc mới mở, để biết người dùng đã gõ gì chưa. Chốt một lần, không đổi theo sau. */
+  const [initial] = useState({ message, date, time, imageCount: images.length });
+  const dirty =
+    message !== initial.message ||
+    date !== initial.date ||
+    time !== initial.time ||
+    images.length !== initial.imageCount;
+
+  /**
+   * Đóng hẳn. Chưa bấm "Đặt lịch nhắc" thì KHÔNG có gì nằm trên máy chủ, nên đã gõ dở mà đóng
+   * thì phải hỏi — khác cửa sổ báo giá (nơi bản nháp có sẵn trên máy chủ nên tự lưu được).
+   */
+  function requestClose() {
+    if (dirty) {
+      setCloseConfirmOpen(true);
+      return;
+    }
+    onClose();
+  }
+
   const vars = useMemo(
     () => ({ client: deal.client, project: deal.projectType }),
     [deal.client, deal.projectType],
@@ -227,10 +255,46 @@ export function ReminderComposerModal({
     else createReminder.mutate(payload, done);
   };
 
+  if (minimized) {
+    return (
+      <>
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-2xl">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Send className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">Đang soạn lời nhắc · {deal.client}</div>
+            <div className="text-xs text-muted-foreground">Nội dung vẫn còn nguyên.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMinimized(false)}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+          >
+            Mở lại
+          </button>
+          <WindowControlButton icon={X} label="Đóng" onClick={requestClose} />
+        </div>
+        <CloseConfirm
+          open={closeConfirmOpen}
+          onOpenChange={setCloseConfirmOpen}
+          onConfirm={() => {
+            setCloseConfirmOpen(false);
+            onClose();
+          }}
+        />
+      </>
+    );
+  }
+
   return (
+    /* Hộp thoại xác nhận phải nằm NGOÀI lớp nền tối: React cho sự kiện của portal nổi theo
+       CÂY REACT chứ không theo cây DOM, nên để nó bên trong thì mỗi cú bấm trong hộp thoại
+       lại chạy luôn `onClick` thu nhỏ của nền.  #Huynh */
+    <>
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm animate-in fade-in"
-      onClick={onClose}
+      onClick={() => setMinimized(true)}
     >
       <div
         className="flex h-[92vh] w-full max-w-[1360px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
@@ -249,8 +313,8 @@ export function ReminderComposerModal({
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <WindowControlButton icon={Minus} label="Thu nhỏ" onClick={onClose} />
-            <WindowControlButton icon={X} label="Đóng" onClick={onClose} />
+            <WindowControlButton icon={Minus} label="Thu nhỏ" onClick={() => setMinimized(true)} />
+            <WindowControlButton icon={X} label="Đóng" onClick={requestClose} />
           </div>
         </div>
 
@@ -540,7 +604,7 @@ export function ReminderComposerModal({
         <div className="flex shrink-0 gap-2 border-t border-border bg-card p-4">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary"
           >
             Hủy
@@ -557,6 +621,43 @@ export function ReminderComposerModal({
         </div>
       </div>
     </div>
+
+    <CloseConfirm
+      open={closeConfirmOpen}
+      onOpenChange={setCloseConfirmOpen}
+      onConfirm={() => {
+        setCloseConfirmOpen(false);
+        onClose();
+      }}
+    />
+    </>
+  );
+}
+
+/** Hỏi trước khi bỏ nội dung đang soạn — dùng chung cho cả lúc thu nhỏ lẫn lúc mở. */
+function CloseConfirm({
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Đóng mà chưa đặt lịch nhắc?"
+      description={
+        "Nội dung thư và ảnh bạn vừa tải lên sẽ mất, SoloDesk chưa lưu gì cả. " +
+        'Bấm "Đặt lịch nhắc" trước nếu muốn giữ.'
+      }
+      confirmLabel="Bỏ nội dung, đóng lại"
+      cancelLabel="Quay lại soạn tiếp"
+      tone="danger"
+      onConfirm={onConfirm}
+    />
   );
 }
 

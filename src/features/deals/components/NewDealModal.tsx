@@ -269,6 +269,9 @@ export function NewDealModal({
     }
 
     setSubmitting(true);
+    // Tên khách VỪA được tạo trong lần bấm này — để câu báo lỗi nói đúng chuyện gì đã xảy ra
+    // và chuyện gì thì chưa.
+    let clientCreatedNow = "";
     try {
       if (deal) {
         const payload: DealPayload = {
@@ -291,6 +294,17 @@ export function NewDealModal({
             email: form.client_email.trim() || undefined,
             notes: form.client_notes.trim() || undefined,
           });
+          // GHIM khách vừa tạo lại ngay. Bước tạo deal ngay dưới đây mới là bước hay hỏng;
+          // hỏng xong người dùng bấm lại đúng như toast bảo, mà lần trước khách không được
+          // nhớ nên hệ thống đẻ thêm một khách trùng tên — hồ sơ và doanh thu của khách đó
+          // bị chẻ đôi, backend thì không chặn trùng.  #Huynh
+          setSelectedClient(client);
+          clientCreatedNow = client.name;
+          // Khách vừa tạo phải hiện ngay ở tab Khách hàng và ở ô chọn khách của lần thêm
+          // yêu cầu kế tiếp. Không làm mới thì danh sách `["clients"]` giữ bản cũ, người
+          // dùng không thấy khách mình vừa nhập nên gõ lại lần nữa — đẻ ra đúng cái khách
+          // trùng tên mà chỗ ghim khách bên trên đang cố tránh.  #Huynh
+          void queryClient.invalidateQueries({ queryKey: ["clients"] });
         }
 
         const created = await createDeal(
@@ -350,7 +364,13 @@ export function NewDealModal({
       queryClient.invalidateQueries({ queryKey: dealKeys.all });
       handleClose();
     } catch (err: unknown) {
-      toast.error(apiErrorMessage(err) || "Không thể lưu yêu cầu. Vui lòng thử lại.");
+      const reason = apiErrorMessage(err);
+      toast.error(
+        clientCreatedNow
+          ? `Đã tạo khách hàng "${clientCreatedNow}" nhưng chưa tạo được yêu cầu${reason ? `: ${reason}` : "."} ` +
+              "Bấm lưu lại để thử tiếp — khách sẽ không bị tạo trùng."
+          : reason || "Không thể lưu yêu cầu. Vui lòng thử lại."
+      );
     } finally {
       setSubmitting(false);
     }

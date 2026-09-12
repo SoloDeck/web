@@ -284,3 +284,70 @@ describe("<IntakeForm />", () => {
     expect(submitIntake).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Lỗi 422 phải nói ra Ô NÀO sai.
+ *
+ * Khách dán một bản mô tả dài (backend chặn 5000 ký tự) rồi bấm Gửi, màn hình chỉ hiện "Không
+ * thể gửi yêu cầu. Vui lòng kiểm tra lại và thử lại sau." — không nói ô nào, không nói vì
+ * sao. Khách bấm lại vài lần rồi bỏ; freelancer mất nguyên một lead mà không hề biết có người
+ * đã cố liên hệ. Chi tiết vốn CÓ trong `error.details`, chỉ là `onError` không nhận tham số
+ * nên vứt ngay tại chỗ.
+ */
+describe("<IntakeForm /> — báo lỗi cho khách", () => {
+  async function dienVaGui() {
+    const user = userEvent.setup();
+    await renderReady();
+    await user.type(screen.getByLabelText("Họ tên khách hàng"), "Lê Văn B");
+    await user.type(screen.getByLabelText("Số điện thoại"), "0901234567");
+    await user.type(screen.getByLabelText("Tên dự án"), "Ứng dụng nội bộ");
+    await user.type(screen.getByLabelText("Mô tả nhu cầu"), "Tư vấn dự án");
+    await user.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
+  }
+
+  it("422 thì nói đúng ô sai, không nuốt mất chi tiết", async () => {
+    vi.mocked(submitIntake).mockRejectedValue({
+      response: {
+        status: 422,
+        data: {
+          success: false,
+          code: 422,
+          error: {
+            message: "Request validation failed",
+            code: "VALIDATION_ERROR",
+            details: [
+              {
+                field: "body.inquiry_text",
+                message: "Value error, Mô tả dự án tối đa 5000 ký tự.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await dienVaGui();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith("Mô tả dự án tối đa 5000 ký tự.");
+  }, 20_000);
+
+  it("mất mạng thì nói là mất mạng, đừng bảo khách kiểm tra lại thông tin", async () => {
+    vi.mocked(submitIntake).mockRejectedValue(new Error("Network Error"));
+
+    await dienVaGui();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith(
+      "Không gửi được vì mất kết nối. Bạn kiểm tra mạng rồi gửi lại nhé.",
+    );
+  }, 20_000);
+
+  it("ô mô tả có trần ký tự đúng bằng trần của backend, kèm bộ đếm", async () => {
+    await renderReady();
+
+    // Biết trước còn bao nhiêu chỗ vẫn hơn là gõ xong mới bị từ chối.
+    expect(screen.getByLabelText("Mô tả nhu cầu")).toHaveAttribute("maxlength", "5000");
+    expect(screen.getByText("0/5000 ký tự")).toBeInTheDocument();
+  });
+});

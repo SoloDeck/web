@@ -33,6 +33,28 @@ export function getApiErrorStatus(err: unknown): number | undefined {
 const BACKEND_GENERIC_ERROR = "An unexpected error occurred";
 
 /**
+ * Câu backend đặt cho MỌI lỗi 422, không trừ endpoint nào (`shared/exceptions/http.py`).
+ *
+ * Cũng vô dụng như câu trên, và còn hay gặp hơn: gõ nhầm một ô là gặp. Chữ nói rõ ô nào sai
+ * nằm trong `error.details`, nên gặp câu này thì đi ghép `details` lại chứ đừng in ra.  #Huynh
+ */
+const BACKEND_VALIDATION_ERROR = "Request validation failed";
+
+/** Ghép mọi lời giải thích trong `error.details` của lỗi 422 thành một câu đọc được. */
+function joinApiErrorDetails(err: unknown): string {
+  const details = (err as ApiErrorEnvelope)?.response?.data?.error?.details;
+  if (!Array.isArray(details)) return "";
+  return details
+    .map((d) =>
+      // Pydantic dán sẵn "Value error, " trước câu do validator của dự án ném ra — và câu
+      // phía sau đã là tiếng Việt viết cho người dùng đọc.
+      typeof d?.message === "string" ? d.message.replace(/^Value error,\s*/, "").trim() : ""
+    )
+    .filter(Boolean)
+    .join("; ");
+}
+
+/**
  * Thông điệp lỗi từ backend; trả về `fallback` khi lỗi mạng, sai hình dạng, hoặc khi backend
  * chỉ nói được câu chung vô nghĩa.
  *
@@ -41,9 +63,11 @@ const BACKEND_GENERIC_ERROR = "An unexpected error occurred";
  */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   const message = (err as ApiErrorEnvelope)?.response?.data?.error?.message;
-  if (typeof message !== "string" || !message.trim()) return fallback;
-  if (message.trim() === BACKEND_GENERIC_ERROR) return fallback;
-  return message;
+  const trimmed = typeof message === "string" ? message.trim() : "";
+  if (trimmed && trimmed !== BACKEND_GENERIC_ERROR && trimmed !== BACKEND_VALIDATION_ERROR) {
+    return trimmed;
+  }
+  return joinApiErrorDetails(err) || fallback;
 }
 
 /**

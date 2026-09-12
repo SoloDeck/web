@@ -1,5 +1,7 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 
+import { donDuLieuPhienNguoiDung } from "@/lib/donDuLieuPhien";
+
 const SESSION_KEY = "solodesk.auth.session.v1";
 const REFRESH_KEY = "solodesk.auth.refresh.v1";
 
@@ -45,6 +47,40 @@ function clearSession(): void {
     s.removeItem(SESSION_KEY);
     s.removeItem(REFRESH_KEY);
   }
+  // Hết phiên cũng phải dọn dữ liệu tài khoản, không chỉ hai khoá token: máy dùng chung
+  // thì người đăng nhập kế tiếp sẽ thấy bản nháp hồ sơ và tên khách của người trước.  #Huynh
+  donDuLieuPhienNguoiDung();
+}
+
+/**
+ * Trang công khai của freelancer — người xem là KHÁCH của họ, không có tài khoản SoloDesk.
+ *
+ * Có lỗi 401 lọt ra ở đây thì đá họ về màn đăng nhập của hệ thống là vô nghĩa: họ không có
+ * gì để đăng nhập, và màn hình vừa nhảy đi trông y như hệ thống hỏng.  #Huynh
+ */
+const PUBLIC_PATH_PREFIXES = ["/intake/", "/ho-so/", "/bieu-mau/"];
+
+/**
+ * Phiên hết hạn: dọn phiên rồi đưa về màn đăng nhập, KÈM LÝ DO.
+ *
+ * Trước đây chỉ `window.location.href = "/login"` trần trụi — freelancer đang gõ dở nội dung
+ * hoá đơn thì màn hình nhảy đi, không một chữ giải thích, bản nháp mất sạch (đây là reload
+ * cứng nên state React không còn gì). `reason=expired` để màn đăng nhập nói được vì sao họ
+ * bị đưa về đây.  #Huynh
+ */
+function handleSessionExpired(): void {
+  const hadSession = getStoredToken() !== null || getStoredRefreshToken() !== null;
+  clearSession();
+
+  // Chưa từng đăng nhập thì cũng chẳng có phiên nào "hết hạn" — đừng đá đi đâu cả. Bắt luôn
+  // trường hợp khách đang xem hồ sơ công khai ở đường dẫn gốc (`/<slug>`).
+  if (!hadSession) return;
+
+  const path = window.location.pathname || "";
+  if (path.startsWith("/login")) return;
+  if (PUBLIC_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) return;
+
+  window.location.href = "/login?reason=expired";
 }
 
 // ── Axios instance ─────────────────────────────────────────────────────────
@@ -130,8 +166,7 @@ axiosClient.interceptors.response.use(
 
     if (!refreshToken) {
       isRefreshing = false;
-      clearSession();
-      window.location.href = "/login";
+      handleSessionExpired();
       return Promise.reject(error);
     }
 
@@ -147,8 +182,7 @@ axiosClient.interceptors.response.use(
       return axiosClient(originalRequest);
     } catch (refreshError) {
       processQueue(refreshError, null);
-      clearSession();
-      window.location.href = "/login";
+      handleSessionExpired();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

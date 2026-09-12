@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Bell, CalendarClock, Loader2, Mail, Pencil, Send, Sparkles, Trash2, Zap } from "lucide-react";
+import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
 import { ReminderComposerModal } from "@/features/reminders/components/ReminderComposerModal";
 import type { Deal } from "@/features/deals/types";
@@ -46,6 +47,10 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const cancelReminder = useCancelReminder(deal.id);
   const sendNow = useSendReminderNow(deal.id);
   const [aiOpen, setAiOpen] = useState(false);
+  /** Lời nhắc sắp GỬI NGAY cho khách — chờ người dùng xác nhận. */
+  const [sendNowPending, setSendNowPending] = useState<ReminderRecord | null>(null);
+  /** Lời nhắc sắp bị huỷ lịch — chờ người dùng xác nhận. */
+  const [cancelPending, setCancelPending] = useState<ReminderRecord | null>(null);
   /** `null` = soạn mới; có bản ghi = sửa lời nhắc đó. `undefined` = cửa sổ đang đóng. */
   const [composerFor, setComposerFor] = useState<ReminderRecord | null | undefined>(undefined);
   const reminders = useMemo(
@@ -55,10 +60,20 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
   const pendingCount = reminders.filter((reminder) => reminder.status === "pending").length;
 
 
-  function cancel(id: string) {
-    const confirmed = window.confirm("Hủy lịch nhắc này?");
-    if (!confirmed) return;
-    cancelReminder.mutate(id);
+  /**
+   * Hỏi lại ĐÚNG CHỖ, không hỏi ngược.
+   *
+   * Trước đây "Gửi ngay" — thư rời máy chủ tới khách hàng thật, không thu hồi được — thì im
+   * lặng chạy luôn, còn "Hủy" — chỉ bỏ một lịch hẹn chưa gửi, soạn lại mất 30 giây — lại bị
+   * chặn bằng `window.confirm` (khoá cứng cả tab, và câu hỏi cũng không nói mất gì).  #Huynh
+   */
+  function requestSendNow(reminder: ReminderRecord) {
+    // Kênh "Chỉ nhắc tôi" không chạm tới khách: hỏi là thừa một cú bấm.
+    if (reminder.channel === "in_app") {
+      sendNow.mutate(reminder.id);
+      return;
+    }
+    setSendNowPending(reminder);
   }
 
   return (
@@ -121,8 +136,8 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
               onEdit={() =>
                 reminder.status === "pending" ? setComposerFor(reminder) : undefined
               }
-              onCancel={() => cancel(reminder.id)}
-              onSendNow={() => sendNow.mutate(reminder.id)}
+              onCancel={() => setCancelPending(reminder)}
+              onSendNow={() => requestSendNow(reminder)}
               busy={cancelReminder.isPending || updateReminder.isPending || sendNow.isPending}
             />
           ))}
@@ -140,6 +155,51 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
           onClose={() => setComposerFor(undefined)}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(sendNowPending)}
+        onOpenChange={(open) => {
+          if (!open) setSendNowPending(null);
+        }}
+        title={`Gửi cho ${deal.client} ngay bây giờ?`}
+        description={
+          sendNowPending
+            ? `${channelNoun(sendNowPending.channel)} sẽ rời máy chủ ngay lập tức, không thu hồi được. ` +
+              `Lịch hẹn ban đầu là ${formatDateTime(sendNowPending.scheduled_at)}.`
+            : undefined
+        }
+        confirmLabel="Gửi ngay cho khách"
+        cancelLabel="Giữ đúng lịch"
+        isLoading={sendNow.isPending}
+        onConfirm={() => {
+          if (!sendNowPending) return;
+          sendNow.mutate(sendNowPending.id);
+          setSendNowPending(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(cancelPending)}
+        onOpenChange={(open) => {
+          if (!open) setCancelPending(null);
+        }}
+        title="Bỏ lịch nhắc này?"
+        description={
+          cancelPending
+            ? `Lời nhắc hẹn lúc ${formatDateTime(cancelPending.scheduled_at)} sẽ không gửi nữa. ` +
+              "Bạn vẫn soạn được lời nhắc mới bất cứ lúc nào."
+            : undefined
+        }
+        confirmLabel="Bỏ lịch nhắc"
+        cancelLabel="Giữ lại"
+        tone="danger"
+        isLoading={cancelReminder.isPending}
+        onConfirm={() => {
+          if (!cancelPending) return;
+          cancelReminder.mutate(cancelPending.id);
+          setCancelPending(null);
+        }}
+      />
     </div>
   );
 }
@@ -281,6 +341,13 @@ function ChannelBadge({ channel, label }: { channel: ReminderChannel; label: str
   );
 }
 
+
+/** Thứ sắp rời máy chủ, gọi đúng tên để người dùng biết mình đang gửi cái gì. */
+function channelNoun(channel: string): string {
+  if (channel === "zalo") return "Tin nhắc qua Zalo";
+  if (channel === "both") return "Email cho khách (và thông báo cho bạn)";
+  return "Thư nhắc qua email";
+}
 
 function normalizeChannel(channel: string): ReminderChannel {
   if (channel === "email" || channel === "in_app" || channel === "zalo" || channel === "both") {

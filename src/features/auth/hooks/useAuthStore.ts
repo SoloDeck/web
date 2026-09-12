@@ -7,6 +7,7 @@ import type {
 import * as authService from "@/services/authService";
 import { getMe } from "@/services/usersService";
 import { queryClient } from "@/configs/query-client";
+import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 
 interface AuthState {
@@ -48,6 +49,10 @@ export const useAuthStore = create<AuthState>((set) => {
       // Đổi tài khoản cần dọn cache FE trước khi render lại dữ liệu theo token mới.
       queryClient.clear();
       useDealStore.getState().reset();
+      // Store AI cũng phải dọn: đăng xuất ở đây là thao tác phía client, không nạp lại
+      // trang, nên mọi store Zustand sống sót. Không dọn thì tài khoản sau mở Task Center
+      // ra thấy job AI của người trước, kèm tên khách hàng trên từng thẻ.  #Huynh
+      useAIActivityStore.getState().reset();
       set({
         user: session.user,
         token: session.token,
@@ -79,6 +84,10 @@ export const useAuthStore = create<AuthState>((set) => {
       await authService.logout();
       queryClient.clear();
       useDealStore.getState().reset();
+      // Store AI cũng phải dọn: đăng xuất ở đây là thao tác phía client, không nạp lại
+      // trang, nên mọi store Zustand sống sót. Không dọn thì tài khoản sau mở Task Center
+      // ra thấy job AI của người trước, kèm tên khách hàng trên từng thẻ.  #Huynh
+      useAIActivityStore.getState().reset();
       set({ user: null, token: null, isAuthenticated: false, error: null });
     },
 

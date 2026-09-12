@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { KanbanBoard } from "./KanbanBoard";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
@@ -87,9 +88,26 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
   };
 }
 
+/**
+ * KanbanBoard dùng `useQueryClient` để làm mới cache `["deals"]` sau khi đổi giai đoạn —
+ * không có bước đó thì rời trang rồi quay lại là thẻ nhảy về cột cũ, vì `useDeals` nạp
+ * store Zustand TỪ cache React Query. App thật luôn có provider ở gốc; bài test này trước
+ * đây render trần nên phải bọc lại cho giống thật.  #Huynh
+ */
 function renderBoard(deals: Deal[]) {
   useDealStore.setState({ deals, hydrated: true });
-  render(<KanbanBoard deals={deals} onCardClick={vi.fn()} onDraft={vi.fn()} />);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <KanbanBoard deals={deals} onCardClick={vi.fn()} onDraft={vi.fn()} />
+    </QueryClientProvider>
+  );
+}
+
+/** Bọc provider cho hai bài test cần truyền `onCardClick` riêng. */
+function renderVoiProvider(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
 function dragTo(stage: Stage) {
@@ -142,7 +160,7 @@ describe("<KanbanBoard /> stage transition", () => {
       const onCardClick = vi.fn();
       const deals = [makeDeal({ stage: "new_lead" })];
       useDealStore.setState({ deals, hydrated: true });
-      render(<KanbanBoard deals={deals} onCardClick={onCardClick} onDraft={vi.fn()} />);
+      renderVoiProvider(<KanbanBoard deals={deals} onCardClick={onCardClick} onDraft={vi.fn()} />);
 
       await dragTo("qualified");
       expect(useDealStore.getState().recentlyMovedId).toBe("d1");
@@ -173,7 +191,7 @@ describe("<KanbanBoard /> stage transition", () => {
       makeDeal({ id: "d2", stage: "new_lead" }),
     ];
     useDealStore.setState({ deals, hydrated: true });
-    render(<KanbanBoard deals={deals} onCardClick={onCardClick} onDraft={vi.fn()} />);
+    renderVoiProvider(<KanbanBoard deals={deals} onCardClick={onCardClick} onDraft={vi.fn()} />);
 
     // d2 chưa xem nên phải đứng TRƯỚC d1 dù server trả về sau.
     const cards = screen.getAllByRole("button");
