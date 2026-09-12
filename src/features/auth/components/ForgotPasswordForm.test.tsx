@@ -51,8 +51,12 @@ describe("<ForgotPasswordForm />", () => {
     await user.type(screen.getByLabelText("Nhập lại mật khẩu mới"), "MatKhauMoi2026");
     await user.click(screen.getByRole("button", { name: /đổi mật khẩu/i }));
 
-    // BE chỉ nhận otp + new_password, KHÔNG cần email — mã tự định danh người dùng.
-    await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith("123456", "MatKhauMoi2026"));
+    // `email` PHẢI được gửi kèm. Trước đây BE tra mã trên toàn bảng nên mã của bất kỳ ai
+    // cũng đặt lại được mật khẩu người khác; nay mã chỉ có hiệu lực trong phạm vi đúng
+    // người, và bỏ sót trường này thì mọi lượt đổi mật khẩu trả 422.  #Huynh
+    await waitFor(() =>
+      expect(mockConfirm).toHaveBeenCalledWith("a@b.com", "123456", "MatKhauMoi2026")
+    );
     expect(await screen.findByText(/đã đổi mật khẩu thành công/i)).toBeInTheDocument();
   }, 20_000);
 

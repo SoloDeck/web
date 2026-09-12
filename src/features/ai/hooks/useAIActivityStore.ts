@@ -78,6 +78,8 @@ type AIActivityState = {
   isJobCancelled: (id: string) => boolean;
   /** Job đã bị người dùng ẩn đi — đừng dựng lại sau F5. */
   isJobDismissed: (id: string) => boolean;
+  /** Xoá sạch store khi đổi tài khoản. Xem chú thích ở phần cài đặt bên dưới. */
+  reset: () => void;
 };
 
 function nowIso() {
@@ -219,4 +221,24 @@ export const useAIActivityStore = create<AIActivityState>((set, get) => ({
     })),
   isJobCancelled: (id) => get().cancelledJobIds.includes(id),
   isJobDismissed: (id) => get().dismissedJobIds.includes(id),
+  /**
+   * Trả store về trạng thái trống.
+   *
+   * Đăng xuất ở app này là thao tác phía client — không nạp lại trang — nên mọi store
+   * Zustand sống sót qua lượt đăng xuất. `useDealStore` đã được dọn từ trước, còn store
+   * này thì không: tài khoản đăng nhập kế tiếp mở Task Center ra là thấy nguyên danh sách
+   * job AI của người trước, kèm TÊN KHÁCH HÀNG trong tiêu đề từng thẻ.  #Huynh
+   *
+   * `dismissedJobIds` đọc lại từ localStorage thay vì gán rỗng cứng: `authService.logout`
+   * đã quét sạch khoá đó trước khi hàm này chạy, nên đọc lại là ra rỗng — mà nếu sau này
+   * ai đổi thứ tự thì đọc lại vẫn cho ra giá trị ĐÚNG của tài khoản hiện tại.
+   */
+  reset: () =>
+    set({
+      jobs: [],
+      viewRequestId: null,
+      panel: null,
+      cancelledJobIds: [],
+      dismissedJobIds: loadDismissed(),
+    }),
 }));
