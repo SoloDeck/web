@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getApiErrorDetail, getApiErrorStatus } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import {
   getPublicIntakeFormConfig,
@@ -38,6 +39,24 @@ const NAME_FIELD: PublicIntakeFormFieldResponse = {
 };
 
 const CONTACT_FIELD_KEYS = new Set(["name", "phone", "email"]);
+/**
+ * Trần độ dài của từng ô, khớp `PublicIntakeRequest` bên backend
+ * (`src/modules/deals/schemas/request.py`).
+ *
+ * Chặn ngay trên ô nhập chứ không đợi 422: khách dán một bản mô tả dài rồi bấm Gửi, nhận về
+ * một câu chung chung thì họ không biết ô nào sai — bấm lại vài lần rồi bỏ, freelancer mất
+ * nguyên một lead mà không hề biết có người đã cố liên hệ.  #Huynh
+ */
+const FIELD_MAX_LENGTH: Record<string, number> = {
+  name: 255,
+  email: 255,
+  phone: 50,
+  project_name: 500,
+  inquiry_text: 5000,
+  estimated_budget: 255,
+  desired_timeline: 255,
+};
+
 const STANDARD_PAYLOAD_KEYS = new Set([
   "name",
   "phone",
@@ -147,9 +166,26 @@ export function IntakeForm({
     onSuccess: (response) => {
       setResult(response);
     },
-    onError: () => {
+    onError: (err) => {
       setUploadProgress(null);
-      toast.error("Không thể gửi yêu cầu. Vui lòng kiểm tra lại và thử lại sau.");
+      // 422 mang chi tiết từng trường trong `error.details`; câu `error.message` của nó chỉ
+      // là "Request validation failed" nên vô dụng. Trước đây hàm này không nhận tham số
+      // nào, tức chi tiết bị vứt ngay tại đây.  #Huynh
+      const status = getApiErrorStatus(err);
+      const detail =
+        status === 422
+          ? (getApiErrorDetail(err, "inquiry_text") ??
+            getApiErrorDetail(err, "email") ??
+            getApiErrorDetail(err, "phone") ??
+            getApiErrorDetail(err, "name") ??
+            getApiErrorDetail(err, "project_name"))
+          : undefined;
+      toast.error(
+        detail ??
+          (status === undefined
+            ? "Không gửi được vì mất kết nối. Bạn kiểm tra mạng rồi gửi lại nhé."
+            : "Không gửi được yêu cầu. Bạn kiểm tra lại thông tin rồi thử lại."),
+      );
     },
   });
 
@@ -477,6 +513,7 @@ type DynamicFieldProps = {
 
 function DynamicField({ field, value, className, onChange }: DynamicFieldProps) {
   const fieldId = `intake-${field.field_key}`;
+  const maxLength = FIELD_MAX_LENGTH[field.field_key];
 
   return (
     <label className={cn("block", className)} htmlFor={fieldId}>
@@ -493,6 +530,7 @@ function DynamicField({ field, value, className, onChange }: DynamicFieldProps) 
           rows={field.field_key === "inquiry_text" ? 5 : 3}
           className="resize-y"
           aria-label={field.label}
+          maxLength={maxLength}
           required={field.is_required}
         />
       ) : (
@@ -505,8 +543,15 @@ function DynamicField({ field, value, className, onChange }: DynamicFieldProps) 
           aria-label={field.label}
           autoComplete={field.field_key === "name" ? "name" : field.field_key}
           inputMode={field.field_type === "phone" ? "tel" : undefined}
+          maxLength={maxLength}
           required={field.is_required}
         />
+      )}
+      {/* Bộ đếm cho ô dài: biết trước còn bao nhiêu chỗ vẫn hơn là gõ xong mới bị từ chối. */}
+      {maxLength && field.field_type === "textarea" && (
+        <span className="mt-1 block text-right text-[11px] text-muted-foreground">
+          {value.length}/{maxLength} ký tự
+        </span>
       )}
     </label>
   );

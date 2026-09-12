@@ -98,6 +98,16 @@ const AI_JOB_ERROR_MESSAGES: Record<string, string> = {
   SUBSCRIPTION_REQUIRED: "Gói của bạn chưa có tính năng AI. Hãy nâng cấp gói để dùng.",
   RATE_LIMITED: "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức.",
   AI_QUOTA_EXCEEDED: "AI không sinh được kết quả cho lần chạy này.",
+  // Mấy mã dưới đây backend gửi kèm câu TIẾNG ANH của Python (`str(exc)`), có mã còn kèm
+  // nguyên UUID: "Deal 3f2a9c1e-… not found". Không dịch sẵn ở đây thì nó lọt thẳng lên
+  // bảng AI, Trung tâm hoạt động AI và dòng thời gian của deal.  #Huynh
+  INTERNAL_SERVER_ERROR: "Hệ thống gặp sự cố khi chạy AI. Bạn thử lại sau ít phút nhé.",
+  NOT_FOUND: "Không tìm thấy dữ liệu để AI chạy — có thể nó đã bị xoá.",
+  VALIDATION_FAILED: "Dữ liệu chưa đủ để AI xử lý. Bạn bổ sung thông tin rồi chạy lại nhé.",
+  BUSINESS_RULE_VIOLATION:
+    "Dữ liệu chưa đủ để AI xử lý. Bạn bổ sung thông tin rồi chạy lại nhé.",
+  UNAUTHORIZED: "Phiên làm việc không còn hợp lệ. Bạn đăng nhập lại rồi thử lại nhé.",
+  FORBIDDEN: "Bạn không có quyền chạy AI cho mục này.",
   // AI_PROVIDER_ERROR CỐ Ý không có ở đây: backend đã gửi sẵn câu tiếng Việt nói rõ nhà
   // cung cấp từ chối vì gì (hạn mức token, khoá sai, model bị gỡ...) kèm nguyên văn lỗi.
   // Ghi đè bằng một câu chung là ném đi đúng thứ cần đọc lúc demo.
@@ -107,8 +117,15 @@ export function getAiJobErrorMessage(job: AiJob | undefined): string | null {
   if (!job?.error) return null;
   const code = typeof job.error.code === "string" ? job.error.code : "";
   if (code && AI_JOB_ERROR_MESSAGES[code]) return AI_JOB_ERROR_MESSAGES[code];
-  const msg = job.error.message ?? job.error.detail;
-  return typeof msg === "string" && msg.trim() ? msg : "AI xử lý thất bại.";
+  // AI_PROVIDER_ERROR là mã DUY NHẤT backend đã soạn sẵn tiếng Việt (`_PROVIDER_HTTP_MESSAGES`
+  // trong ai_jobs/application/errors.py) — chỉ mã đó mới được in nguyên văn. Mã lạ nào khác
+  // thì rơi về câu chung, còn hơn để người dùng đọc một câu tiếng Anh mà không biết nên thử
+  // lại hay đi báo lỗi.  #Huynh
+  if (code === "AI_PROVIDER_ERROR") {
+    const msg = job.error.message;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  }
+  return "AI xử lý thất bại. Bạn thử lại giúp mình nhé.";
 }
 
 /**

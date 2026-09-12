@@ -1,8 +1,8 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Menu, Plus, Search } from "lucide-react";
+import { Loader2, Menu, Plus, RefreshCw, Search } from "lucide-react";
 import { AppSidebar } from "@/components/layout/Sidebar";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { ArchivedDealsDrawer } from "@/features/deals/components/ArchivedDealsDrawer";
 import { countArchivedDeals } from "@/services/dealsService";
@@ -14,7 +14,7 @@ import { ClientRecords } from "@/features/clients/components/ClientRecords";
 import { RevenueDashboard } from "@/features/revenue/components/RevenueDashboard";
 import { IntakeFormConfig } from "@/features/intake/components/IntakeFormConfig";
 import { SubscriptionPage } from "@/features/subscriptions/components/SubscriptionPage";
-import { useDeals } from "@/features/deals/hooks/useDeals";
+import { dealKeys, useDeals } from "@/features/deals/hooks/useDeals";
 import { useProfile } from "@/features/profile/hooks/useProfile";
 import { useAuthStore } from "@/features/auth/hooks/useAuthStore";
 import { useSaveProfile } from "@/features/profile/hooks/useSaveProfile";
@@ -63,7 +63,8 @@ const route = getRouteApi("/");
 
 export function WorkspaceScreen() {
   const navigate = useNavigate();
-  const { deals, isLoading } = useDeals();
+  const { deals, isLoading, isError } = useDeals();
+  const queryClient = useQueryClient();
   const { profile, setProfile } = useProfile();
   const currentUser = useAuthStore((s) => s.user);
 
@@ -233,6 +234,26 @@ export function WorkspaceScreen() {
             <div className="grid h-full place-items-center text-muted-foreground">
               <div className="flex items-center gap-2 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" /> Đang tải dữ liệu...
+              </div>
+            </div>
+          ) : isError ? (
+            /* Kho deal rỗng là GIÁ TRỊ MẶC ĐỊNH, nên gọi API hỏng mà không có nhánh này thì
+               màn hình chính hiện "0 deal · Tổng: 0 ₫" và năm cột trống — y hệt tài khoản
+               chưa có dự án nào. Người dùng tin là mất sạch dữ liệu.  #Huynh */
+            <div className="grid h-full place-items-center p-6 text-center">
+              <div className="max-w-sm">
+                <h2 className="text-base font-semibold">Không tải được danh sách dự án</h2>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Mạng chập hoặc máy chủ đang bận. Dự án và tiền của bạn vẫn còn nguyên trên
+                  máy chủ — đây chỉ là lần tải này hỏng.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => queryClient.invalidateQueries({ queryKey: dealKeys.all })}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                >
+                  <RefreshCw className="h-4 w-4" /> Thử lại
+                </button>
               </div>
             </div>
           ) : (

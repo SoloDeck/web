@@ -49,6 +49,47 @@ describe("getApiErrorMessage", () => {
     expect(getApiErrorMessage(apiError({ message: "" }), "Dự phòng")).toBe("Dự phòng");
     expect(getApiErrorMessage(apiError({ message: "   " }), "Dự phòng")).toBe("Dự phòng");
   });
+
+  /**
+   * Gõ nhầm 110 vào ô "Thuế/VAT (%)" là backend trả 422, và toast hiện đúng chữ "Request
+   * validation failed" — tiếng Anh, không nói ô nào sai. Câu đó backend đặt cho MỌI lỗi 422
+   * nên nó lọt ra ở cả ~40 nơi đang gọi hàm này.  #Huynh
+   */
+  it("câu chung của lỗi 422 không được lọt ra màn hình", () => {
+    const err = apiError({ message: "Request validation failed", code: "VALIDATION_FAILED" }, 422);
+    expect(getApiErrorMessage(err, "Không thể tạo hóa đơn.")).toBe("Không thể tạo hóa đơn.");
+  });
+
+  it("lỗi 422 có details thì nói rõ sai chỗ nào thay vì câu chung", () => {
+    const err = apiError(
+      {
+        message: "Request validation failed",
+        details: [
+          { field: "tax_rate", message: "Value error, Thuế/VAT nhập theo phần trăm, từ 0 đến 100." },
+        ],
+      },
+      422
+    );
+    expect(getApiErrorMessage(err, "Không thể tạo hóa đơn.")).toBe(
+      "Thuế/VAT nhập theo phần trăm, từ 0 đến 100."
+    );
+  });
+
+  it("nhiều trường sai thì ghép lại, không bỏ sót trường nào", () => {
+    const err = apiError(
+      {
+        message: "Request validation failed",
+        details: [
+          { field: "name", message: "Value error, Tên khách không được để trống" },
+          { field: "email", message: "Value error, Email không hợp lệ" },
+        ],
+      },
+      422
+    );
+    expect(getApiErrorMessage(err, "Dự phòng")).toBe(
+      "Tên khách không được để trống; Email không hợp lệ"
+    );
+  });
 });
 
 describe("getApiErrorStatus / getApiErrorCode", () => {

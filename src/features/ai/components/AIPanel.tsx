@@ -127,8 +127,10 @@ function mapApiQualification(data: ApiQualificationResult): EvaluationResult | n
   };
 }
 
-function getErrorHint(error: unknown): string {
-  const err = error as { code?: string; response?: { status?: number; data?: { message?: string; detail?: string } } };
+// Export để bài test khoá lỗi gọi thẳng hàm thuần này, khỏi phải dựng cả panel.
+// eslint-disable-next-line react-refresh/only-export-components
+export function getErrorHint(error: unknown): string {
+  const err = error as { code?: string; response?: { status?: number } };
   if (err.code === "ECONNABORTED") {
     return "Chờ quá lâu mà chưa có phản hồi. Bạn thử lại sau ít phút nhé.";
   }
@@ -140,8 +142,11 @@ function getErrorHint(error: unknown): string {
     return "Đã dùng hết lượt AI trong kỳ này. Vào mục Gói dịch vụ để xem hạn mức và nâng cấp.";
   }
   if (err.response?.status) {
-    const message = err.response.data?.message || err.response.data?.detail;
-    return `Hệ thống báo lỗi ${err.response.status}${message ? `: ${message}` : "."}`;
+    // Câu giải thích của backend nằm ở `data.error.message` — KHÔNG phải `data.message` hay
+    // `data.detail`. Đọc sai hai khoá đó thì lúc nào cũng ra `undefined`, nên màn hình chỉ
+    // còn mỗi mã HTTP trần: người dùng đọc "Hệ thống báo lỗi 502." xong không biết là hết
+    // hạn mức, sai khoá API hay nhà cung cấp quá tải.  #Huynh
+    return getApiErrorMessage(error, "Không tạo được tác vụ AI. Bạn thử lại sau ít phút nhé.");
   }
   return "Không kết nối được tới máy chủ. Bạn kiểm tra mạng rồi thử lại nhé.";
 }
