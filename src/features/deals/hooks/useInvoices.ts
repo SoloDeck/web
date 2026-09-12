@@ -23,11 +23,7 @@ export const invoiceKeys = {
 export function useDealInvoices(dealId: string | undefined) {
   return useQuery({
     queryKey: invoiceKeys.deal(dealId),
-    queryFn: async () => {
-      const invoices = await listInvoices();
-      // BE hiện chưa expose query deal_id, nên lọc phía FE để giữ UI dùng API thật.
-      return invoices.filter((invoice) => invoice.deal_id === dealId);
-    },
+    queryFn: () => listInvoices({ dealId }),
     enabled: Boolean(dealId),
   });
 }
