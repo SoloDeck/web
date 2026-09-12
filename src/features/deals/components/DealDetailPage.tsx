@@ -256,14 +256,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [viewAttachment, setViewAttachment] = useState<DealAttachment | null>(null);
   const [invoiceModalMode, setInvoiceModalMode] = useState<"create" | "view" | "edit" | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceResponse | null>(null);
-  /**
-   * Mốc thu tiền đang chờ gửi hóa đơn qua cửa sổ soạn.
-   *
-   * Cửa sổ soạn chỉ biết về HÓA ĐƠN, không biết nó thuộc mốc nào — mà gửi xong thì phải tick
-   * mốc đó. Giữ ở đây thay vì tra ngược từ `invoice_id`: freelancer có thể mở cùng hóa đơn ấy
-   * từ tab Tài liệu, và lúc đó không có mốc nào đang chờ cả.  #Huynh
-   */
-  const [invoiceTaskAwaitingSend, setInvoiceTaskAwaitingSend] = useState<ProjectTask | null>(null);
   /** File đính kèm đang chờ xác nhận xoá. Xoá là mất hẳn, nên phải hỏi. */
   const [attachmentPendingDelete, setAttachmentPendingDelete] = useState<DealAttachment | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
@@ -716,7 +708,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
    */
   function handleSaveAndSendInvoice(invoiceId: string, payload: InvoiceUpdatePayload) {
     if (!deal) return;
-    const task = invoiceTaskAwaitingSend;
     updateInvoiceMutation.mutate(
       { invoiceId, payload },
       {
@@ -729,8 +720,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                 text: `Đã gửi hóa đơn ${sent.invoice_number}.`,
                 channel: "email",
               });
-              if (task) markPaymentTaskDoneAfterSend(task);
-              setInvoiceTaskAwaitingSend(null);
               setSelectedInvoice(null);
               setInvoiceModalMode(null);
             },
@@ -847,6 +836,9 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             text: `Đã ghi nhận thanh toán ${formatVND(remaining)} cho hóa đơn ${updatedInvoice.invoice_number}.`,
             channel: "message",
           });
+          // Tiền về ĐỦ mới tick mốc — đây mới là thứ bảng Doanh thu đọc ra "Đã thu".
+          const task = paymentTaskOfInvoice(updatedInvoice.id);
+          if (task && invoicePaidInFull(updatedInvoice)) markPaymentTaskDoneAfterPaid(task);
         },
         onError: (error) => {
           const message = getApiErrorMessage(error, "");
@@ -988,21 +980,27 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   }
 
   /**
-   * Gửi hóa đơn xong thì TICK LUÔN công việc đó.
+   * GHI NHẬN ĐƯỢC TIỀN xong thì mới tick mốc thu tiền đó.
    *
-   * Trước đây hai thứ rời nhau, nên bảng việc hiện những hàng tự mâu thuẫn: mốc còn nhãn
-   * "Chưa làm" trong khi hóa đơn của chính nó đã "Đã thanh toán". Freelancer phải nhớ tick
-   * tay, mà quên thì guard "Hoàn thành dự án" chặn lại dù tiền đã về đủ.
+   * Trước đây chỗ này nằm ở luồng GỬI hoá đơn, và đó là một lỗi tiền thật: backend quy ước
+   * task `done` = ĐÃ THU (`analytics/infrastructure/repository.py`, `"collected": status ==
+   * "done"`), nên thư vừa rời máy chủ là bảng Doanh thu đã cộng khoản đó vào ô "Đã thu" và
+   * trừ khỏi "Còn phải thu" — trong khi khách chưa chuyển một đồng nào. Freelancer nhìn
+   * "Còn phải thu: 0 đ" rồi thôi không đi đòi; lời nhắc thu tiền cũng lấy đúng con số 0 đó.
    *
    * Đi thẳng vào mutation chứ KHÔNG qua `handleToggleTask`: hàm đó mở hộp thoại hỏi "gửi hóa
    * đơn cho khách luôn?" — hỏi đúng thứ vừa làm xong.
    *
-   * Bỏ qua khi task đã xong sẵn (gửi lại hóa đơn cho một mốc đã tick) để không bắn thêm một
-   * lượt ghi vô nghĩa.  #Huynh
+   * Bỏ qua khi task đã xong sẵn để không bắn thêm một lượt ghi vô nghĩa.  #Huynh
    */
-  function markPaymentTaskDoneAfterSend(task: ProjectTask) {
+  function markPaymentTaskDoneAfterPaid(task: ProjectTask) {
     if (!shouldTickAfterInvoiceSent(task)) return;
     toggleTaskMutation.mutate({ taskId: task.id, is_done: true });
+  }
+
+  /** Mốc thu tiền gắn với hoá đơn này, để tick khi tiền về đủ. */
+  function paymentTaskOfInvoice(invoiceId: string): ProjectTask | undefined {
+    return (taskQuery.data?.tasks ?? []).find((item) => item.invoice?.id === invoiceId);
   }
 
   /**
@@ -1024,8 +1022,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     createTaskInvoice.mutate(task.id, {
       onSuccess: (invoice) => {
         setInvoiceBusyTaskId(null);
-        // Nhớ mốc lại: gửi xong còn phải tick nó, mà cửa sổ soạn không biết gì về task.
-        setInvoiceTaskAwaitingSend(task);
         setSelectedInvoice(invoice);
         setInvoiceModalMode("edit");
       },
@@ -1049,7 +1045,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       toast.error("Không mở được hóa đơn của mốc này. Hãy tải lại trang.");
       return;
     }
-    setInvoiceTaskAwaitingSend(task);
     setSelectedInvoice(draft);
     setInvoiceModalMode("edit");
   }
@@ -1069,7 +1064,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         },
       },
       {
-        onSuccess: () => toast.success(`Đã ghi nhận thu ${formatVND(conLai)}.`),
+        onSuccess: () => {
+          toast.success(`Đã ghi nhận thu ${formatVND(conLai)}.`);
+          // Thu đủ phần còn lại = mốc này xong thật, giờ mới được tick.
+          markPaymentTaskDoneAfterPaid(task);
+        },
         onError: (err) => toast.error(invoiceErrorMessage(err, "Không ghi nhận được thanh toán.")),
         onSettled: () => setInvoiceBusyTaskId(null),
       }
@@ -1434,6 +1433,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     onViewQualification={setViewQualificationDoc}
                     contractActionLoading={sendContract.isPending}
                     pendingInvoiceId={pendingInvoiceId}
+                    clientName={client?.name ?? deal.client}
+                    clientEmail={client?.email ?? deal.clientEmail ?? null}
                   />
                 </TabsContent>
 
@@ -1589,11 +1590,19 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             phone: client?.phone ?? deal.clientPhone ?? null,
           }}
           invoice={selectedInvoice}
-          isLoading={createInvoice.isPending || updateInvoiceMutation.isPending || deleteInvoiceMutation.isPending}
+          /* `sendInvoiceMutation` phải nằm trong cờ này: "Lưu & gửi" là chuỗi HAI chặng
+             (PATCH rồi POST /send). Thiếu nó thì nút sáng lại ngay giữa chừng, trong lúc thư
+             còn đang đi qua SMTP — người dùng tưởng hỏng nên bấm lại, khách nhận HAI email
+             hoá đơn cùng một số tiền.  #Huynh */
+          isLoading={
+            createInvoice.isPending ||
+            updateInvoiceMutation.isPending ||
+            deleteInvoiceMutation.isPending ||
+            sendInvoiceMutation.isPending
+          }
           onClose={() => {
             setInvoiceModalMode(null);
             setSelectedInvoice(null);
-            setInvoiceTaskAwaitingSend(null);
           }}
           onCreate={handleSubmitInvoiceDraft}
           onUpdate={handleUpdateInvoice}
@@ -2433,18 +2442,31 @@ export function InvoiceComposerModal({
   const [tone, setTone] = useState<InvoiceTone>("formal");
   // Hóa đơn ĐANG MỞ thì lấy số thứ tự của chính nó; chỉ khi tạo mới mới dùng số kế tiếp.
   const draftOrdinal = invoice ? invoiceOrdinal(existingInvoices, invoice) : suggestedInvoiceIndex;
-  const [draft, setDraft] = useState<InvoiceDraftState>(() =>
-    buildInvoiceDraft(deal, client, "formal", draftOrdinal, invoice)
-  );
+  const isDraftInvoice = !invoice || invoice.status === "draft";
+  const canEdit = mode !== "view" && isDraftInvoice;
+  /**
+   * Bản nháp mang hạn thanh toán đã trôi vào quá khứ (hệ thống sinh nó với hạn +7 ngày, vài
+   * tuần sau freelancer mới mở ra gửi).
+   *
+   * Trước đây `validateInvoiceDraft` chặn cả "Lưu nháp" lẫn "Lưu & gửi cho khách" vì hạn nằm
+   * trong quá khứ, nên hoá đơn ĐÓNG BĂNG: không sửa được, không gửi được, tiền không thu
+   * được — cho tới khi người dùng tự mò ra ô ngày giữa form mà gõ lại. Giờ đề xuất sẵn hạn
+   * mới; luật chặn vẫn giữ nguyên cho ngày người dùng TỰ gõ.  #Huynh
+   */
+  const dueDateWasPast = canEdit && isPastDate(String(invoice?.due_date ?? "").slice(0, 10));
+  const [draft, setDraft] = useState<InvoiceDraftState>(() => {
+    const initial = buildInvoiceDraft(deal, client, "formal", draftOrdinal, invoice);
+    return dueDateWasPast ? { ...initial, dueDate: suggestedDueDate() } : initial;
+  });
   const [dueDateText, setDueDateText] = useState(() => formatDateForVietnameseInput(draft.dueDate));
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  /** Đã bấm "Lưu & gửi cho khách", đang chờ xác nhận lần cuối. */
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const subtotal = parseMoneyInput(draft.amount);
   const taxRate = Math.max(0, parseMoneyInput(draft.taxRate) / 100);
   const taxAmount = Math.round(subtotal * taxRate);
   const total = subtotal + taxAmount;
-  const isDraftInvoice = !invoice || invoice.status === "draft";
-  const canEdit = mode !== "view" && isDraftInvoice;
   const title =
     mode === "create"
       ? "Tạo hóa đơn nháp"
@@ -2454,9 +2476,10 @@ export function InvoiceComposerModal({
 
   useEffect(() => {
     const nextDraft = buildInvoiceDraft(deal, client, tone, draftOrdinal, invoice);
-    setDraft(nextDraft);
-    setDueDateText(formatDateForVietnameseInput(nextDraft.dueDate));
-  }, [client.email, client.name, client.phone, deal.id, deal.projectType, deal.value, invoice, draftOrdinal]);
+    const dueDate = dueDateWasPast ? suggestedDueDate() : nextDraft.dueDate;
+    setDraft({ ...nextDraft, dueDate });
+    setDueDateText(formatDateForVietnameseInput(dueDate));
+  }, [client.email, client.name, client.phone, deal.id, deal.projectType, deal.value, invoice, draftOrdinal, dueDateWasPast]);
 
   function updateDraft(field: keyof InvoiceDraftState, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -2623,6 +2646,11 @@ export function InvoiceComposerModal({
                   }}
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
                 />
+                {dueDateWasPast && (
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    Hạn cũ đã qua, SoloDesk đề xuất hạn mới. Bạn sửa lại được nếu muốn.
+                  </span>
+                )}
               </label>
               <label className="space-y-1.5 text-sm font-medium">
                 Số tiền trước thuế
@@ -2786,11 +2814,16 @@ export function InvoiceComposerModal({
                 disabled={isLoading || subtotal <= 0}
                 onClick={() => {
                   if (!validateInvoiceDraft()) return;
-                  onSaveAndSend(invoice.id, buildPayload());
+                  setSendConfirmOpen(true);
                 }}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Mail className="h-4 w-4" /> Lưu & gửi cho khách
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
+                {isLoading ? "Đang gửi..." : "Lưu & gửi cho khách"}
               </button>
             )}
           </div>
@@ -2810,6 +2843,27 @@ export function InvoiceComposerModal({
           setCreateConfirmOpen(false);
         }}
       />
+      {/* Gửi hoá đơn là việc KHÔNG RÚT LẠI ĐƯỢC: thư mang số tiền đi tới hộp thư của khách
+          hàng thật. Nhắc lại con số và người nhận trước khi bấm — cùng khuôn với hộp thoại
+          gửi báo giá.  #Huynh */}
+      {invoice && onSaveAndSend && (
+        <ConfirmDialog
+          open={sendConfirmOpen}
+          onOpenChange={setSendConfirmOpen}
+          title={`Gửi hóa đơn ${invoice.invoice_number} — ${formatVND(total)} cho ${client.name}?`}
+          description={
+            `Email kèm hóa đơn sẽ gửi tới ${client.email || "email đã lưu của khách"} ngay bây giờ. ` +
+            "Gửi rồi không thu hồi được; nếu sai thì phải hủy hóa đơn và lập lại bản mới."
+          }
+          confirmLabel={`Gửi ${formatVND(total)}`}
+          cancelLabel="Để tôi xem lại"
+          isLoading={isLoading}
+          onConfirm={() => {
+            setSendConfirmOpen(false);
+            onSaveAndSend(invoice.id, buildPayload());
+          }}
+        />
+      )}
       {invoice && (
         <ConfirmDialog
           open={deleteConfirmOpen}
@@ -2923,6 +2977,8 @@ export function DocumentsTab({
   onViewContract,
   contractActionLoading,
   pendingInvoiceId,
+  clientName,
+  clientEmail,
   savedQualifications: savedQualificationItems,
   onViewQualification,
 }: {
@@ -2957,7 +3013,14 @@ export function DocumentsTab({
   contractActionLoading: boolean;
   /** Hoá đơn đang được xử lý — chỉ hàng của nó bị khoá, các hàng khác vẫn bấm được. */
   pendingInvoiceId: string | null;
+  /** Tên và email khách — hộp thoại xác nhận phải nói rõ thư sẽ đi tới ai. */
+  clientName: string;
+  clientEmail?: string | null;
 }) {
+  /** Hoá đơn sắp GỬI cho khách — chờ xác nhận. Gửi rồi không thu hồi được. */
+  const [invoicePendingSend, setInvoicePendingSend] = useState<InvoiceResponse | null>(null);
+  /** Hoá đơn sắp bị ghi "đã nhận đủ tiền" — chờ xác nhận. Ghi rồi không gỡ khỏi sổ được. */
+  const [paymentPendingInvoice, setPaymentPendingInvoice] = useState<InvoiceResponse | null>(null);
   const proposalStatusLabel: Record<string, StatusBadge> = {
     draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
     sent: { label: "Đã gửi khách", cls: WAITING_BADGE },
@@ -3089,7 +3152,7 @@ export function DocumentsTab({
                 <button
                   type="button"
                   disabled={rowBusy}
-                  onClick={() => onSendInvoice(invoice.id)}
+                  onClick={() => setInvoicePendingSend(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="h-3.5 w-3.5" /> Gửi hóa đơn
@@ -3099,7 +3162,7 @@ export function DocumentsTab({
                 <button
                   type="button"
                   disabled={rowBusy}
-                  onClick={() => onRecordInvoicePayment(invoice)}
+                  onClick={() => setPaymentPendingInvoice(invoice)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" /> Ghi nhận thanh toán
@@ -3394,8 +3457,79 @@ export function DocumentsTab({
         </div>
       )}
     </div>
+
+    {/* Ba nút sát nhau cùng cỡ trên một hàng: "Sửa", "Gửi hóa đơn", "Ghi nhận thanh toán".
+        Trượt tay một ô là khách hàng thật nhận email hóa đơn — có thể sai số tiền, sai hạng
+        mục — mà thư đã đi thì không thu hồi được.  #Huynh */}
+    {invoicePendingSend && (
+      <ConfirmDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) setInvoicePendingSend(null);
+        }}
+        title={`Gửi hóa đơn ${invoicePendingSend.invoice_number} — ${formatVND(Number(invoicePendingSend.total ?? 0))} cho ${clientName}?`}
+        description={
+          `Email kèm hóa đơn sẽ gửi tới ${clientEmail || "email đã lưu của khách"} ngay bây giờ. ` +
+          "Gửi rồi không thu hồi được; nếu sai thì phải hủy hóa đơn và lập lại bản mới."
+        }
+        confirmLabel={`Gửi ${formatVND(Number(invoicePendingSend.total ?? 0))}`}
+        cancelLabel="Để tôi xem lại"
+        isLoading={pendingInvoiceId === invoicePendingSend.id}
+        onConfirm={() => {
+          onSendInvoice(invoicePendingSend.id);
+          setInvoicePendingSend(null);
+        }}
+      />
+    )}
+
+    {/* Ghi nhận thanh toán ghi thẳng "khách đã trả đủ" vào sổ, mà backend KHÔNG có endpoint
+        xoá giao dịch thanh toán — bấm nhầm là sổ sách ghi đã thu khoản chưa hề nhận, và
+        freelancer thôi không đi đòi nữa.  #Huynh */}
+    {paymentPendingInvoice && (
+      <ConfirmDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) setPaymentPendingInvoice(null);
+        }}
+        title={`Ghi nhận đã thu ${formatVND(remainingOf(paymentPendingInvoice))}?`}
+        description={
+          `Hệ thống sẽ ghi hóa đơn ${paymentPendingInvoice.invoice_number} đã nhận đủ ` +
+          `${formatVND(remainingOf(paymentPendingInvoice))} vào hôm nay. Chỉ bấm khi bạn đã thấy ` +
+          "tiền về tài khoản — ghi rồi thì không gỡ khỏi sổ được."
+        }
+        confirmLabel={`Đã nhận ${formatVND(remainingOf(paymentPendingInvoice))}`}
+        cancelLabel="Chưa, kiểm tra lại"
+        isLoading={pendingInvoiceId === paymentPendingInvoice.id}
+        onConfirm={() => {
+          onRecordInvoicePayment(paymentPendingInvoice);
+          setPaymentPendingInvoice(null);
+        }}
+      />
+    )}
     </>
   );
+}
+
+/** Phần còn phải thu của một hoá đơn — con số hộp thoại xác nhận phải in ra cho đúng. */
+function remainingOf(invoice: InvoiceResponse): number {
+  return Math.max(Number(invoice.total ?? 0) - Number(invoice.amount_paid ?? 0), 0);
+}
+
+/**
+ * Hoá đơn đã nhận ĐỦ tiền chưa — điều kiện DUY NHẤT để tick mốc thu tiền tương ứng.
+ *
+ * Vì sao khắt khe tới vậy: backend quy ước task `done` = ĐÃ THU
+ * (`analytics/infrastructure/repository.py`, `"collected": status == "done"`). Tick sớm một
+ * nhịp là bảng Doanh thu cộng khoản đó vào "Đã thu" và trừ khỏi "Còn phải thu" trong khi
+ * khách chưa chuyển đồng nào — freelancer nhìn "Còn phải thu: 0 đ" rồi thôi không đi đòi.
+ * Trạng thái hoá đơn (`sent`, `overdue`…) KHÔNG nói lên điều gì về tiền, chỉ con số nói.  #Huynh
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function invoicePaidInFull(
+  invoice: Pick<InvoiceResponse, "total" | "amount_paid">
+): boolean {
+  const total = Number(invoice.total ?? 0);
+  return total > 0 && Number(invoice.amount_paid ?? 0) >= total;
 }
 
 function formatDate(value: string): string {
@@ -3430,6 +3564,13 @@ function parseVietnameseDateInput(value: string): string | null {
     return null;
   }
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Hạn thanh toán đề xuất khi hạn cũ đã trôi qua: hôm nay + 7 ngày, cùng nhịp với bản nháp mới. */
+function suggestedDueDate(): string {
+  const next = new Date();
+  next.setDate(next.getDate() + 7);
+  return toApiDateValue(next);
 }
 
 function isPastDate(value: string): boolean {

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentsTab } from "@/features/deals/components/DealDetailPage";
 import type { InvoiceResponse } from "@/services/invoicesService";
@@ -36,6 +37,8 @@ function renderTab(invoices: InvoiceResponse[], over: Partial<{
   attachments: DealAttachment[];
   onDeleteAttachment: (attachment: DealAttachment) => void;
   pendingInvoiceId: string | null;
+  onSendInvoice: (invoiceId: string) => void;
+  onRecordInvoicePayment: (invoice: InvoiceResponse) => void;
 }> = {}) {
   render(
     <DocumentsTab
@@ -50,8 +53,8 @@ function renderTab(invoices: InvoiceResponse[], over: Partial<{
       onViewAttachment={vi.fn()}
       onViewInvoice={vi.fn()}
       onVoidInvoice={vi.fn()}
-      onSendInvoice={vi.fn()}
-      onRecordInvoicePayment={vi.fn()}
+      onSendInvoice={over.onSendInvoice ?? vi.fn()}
+      onRecordInvoicePayment={over.onRecordInvoicePayment ?? vi.fn()}
       onProposalDecision={vi.fn()}
       proposalDecisionLoading={false}
       onViewProposal={vi.fn()}
@@ -62,6 +65,8 @@ function renderTab(invoices: InvoiceResponse[], over: Partial<{
       onViewContract={vi.fn()}
       contractActionLoading={false}
       pendingInvoiceId={over.pendingInvoiceId ?? null}
+      clientName="Hỏa Quốc huynh"
+      clientEmail="khach@example.com"
     />
   );
 }
@@ -185,5 +190,83 @@ describe("<DocumentsTab /> — khoá đúng một hàng khi đang xử lý", () 
 
     expect(sendButtonIn(rowOf("INV-A"))).toBeEnabled();
     expect(sendButtonIn(rowOf("INV-B"))).toBeEnabled();
+  });
+});
+
+/**
+ * Hỏi lại trước khi làm hai việc KHÔNG RÚT LẠI ĐƯỢC.
+ *
+ * Ba nút sát nhau cùng cỡ trên một hàng: "Sửa", "Gửi hóa đơn", "Ghi nhận thanh toán". Trượt
+ * tay một ô là khách hàng thật nhận email hóa đơn (thư đi rồi thì chỉ còn cách nhắn xin lỗi),
+ * hoặc sổ sách ghi đã thu một khoản chưa hề nhận — mà backend không có endpoint xoá giao dịch
+ * thanh toán nên trên giao diện không gỡ ra được.
+ *
+ * Nghịch lý của bản cũ: hai việc VÔ HẠI (tạo hóa đơn nháp, xoá bản nháp chưa gửi) thì bị hỏi,
+ * còn hai việc này thì bấm là chạy.
+ */
+describe("hỏi lại trước khi gửi hoá đơn / ghi nhận thanh toán", () => {
+  const draft = invoice({ id: "inv-a", invoice_number: "INV-A", status: "draft", amount_paid: 0 });
+  const sent = invoice({ id: "inv-b", invoice_number: "INV-B", status: "sent", amount_paid: 0 });
+
+  it("bấm 'Gửi hóa đơn' chưa gửi gì — chỉ mở hộp thoại", async () => {
+    const onSendInvoice = vi.fn();
+    renderTab([draft], { onSendInvoice });
+
+    await userEvent.click(screen.getByRole("button", { name: /Gửi hóa đơn/ }));
+
+    expect(onSendInvoice).not.toHaveBeenCalled();
+    const hopThoai = screen.getByRole("alertdialog");
+    // Phải nhắc lại ĐÚNG con số, mã hoá đơn và người nhận — hỏi trống thì hỏi cho có.
+    expect(hopThoai).toHaveTextContent("INV-A");
+    expect(hopThoai).toHaveTextContent(/37\.199\.000/);
+    expect(hopThoai).toHaveTextContent("khach@example.com");
+    expect(hopThoai).toHaveTextContent(/không thu hồi được/i);
+  });
+
+  it("xác nhận xong mới thật sự gửi", async () => {
+    const onSendInvoice = vi.fn();
+    renderTab([draft], { onSendInvoice });
+
+    await userEvent.click(screen.getByRole("button", { name: /Gửi hóa đơn/ }));
+    const hopThoai = screen.getByRole("alertdialog");
+    await userEvent.click(within(hopThoai).getByRole("button", { name: /^Gửi 37\.199\.000/ }));
+
+    expect(onSendInvoice).toHaveBeenCalledWith("inv-a");
+  });
+
+  it("bấm 'Để tôi xem lại' thì không gửi gì cả", async () => {
+    const onSendInvoice = vi.fn();
+    renderTab([draft], { onSendInvoice });
+
+    await userEvent.click(screen.getByRole("button", { name: /Gửi hóa đơn/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Để tôi xem lại/ }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onSendInvoice).not.toHaveBeenCalled();
+  });
+
+  it("bấm 'Ghi nhận thanh toán' chưa ghi gì — hộp thoại phải in ra số tiền sắp ghi", async () => {
+    const onRecordInvoicePayment = vi.fn();
+    renderTab([sent], { onRecordInvoicePayment });
+
+    await userEvent.click(screen.getByRole("button", { name: /Ghi nhận thanh toán/ }));
+
+    expect(onRecordInvoicePayment).not.toHaveBeenCalled();
+    const hopThoai = screen.getByRole("alertdialog");
+    expect(hopThoai).toHaveTextContent(/37\.199\.000/);
+    expect(hopThoai).toHaveTextContent("INV-B");
+    expect(hopThoai).toHaveTextContent(/không gỡ khỏi sổ được/i);
+  });
+
+  it("xác nhận xong mới ghi nhận, và đưa lên đúng hoá đơn đó", async () => {
+    const onRecordInvoicePayment = vi.fn();
+    renderTab([sent], { onRecordInvoicePayment });
+
+    await userEvent.click(screen.getByRole("button", { name: /Ghi nhận thanh toán/ }));
+    const hopThoai = screen.getByRole("alertdialog");
+    await userEvent.click(within(hopThoai).getByRole("button", { name: /^Đã nhận/ }));
+
+    expect(onRecordInvoicePayment).toHaveBeenCalledTimes(1);
+    expect(onRecordInvoicePayment.mock.calls[0][0]).toMatchObject({ id: "inv-b" });
   });
 });
