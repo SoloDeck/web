@@ -68,10 +68,48 @@ export async function createInvoice(payload: InvoicePayload): Promise<InvoiceRes
   return data.data;
 }
 
-/** GET /invoices — BE chưa có filter deal_id nên FE sẽ lọc theo deal sau khi fetch. */
-export async function listInvoices(): Promise<InvoiceResponse[]> {
-  const { data } = await axiosClient.get<ApiResponse<InvoiceResponse[]>>("/invoices");
-  return data.data ?? [];
+type PaginatedEnvelope<T> = {
+  data: T[];
+  pagination?: { total: number; page: number; page_size: number; total_pages: number };
+};
+
+/** Trần một lần tải: 100 hóa đơn/trang, tối đa 10 trang. */
+const INVOICE_PAGE_SIZE = 100;
+const MAX_INVOICE_PAGES = 10;
+
+export type ListInvoicesOptions = {
+  /** Chỉ lấy hóa đơn của deal này — lọc NGAY TRÊN SERVER. */
+  dealId?: string;
+};
+
+/**
+ * GET /invoices — lọc theo deal bằng `deal_id` và tải hết các trang.
+ *
+ * Bản trước gọi trần, không phân trang, rồi lọc `deal_id` ở trình duyệt. Backend trả mặc định
+ * 20 hóa đơn mới nhất, nên freelancer nào có quá 20 hóa đơn mà mở một deal cũ ra thì thấy
+ * TRỐNG TRƠN — hóa đơn vẫn nằm nguyên trong cơ sở dữ liệu, chỉ là không bao giờ lọt vào trang
+ * đầu để FE lọc được.  #Huynh
+ */
+export async function listInvoices(options: ListInvoicesOptions = {}): Promise<InvoiceResponse[]> {
+  const params: Record<string, unknown> = { page_size: INVOICE_PAGE_SIZE };
+  if (options.dealId) params.deal_id = options.dealId;
+
+  const first = await axiosClient.get<PaginatedEnvelope<InvoiceResponse>>("/invoices", {
+    params: { ...params, page: 1 },
+  });
+  const rows = first.data.data ?? [];
+  const total = first.data.pagination?.total ?? rows.length;
+  const lastPage = Math.min(Math.ceil(total / INVOICE_PAGE_SIZE), MAX_INVOICE_PAGES);
+  if (lastPage <= 1) return rows;
+
+  const rest = await Promise.all(
+    Array.from({ length: lastPage - 1 }, (_, i) =>
+      axiosClient.get<PaginatedEnvelope<InvoiceResponse>>("/invoices", {
+        params: { ...params, page: i + 2 },
+      })
+    )
+  );
+  return rest.reduce((acc, res) => acc.concat(res.data.data ?? []), rows);
 }
 
 /** PATCH /invoices/{invoice_id} — chỉ chỉnh được khi hóa đơn còn là bản nháp. */

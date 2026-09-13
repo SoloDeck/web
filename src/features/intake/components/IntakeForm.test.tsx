@@ -332,6 +332,56 @@ describe("<IntakeForm /> — báo lỗi cho khách", () => {
     expect(toast.error).toHaveBeenCalledWith("Mô tả dự án tối đa 5000 ký tự.");
   }, 20_000);
 
+  it("422 nghiệp vụ không có details thì vẫn đọc được câu thật từ error.message", async () => {
+    // Backend ném `ValidationError` nghiệp vụ qua `error.message`, KHÔNG qua `details`
+    // (`shared/exceptions/http.py` — handler chỉ truyền message). Đoạn dò 5 trường ở trên
+    // không với tới được, nên trước bản sửa khách chỉ nhận câu chung "Không gửi được yêu
+    // cầu. Bạn kiểm tra lại thông tin rồi thử lại." — đúng lúc backend đã nói rõ thiếu ô
+    // nào thì lại giấu đi.  #Huynh
+    vi.mocked(submitIntake).mockRejectedValue({
+      response: {
+        status: 422,
+        data: {
+          success: false,
+          code: 422,
+          error: {
+            message: "Bạn chưa điền: Số điện thoại. Vui lòng điền đủ các mục bắt buộc rồi gửi lại.",
+            code: "VALIDATION_FAILED",
+          },
+        },
+      },
+    });
+
+    await dienVaGui();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith(
+      "Bạn chưa điền: Số điện thoại. Vui lòng điền đủ các mục bắt buộc rồi gửi lại.",
+    );
+  }, 20_000);
+
+  it("422 của pydantic vẫn rơi về câu tiếng Việt, không phơi câu chung tiếng Anh", async () => {
+    // Lớp chặn ngược: `getApiErrorMessage` lọc sẵn "Request validation failed" nên mở đường
+    // cho `error.message` KHÔNG làm lộ câu chung của backend ra cho khách.
+    vi.mocked(submitIntake).mockRejectedValue({
+      response: {
+        status: 422,
+        data: {
+          success: false,
+          code: 422,
+          error: { message: "Request validation failed", code: "VALIDATION_ERROR" },
+        },
+      },
+    });
+
+    await dienVaGui();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith(
+      "Không gửi được yêu cầu. Bạn kiểm tra lại thông tin rồi thử lại.",
+    );
+  }, 20_000);
+
   it("mất mạng thì nói là mất mạng, đừng bảo khách kiểm tra lại thông tin", async () => {
     vi.mocked(submitIntake).mockRejectedValue(new Error("Network Error"));
 

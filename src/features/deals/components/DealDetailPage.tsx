@@ -124,6 +124,7 @@ import {
   useSaveDealQualification,
 } from "@/features/deals/hooks/useDealQualifications";
 import type { DealQualification } from "@/services/dealsService";
+import { homNayChoApi, ngayChoApi } from "@/lib/ngayApi";
 
 type DetailTab = "overview" | "tasks" | "documents" | "reminders" | "history";
 type DealDetailDraft = {
@@ -137,9 +138,9 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function toApiDateValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+// Giữ tên cũ để không phải sửa mọi chỗ gọi; thân hàm nay tính theo giờ địa phương —
+// xem `src/lib/ngayApi.ts` để biết vì sao `toISOString()` là sai ở đây.  #Huynh
+const toApiDateValue = ngayChoApi;
 
 /**
  * Backend đặt recommendation = "qualify" nếu điểm >= 60, ngược lại "pass".
@@ -1059,7 +1060,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         invoiceId: task.invoice.id,
         payload: {
           amount: conLai,
-          payment_date: new Date().toISOString().slice(0, 10),
+          payment_date: homNayChoApi(),
           payment_method: "bank_transfer",
         },
       },
