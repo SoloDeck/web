@@ -7,6 +7,8 @@ type ConfirmSendContractDialogProps = {
   clientEmail?: string | null;
   isLoading?: boolean;
   onConfirm: () => void;
+  /** Chỉ ghi nhận hợp đồng ĐÃ GỬI (freelancer đã tự gửi bằng kênh khác), không gửi email. */
+  onRecordOnly?: () => void;
 };
 
 /**
@@ -23,6 +25,7 @@ export function ConfirmSendContractDialog({
   clientEmail,
   isLoading = false,
   onConfirm,
+  onRecordOnly,
 }: ConfirmSendContractDialogProps) {
   const email = (clientEmail ?? "").trim();
   return (
@@ -32,12 +35,15 @@ export function ConfirmSendContractDialog({
       title="Gửi hợp đồng cho khách ký?"
       description={
         `Hệ thống sẽ gửi email kèm file PDF hợp đồng tới ${email || "email của khách hàng"}. ` +
-        "Thư đã gửi thì không rút lại được — hãy kiểm tra kỹ nội dung hợp đồng trước khi gửi."
+        "Thư đã gửi thì không rút lại được — hãy kiểm tra kỹ nội dung hợp đồng trước khi gửi. " +
+        "Nếu bạn đã tự gửi bằng kênh khác (Zalo, tin nhắn...), chọn \"chỉ ghi nhận\"."
       }
       confirmLabel="Gửi hợp đồng"
       cancelLabel="Để tôi xem lại"
       isLoading={isLoading}
       onConfirm={onConfirm}
+      secondaryLabel={onRecordOnly ? "Tôi đã gửi cách khác — chỉ ghi nhận" : undefined}
+      onSecondary={onRecordOnly}
     />
   );
 }

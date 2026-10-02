@@ -17,6 +17,7 @@ const mockGenerateMutate = vi.fn();
 const mockCreateMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 const mockSendMutate = vi.fn();
+const mockRecordSentMutate = vi.fn();
 const mockDownloadPdfMutate = vi.fn();
 const mockFromTemplate = vi.fn();
 
@@ -25,6 +26,7 @@ vi.mock("@/features/deals/hooks/useProposals", () => ({
   useCreateProposal: () => ({ mutate: mockCreateMutate }),
   useUpdateProposal: () => ({ mutate: mockUpdateMutate, isPending: false }),
   useSendProposal: () => ({ mutate: mockSendMutate, isPending: false }),
+  useRecordProposalSent: () => ({ mutate: mockRecordSentMutate, isPending: false }),
   useDownloadProposalPdf: () => ({ mutate: mockDownloadPdfMutate, isPending: false }),
   // Chỉ dùng khi mở lại một báo giá ĐÃ có (existingProposalId). Các test ở đây đều là
   // luồng tạo mới nên không có dữ liệu.
@@ -563,6 +565,38 @@ describe("ProposalModal", () => {
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
     );
     expect(toast.success).toHaveBeenCalledWith("Đã gửi báo giá kèm file PDF tới email khách hàng.");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("'Tôi đã gửi cách khác' chỉ GHI NHẬN: không gửi email, rồi đóng như khi gửi thật", async () => {
+    const user = userEvent.setup();
+    const { toast } = await import("sonner");
+    mockSendMutate.mockClear();
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-789",
+        content: { title: "Logo", pricing: { total: 5_000_000, currency: "VND" } },
+      })
+    );
+    mockUpdateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+    mockRecordSentMutate.mockImplementation((_id: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+
+    await user.click(await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i }));
+    await user.click(await screen.findByRole("button", { name: /chỉ ghi nhận/i }));
+
+    expect(mockRecordSentMutate).toHaveBeenCalledWith(
+      "proposal-789",
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
+    );
+    expect(mockSendMutate).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith("Đã ghi nhận báo giá là đã gửi (không gửi email).");
     expect(onClose).toHaveBeenCalled();
   });
 

@@ -91,6 +91,7 @@ import {
   useCreateContract,
   useGenerateContractContent,
   useSendContract,
+  useRecordContractSent,
   useRecordClientSignature,
 } from "@/features/deals/hooks/useContracts";
 import { STAGES, STAGE_BY_ID, formatDealSource, type Deal, type ProjectTask } from "@/features/deals/types";
@@ -261,6 +262,7 @@ export function DealDetailPage({
   });
   const recordSignature = useRecordClientSignature();
   const sendContract = useSendContract();
+  const recordContractSent = useRecordContractSent();
   const contractTemplates = useTermTemplates("contract");
   const canUseAi = useCanUseAi();
 
@@ -964,10 +966,14 @@ export function DealDetailPage({
     });
   }
 
-  function handleSendContract(contractId: string) {
-    sendContract.mutate(contractId, {
+  function handleSendContract(contractId: string, mode: "email" | "record" = "email") {
+    (mode === "record" ? recordContractSent : sendContract).mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
+        toast.success(
+          mode === "record"
+            ? "Đã ghi nhận hợp đồng là đã gửi (không gửi email)."
+            : "Đã gửi hợp đồng kèm file PDF tới email khách ký."
+        );
         if (deal) addDealHistoryEntry(deal.id, { date: new Date().toISOString(), text: "Đã gửi hợp đồng cho khách ký.", channel: "email" });
       },
       // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
@@ -1996,11 +2002,16 @@ export function DealDetailPage({
           if (!open) setContractPendingSendId(null);
         }}
         clientEmail={deal?.clientEmail ?? client?.email}
-        isLoading={sendContract.isPending}
+        isLoading={sendContract.isPending || recordContractSent.isPending}
         onConfirm={() => {
           const contractId = contractPendingSendId;
           setContractPendingSendId(null);
           if (contractId) handleSendContract(contractId);
+        }}
+        onRecordOnly={() => {
+          const contractId = contractPendingSendId;
+          setContractPendingSendId(null);
+          if (contractId) handleSendContract(contractId, "record");
         }}
       />
       <ConfirmDialog
@@ -4129,6 +4140,7 @@ function ProposalViewModal({
 function ContractViewModal({ contractId, onClose }: { contractId: string; onClose: () => void }) {
   const { data: contract, isLoading } = useContract(contractId);
   const sendContract = useSendContract();
+  const recordSent = useRecordContractSent();
   const c = contract?.content;
 
   // Bản nháp thì cho sửa NGAY trong tờ giấy (bấm vào điều khoản rồi gõ, tự lưu); gửi/ký rồi
@@ -4148,7 +4160,7 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
   // Gửi hợp đồng = gửi email thật cho khách, nên hỏi lại một lần trước khi gửi.
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
-  async function handleSend() {
+  async function handleSend(mode: "email" | "record" = "email") {
     // GHI NGAY bản sửa đang chờ trước khi gửi: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, nên
     // bấm "Gửi" liền sau khi gõ sẽ gửi PDF của bản CŨ rồi bản sửa mới đến sau ghi đè lên hợp đồng
     // đã khoá. Ghi hụt thì dừng, không gửi (toast lỗi đã hiện).  #Huynh
@@ -4157,9 +4169,13 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
     } catch {
       return;
     }
-    sendContract.mutate(contractId, {
+    (mode === "record" ? recordSent : sendContract).mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
+        toast.success(
+          mode === "record"
+            ? "Đã ghi nhận hợp đồng là đã gửi (không gửi email)."
+            : "Đã gửi hợp đồng kèm file PDF tới email khách ký."
+        );
         onClose();
       },
       // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
@@ -4295,10 +4311,14 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
       <ConfirmSendContractDialog
         open={confirmSendOpen}
         onOpenChange={setConfirmSendOpen}
-        isLoading={sendContract.isPending}
+        isLoading={sendContract.isPending || recordSent.isPending}
         onConfirm={() => {
           setConfirmSendOpen(false);
           void handleSend();
+        }}
+        onRecordOnly={() => {
+          setConfirmSendOpen(false);
+          void handleSend("record");
         }}
       />
     </div>

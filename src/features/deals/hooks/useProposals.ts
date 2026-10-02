@@ -6,6 +6,7 @@ import {
   updateProposal,
   deleteProposal,
   sendProposal,
+  recordProposalSent,
   transitionProposalStatus,
   generateProposalContent,
   generateProposalFromDeal,
@@ -100,6 +101,18 @@ export function useSendProposal() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (proposalId: string) => sendProposal(proposalId),
+    onSuccess: (_, proposalId) => {
+      qc.invalidateQueries({ queryKey: proposalKeys.detail(proposalId) });
+      qc.invalidateQueries({ queryKey: proposalKeys.all });
+    },
+  });
+}
+
+/** Ghi nhận báo giá ĐÃ GỬI mà không gửi email (freelancer đã tự gửi bằng kênh khác). */
+export function useRecordProposalSent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: string) => recordProposalSent(proposalId),
     onSuccess: (_, proposalId) => {
       qc.invalidateQueries({ queryKey: proposalKeys.detail(proposalId) });
       qc.invalidateQueries({ queryKey: proposalKeys.all });

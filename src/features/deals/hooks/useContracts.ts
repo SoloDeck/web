@@ -5,6 +5,7 @@ import {
   createContract,
   updateContract,
   sendContract,
+  recordContractSent,
   signContract,
   recordClientSignature,
   generateContractContent,
@@ -101,6 +102,18 @@ export function useSendContract() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (contractId: string) => sendContract(contractId),
+    onSuccess: (_, contractId) => {
+      qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
+      qc.invalidateQueries({ queryKey: contractKeys.all });
+    },
+  });
+}
+
+/** Ghi nhận hợp đồng ĐÃ GỬI mà không gửi email (freelancer đã tự gửi bằng kênh khác). */
+export function useRecordContractSent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contractId: string) => recordContractSent(contractId),
     onSuccess: (_, contractId) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });

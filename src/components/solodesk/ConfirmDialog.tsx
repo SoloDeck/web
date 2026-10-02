@@ -29,6 +29,13 @@ type ConfirmDialogProps = {
    * hẳn" (đóng hộp thoại, không làm gì).
    */
   onCancel?: () => void;
+  /**
+   * Lựa chọn thứ ba nằm GIỮA nút từ chối và nút xác nhận (ví dụ "Tôi đã gửi cách khác — chỉ ghi
+   * nhận"). Chỉ hiện khi truyền cả `secondaryLabel` lẫn `onSecondary`; giống nút xác nhận, bấm
+   * vào không tự đóng hộp thoại — chỗ gọi tự đóng.
+   */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 };
 
 export function ConfirmDialog({
@@ -42,6 +49,8 @@ export function ConfirmDialog({
   isLoading = false,
   onConfirm,
   onCancel,
+  secondaryLabel,
+  onSecondary,
 }: ConfirmDialogProps) {
   const danger = tone === "danger";
 
@@ -60,6 +69,19 @@ export function ConfirmDialog({
           <AlertDialogCancel disabled={isLoading} onClick={onCancel}>
             {cancelLabel}
           </AlertDialogCancel>
+          {secondaryLabel && onSecondary && (
+            <AlertDialogAction
+              type="button"
+              disabled={isLoading}
+              className="border border-border bg-transparent text-foreground hover:bg-secondary"
+              onClick={(event) => {
+                event.preventDefault();
+                onSecondary();
+              }}
+            >
+              {secondaryLabel}
+            </AlertDialogAction>
+          )}
           <AlertDialogAction
             type="button"
             disabled={isLoading}

@@ -44,3 +44,29 @@ describe("<ConfirmSendContractDialog />", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("<ConfirmSendContractDialog /> chỉ ghi nhận", () => {
+  it("có onRecordOnly thì hiện lựa chọn 'đã gửi cách khác' và nó KHÔNG gửi email", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const onRecordOnly = vi.fn();
+    render(
+      <ConfirmSendContractDialog
+        open
+        onOpenChange={() => {}}
+        onConfirm={onConfirm}
+        onRecordOnly={onRecordOnly}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tôi đã gửi cách khác — chỉ ghi nhận" }));
+
+    expect(onRecordOnly).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("không truyền onRecordOnly thì không có lựa chọn đó", () => {
+    render(<ConfirmSendContractDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    expect(screen.queryByRole("button", { name: /chỉ ghi nhận/ })).not.toBeInTheDocument();
+  });
+});

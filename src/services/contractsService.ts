@@ -225,6 +225,18 @@ export async function sendContract(contractId: string): Promise<ContractResponse
   return data.data;
 }
 
+/**
+ * PATCH /contracts/{id}/status {pending_signatures} — CHỈ GHI NHẬN đã gửi, KHÔNG gửi email.
+ * Cho freelancer đã tự gửi hợp đồng cho khách qua kênh khác (Zalo, in ra...).  #Huynh
+ */
+export async function recordContractSent(contractId: string): Promise<ContractResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ContractResponse>>(
+    `/contracts/${contractId}/status`,
+    { status: "pending_signatures" }
+  );
+  return data.data;
+}
+
 /** POST /contracts/{id}/sign — record freelancer signature. */
 export async function signContract(contractId: string): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
