@@ -89,7 +89,12 @@ export function SaveQualificationDialog({
               ? essentialLabels.length > 0
                 ? `Chưa có ${essentialLabels.join(" và ").toLowerCase()}. Báo giá lúc này là báo giá khi chưa biết rõ khách cần gì.`
                 : "Hồ sơ deal còn thiếu nhiều thông tin để báo giá chắc tay."
-              : "Ba mảng thiết yếu đã đủ, bạn báo giá được. Phần thiếu còn lại chỉ làm báo giá sắc hơn."}
+              : essentialLabels.length > 0
+                ? // Từ 75 điểm vẫn có thể thiếu một mảng thiết yếu (ví dụ ngân sách 0 mà bù bằng hai
+                  // tiêu chí tinh chỉnh): ngưỡng HOT chỉ đòi tổng ≥ 75 chứ không đòi từng mảng. Nói
+                  // "ba mảng đã đủ" lúc này là nói sai với chính màn kết quả ngay bên cạnh.  #Huynh
+                  `Mới có điểm cao nhờ phần tinh chỉnh, nhưng vẫn chưa có ${essentialLabels.join(" và ").toLowerCase()}. Bạn vẫn chốt được, song báo giá nên cẩn thận.`
+                : "Ba mảng thiết yếu đã đủ, bạn báo giá được. Phần thiếu còn lại chỉ làm báo giá sắc hơn."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

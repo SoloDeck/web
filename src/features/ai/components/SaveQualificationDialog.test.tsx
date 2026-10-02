@@ -38,7 +38,7 @@ describe("saveWarningLevel", () => {
     expect(saveWarningLevel(100, 0)).toBe("none");
   });
 
-  it("từ 75 điểm trở lên chỉ nhắc nhẹ — ba mảng thiết yếu đã đủ", () => {
+  it("từ 75 điểm trở lên chỉ nhắc nhẹ, không bắt tích xác nhận", () => {
     expect(saveWarningLevel(75, 25)).toBe("soft");
     expect(saveWarningLevel(99, 1)).toBe("soft");
   });
@@ -136,5 +136,36 @@ describe("<SaveQualificationDialog />", () => {
 
     expect(screen.getByRole("button", { name: "Đang lưu..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Quay lại" })).toBeDisabled();
+  });
+});
+
+describe("<SaveQualificationDialog /> lời nhắc nhẹ", () => {
+  it("75 điểm mà còn thiếu mảng thiết yếu thì KHÔNG nói 'ba mảng thiết yếu đã đủ'", () => {
+    render(
+      <SaveQualificationDialog
+        open
+        onOpenChange={vi.fn()}
+        score={75}
+        gaps={gapsFor(25, ["budget"])}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText(/Ba mảng thiết yếu đã đủ/)).not.toBeInTheDocument();
+    expect(screen.getByText(/vẫn chưa có/)).toBeInTheDocument();
+  });
+
+  it("75 điểm mà không thiếu mảng thiết yếu nào thì giữ lời nhắc cũ", () => {
+    render(
+      <SaveQualificationDialog
+        open
+        onOpenChange={vi.fn()}
+        score={85}
+        gaps={gapsFor(15, [])}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Ba mảng thiết yếu đã đủ/)).toBeInTheDocument();
   });
 });
