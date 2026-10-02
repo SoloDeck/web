@@ -49,6 +49,16 @@ import type { ProjectTask } from "@/features/deals/types";
 
 type TaskSortMode = "order" | "newest" | "oldest";
 
+/**
+ * Nhãn của từng kiểu sắp xếp. Truyền cho `<Select items>` để ô chọn hiện NHÃN tiếng Việt: không
+ * có nó, `<SelectValue />` hiện nguyên giá trị nội bộ ("order") trên nút chọn.  #Huynh
+ */
+const SORT_OPTIONS: { value: TaskSortMode; label: string }[] = [
+  { value: "order", label: "Theo thứ tự dự án" },
+  { value: "newest", label: "Mới tạo trước" },
+  { value: "oldest", label: "Cũ hơn trước" },
+];
+
 const PHASE_RULES: { label: string; keywords: string[] }[] = [
   { label: "GIAI ĐOẠN 1: THIẾT KẾ", keywords: ["thiết kế", "wireframe", "mockup", "figma"] },
   { label: "GIAI ĐOẠN 2: PHÁT TRIỂN", keywords: ["phát triển", "cài đặt", "backend", "frontend", "api"] },
@@ -262,6 +272,7 @@ export function ProjectTaskPanel({
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Select
+                items={SORT_OPTIONS}
                 value={sortMode}
                 onValueChange={(value) => setSortMode(value as TaskSortMode)}
               >
@@ -273,9 +284,11 @@ export function ProjectTaskPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="order">Theo thứ tự dự án</SelectItem>
-                  <SelectItem value="newest">Mới tạo trước</SelectItem>
-                  <SelectItem value="oldest">Cũ hơn trước</SelectItem>
+                  {SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <button
