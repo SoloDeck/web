@@ -207,4 +207,92 @@ describe("<ProjectTaskPanel />", () => {
     expect(screen.queryByText("Thu ngay")).not.toBeInTheDocument();
     expect(screen.queryByText("Thu khi xong")).not.toBeInTheDocument();
   });
+
+  describe("thứ tự hiển thị khi có task thu tiền", () => {
+    /** Tên các hàng việc theo đúng thứ tự trên màn hình. */
+    function rowTitles(titles: string[]): string[] {
+      const nodes = titles.map((title) => screen.getByText(title));
+      return [...nodes]
+        .sort((a, b) =>
+          a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+        )
+        .map((node) => node.textContent ?? "");
+    }
+
+    it("khoản Thu ngay luôn nằm trên cùng dù nằm cuối báo giá", () => {
+      render(
+        <TaskHarness
+          initialTasks={[
+            makeTask({ id: "a", title: "Phân tích yêu cầu", billingAmount: 1, billingDueType: "on_completion", position: 0 }),
+            makeTask({ id: "b", title: "Bàn giao sản phẩm", billingAmount: 2, billingDueType: "on_completion", position: 1 }),
+            makeTask({ id: "c", title: "Tạm ứng khi ký hợp đồng", billingAmount: 3, billingDueType: "on_signing", position: 2 }),
+          ]}
+        />
+      );
+
+      expect(rowTitles(["Phân tích yêu cầu", "Bàn giao sản phẩm", "Tạm ứng khi ký hợp đồng"])).toEqual([
+        "Tạm ứng khi ký hợp đồng",
+        "Phân tích yêu cầu",
+        "Bàn giao sản phẩm",
+      ]);
+    });
+
+    it("KHÔNG gom theo giai đoạn khi có task thu tiền — Thu ngay không bị chôn xuống đuôi", () => {
+      // "Bàn giao và triển khai" khớp từ khoá giai đoạn 4, còn "Tạm ứng…" thì không khớp gì:
+      // bản cũ gom nhóm nên khoản cọc rơi xuống đuôi không nhãn, dưới cả "GIAI ĐOẠN 4".
+      render(
+        <TaskHarness
+          initialTasks={[
+            makeTask({ id: "a", title: "Bàn giao và triển khai", billingAmount: 1, billingDueType: "on_completion", position: 0 }),
+            makeTask({ id: "b", title: "Tạm ứng khi ký hợp đồng", billingAmount: 2, billingDueType: "on_signing", position: 1 }),
+          ]}
+        />
+      );
+
+      expect(screen.queryByText(/GIAI ĐOẠN/)).not.toBeInTheDocument();
+      expect(rowTitles(["Bàn giao và triển khai", "Tạm ứng khi ký hợp đồng"])).toEqual([
+        "Tạm ứng khi ký hợp đồng",
+        "Bàn giao và triển khai",
+      ]);
+    });
+
+    it("việc đã tick chìm dần xuống cuối, Thu ngay đã thu xong thì không còn được ưu tiên", async () => {
+      const user = userEvent.setup();
+      render(
+        <TaskHarness
+          initialTasks={[
+            makeTask({ id: "a", title: "Tạm ứng khi ký hợp đồng", billingAmount: 3, billingDueType: "on_signing", position: 0 }),
+            makeTask({ id: "b", title: "Phân tích yêu cầu", billingAmount: 1, billingDueType: "on_completion", position: 1 }),
+            makeTask({ id: "c", title: "Bàn giao sản phẩm", billingAmount: 2, billingDueType: "on_completion", position: 2 }),
+          ]}
+        />
+      );
+      const names = ["Tạm ứng khi ký hợp đồng", "Phân tích yêu cầu", "Bàn giao sản phẩm"];
+
+      // Tick khoản cọc → nó chìm xuống đáy, hai việc còn lại dồn lên.
+      await user.click(screen.getByRole("checkbox", { name: /Tạm ứng khi ký hợp đồng/ }));
+      expect(rowTitles(names)).toEqual([
+        "Phân tích yêu cầu",
+        "Bàn giao sản phẩm",
+        "Tạm ứng khi ký hợp đồng",
+      ]);
+
+      // Tick tiếp "Phân tích yêu cầu" → việc duy nhất còn lại là "Bàn giao sản phẩm", đứng đầu.
+      await user.click(screen.getByRole("checkbox", { name: /Phân tích yêu cầu/ }));
+      expect(rowTitles(names)[0]).toBe("Bàn giao sản phẩm");
+    }, 20_000);
+
+    it("danh sách việc thủ công thuần vẫn gom theo giai đoạn như cũ", () => {
+      render(
+        <TaskHarness
+          initialTasks={[
+            makeTask({ id: "x", title: "Thiết kế wireframe" }),
+            makeTask({ id: "y", title: "Cài đặt backend" }),
+          ]}
+        />
+      );
+
+      expect(screen.getByText("GIAI ĐOẠN 1: THIẾT KẾ")).toBeInTheDocument();
+    });
+  });
 });

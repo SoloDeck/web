@@ -6,6 +6,8 @@ import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import type { Deal } from "@/features/deals/types";
 import { useCreateContract, useGenerateContractContent, useSendContract } from "@/features/deals/hooks/useContracts";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
+import { getApiErrorMessage } from "@/lib/api-error";
+import { ConfirmSendContractDialog } from "@/features/deals/components/ConfirmSendContractDialog";
 import { getContractPreview } from "@/services/contractsService";
 import { useContractInlineEditor } from "@/features/deals/hooks/useContractInlineEditor";
 import type { ContractContentDTO, ContractResponse } from "@/services/contractsService";
@@ -66,6 +68,8 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
 
   const [contract, setContract] = useState<ContractResponse | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Gửi hợp đồng = gửi email thật cho khách, nên hỏi lại một lần trước khi gửi.
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
   const didGenerate = useRef(false);
 
   // Bản nháp vừa gen: cho sửa NGAY trong tờ giấy (bấm vào điều khoản gõ, tự lưu). Mỗi ngành
@@ -81,7 +85,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
     enabled: !!contract?.id && !isGenerating,
   });
 
-  const { iframeRef } = useContractInlineEditor(contract ?? undefined, previewQuery.data);
+  const { iframeRef, flush: flushEdits } = useContractInlineEditor(contract ?? undefined, previewQuery.data);
 
   useEffect(() => {
     if (!deal || didGenerate.current) return;
@@ -123,15 +127,25 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deal]);
 
-  function handleSend() {
+  async function handleSend() {
     if (!contract) return;
+    // GHI NGAY bản sửa đang chờ trước khi gửi: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, nên
+    // bấm "Gửi" liền sau khi gõ sẽ gửi PDF của bản CŨ rồi bản sửa mới đến sau ghi đè lên hợp đồng
+    // đã khoá. Ghi hụt thì dừng, không gửi (toast lỗi đã hiện).  #Huynh
+    try {
+      await flushEdits();
+    } catch {
+      return;
+    }
     sendContract.mutate(contract.id, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng cho khách ký.");
+        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
         if (deal) addDealHistoryEntry(deal.id, { date: new Date().toISOString(), text: "Đã gửi hợp đồng cho khách ký.", channel: "email" });
         onClose();
       },
-      onError: () => toast.error("Gửi hợp đồng thất bại. Vui lòng thử lại."),
+      // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
+      // khi đó vẫn là bản nháp vì backend hoàn tác, gửi lại được.
+      onError: (error) => toast.error(getApiErrorMessage(error, "Gửi hợp đồng thất bại. Vui lòng thử lại.")),
     });
   }
 
@@ -207,7 +221,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
                   Lưu lại
                 </button>
                 <button
-                  onClick={handleSend}
+                  onClick={() => setConfirmSendOpen(true)}
                   disabled={sendContract.isPending}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -225,6 +239,16 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
           </div>
         )}
       </div>
+      <ConfirmSendContractDialog
+        open={confirmSendOpen}
+        onOpenChange={setConfirmSendOpen}
+        clientEmail={deal?.clientEmail}
+        isLoading={sendContract.isPending}
+        onConfirm={() => {
+          setConfirmSendOpen(false);
+          void handleSend();
+        }}
+      />
     </div>
   );
 }

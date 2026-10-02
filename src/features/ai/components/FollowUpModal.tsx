@@ -6,7 +6,12 @@ import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { useGenerateFollowUp } from "@/features/ai/hooks/useFollowUp";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import type { Deal } from "@/features/deals/types";
-import { useApproveAndSend, useCreateReminder } from "@/features/reminders/hooks/useReminders";
+import { sendNowScheduledAt } from "@/features/reminders/dateTime";
+import {
+  useApproveAndSend,
+  useCreateReminder,
+  useReminderSubject,
+} from "@/features/reminders/hooks/useReminders";
 import { getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { gmailComposeLink, zaloLink } from "@/lib/contact-links";
 import { cn } from "@/lib/utils";
@@ -70,6 +75,9 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
   // AI soạn cả tiêu đề ("Nhắc thanh toán hoá đơn INV-2026-001"). Trước đó tôi vứt đi rồi
   // tự ghép "Về dự án X" — đúng cái bẫy đã mắc với next_step/suggested_actions bên chấm
   // điểm deal: backend trả về hẳn hoi mà frontend không dùng.  #Huynh
+  //
+  // Ô này CHỈ dùng cho nút "Tự gửi" (mở Gmail): thư gửi qua SoloDesk thì backend tự đặt tiêu
+  // đề theo loại nhắc — xem `serverSubject` bên dưới.
   const [subject, setSubject] = useState("");
   const [copied, setCopied] = useState(false);
   // Ô hẹn giờ chỉ hiện khi người dùng chọn — mặc định là gửi ngay, đó mới là việc họ
@@ -79,6 +87,13 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const generate = useGenerateFollowUp();
   const approveAndSend = useApproveAndSend(deal?.id);
   const scheduleReminder = useCreateReminder(deal?.id);
+  // Tiêu đề khách THẬT SỰ nhận khi gửi qua SoloDesk. Chỉ hỏi server khi đã có nội dung và
+  // khách có email — hai điều kiện để nút "Duyệt và gửi"/"Hẹn giờ" hiện ra.
+  const { data: serverSubject } = useReminderSubject(
+    reminderType,
+    deal?.id,
+    Boolean(deal?.clientEmail) && message.trim() !== "",
+  );
 
   if (!deal) return null;
 
@@ -150,7 +165,8 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
   }
 
   function sendNow() {
-    const payload = buildPayload(new Date());
+    // Không dùng `new Date()`: backend chỉ nhận giờ hẹn ở tương lai — xem `SEND_NOW_LEAD_MS`.
+    const payload = buildPayload(new Date(sendNowScheduledAt()));
     if (payload) approveAndSend.mutate(payload, { onSuccess: () => onClose() });
   }
 
@@ -159,6 +175,10 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
     const when = new Date(scheduleAt);
     if (Number.isNaN(when.getTime())) {
       toast.error("Thời gian hẹn chưa hợp lệ.");
+      return;
+    }
+    if (when.getTime() <= Date.now()) {
+      toast.error("Giờ hẹn đã qua rồi. Chọn một thời điểm trong tương lai, hoặc bấm Duyệt và gửi.");
       return;
     }
     const payload = buildPayload(when);
@@ -262,13 +282,18 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
                   Soạn lại
                 </button>
               </div>
-              {subject && (
-                <input
-                  value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
-                  placeholder="Tiêu đề email"
-                  className="mb-2 w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium outline-none focus:border-primary"
-                />
+              {subject && mailUrl && (
+                <label className="mb-2 block">
+                  <span className="mb-1 block text-xs text-muted-foreground">
+                    Tiêu đề khi bấm "Tự gửi" qua Gmail
+                  </span>
+                  <input
+                    value={subject}
+                    onChange={(event) => setSubject(event.target.value)}
+                    placeholder="Tiêu đề email"
+                    className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium outline-none focus:border-primary"
+                  />
+                </label>
               )}
               <textarea
                 value={message}
@@ -282,6 +307,12 @@ export function FollowUpModal({ deal, onClose }: { deal: Deal | null; onClose: (
               <p className="mt-1.5 text-xs text-muted-foreground">
                 Đọc lại trước khi gửi — AI có thể viết chưa đúng ý bạn.
               </p>
+              {serverSubject && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Gửi qua SoloDesk, khách nhận thư với tiêu đề{" "}
+                  <span className="font-semibold text-foreground">“{serverSubject}”</span>.
+                </p>
+              )}
             </div>
           )}
 

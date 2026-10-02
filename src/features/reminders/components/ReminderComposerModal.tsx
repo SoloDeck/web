@@ -145,6 +145,16 @@ export function ReminderComposerModal({
     setUploading(false);
   };
 
+  /**
+   * Đối tượng của lời nhắc: lời nhắc đang sửa có thể nhắm vào HOÁ ĐƠN hay HỢP ĐỒNG (do quy tắc
+   * tự sinh), không phải deal. Xem trước và AI soạn phải dựng theo đúng đối tượng đó — dựng theo
+   * deal thì khối thanh toán lấy số tiền của cả deal, lệch với hoá đơn khách thật sự nhận.  #Huynh
+   */
+  const target = {
+    target_type: reminder?.target_type ?? ("deal" as const),
+    target_id: reminder?.target_id ?? deal.id,
+  };
+
   const paymentInfoMissing = !profile.bankCode && !profile.momoPhone;
   const needsPaymentInfo = PAYMENT_TYPES.has(type) && paymentInfoMissing;
 
@@ -156,8 +166,8 @@ export function ReminderComposerModal({
       setPreviewLoading(true);
       previewReminder({
         reminder_type: type,
-        target_type: "deal",
-        target_id: deal.id,
+        target_type: target.target_type,
+        target_id: target.target_id,
         message,
         attachments: images,
       })
@@ -168,10 +178,28 @@ export function ReminderComposerModal({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [type, message, deal.id, images]);
+  }, [type, message, target.target_type, target.target_id, images]);
 
   const plannedAt = useMemo(() => parseVietnameseDateTime(date, time), [date, time]);
   const saving = createReminder.isPending || updateReminder.isPending;
+  /**
+   * Người dùng có đụng vào ngày/giờ không. Sửa lời nhắc mà KHÔNG đổi giờ thì không gửi giờ lên.
+   *
+   * Lời nhắc do quy tắc tự sinh nằm "Chờ bạn duyệt" thường đã quá giờ hẹn. Bản cũ luôn gửi
+   * lại giờ cũ, backend thấy giờ nằm trong quá khứ nên từ chối — sửa một chữ trong nội dung
+   * cũng không lưu được, lần nào cũng 422.  #Huynh
+   */
+  const whenChanged = date !== initialWhen.date || time !== initialWhen.time;
+  /**
+   * Giờ đã qua mà người dùng đang chọn nó làm giờ gửi mới → chặn trước khi gọi API.
+   *
+   * `now` là mốc lúc mở cửa sổ (render phải thuần, không gọi `Date.now()` mỗi lần vẽ) — đủ cho
+   * dòng cảnh báo đỏ. `handleSave` kiểm lại bằng giờ thật lúc bấm.
+   */
+  const [openedAt] = useState(() => Date.now());
+  const isPastChoice = (now: number) =>
+    plannedAt !== null && plannedAt.getTime() <= now && (!reminder || whenChanged);
+  const plannedInPast = isPastChoice(openedAt);
 
   /**
    * Thu nhỏ THẬT: cửa sổ biến khỏi màn hình nhưng component vẫn sống, nên mọi thứ đã gõ còn
@@ -222,7 +250,7 @@ export function ReminderComposerModal({
 
   const handleAi = () => {
     generateFollowUp.mutate(
-      { reminder_type: type, target_type: "deal", target_id: deal.id, tone },
+      { reminder_type: type, target_type: target.target_type, target_id: target.target_id, tone },
       {
         onSuccess: (result) => setMessage(result.message_text),
         onError: () => toast.error("AI chưa soạn được tin. Bạn thử lại sau nhé."),
@@ -235,15 +263,10 @@ export function ReminderComposerModal({
       toast.error("Vui lòng nhập ngày theo định dạng ngày/tháng/năm.");
       return;
     }
-    const payload = {
-      target_type: "deal" as const,
-      target_id: deal.id,
-      reminder_type: type,
-      channel,
-      scheduled_at: plannedAt.toISOString(),
-      message_preview: message.trim() || null,
-      attachments: images,
-    };
+    if (isPastChoice(Date.now())) {
+      toast.error("Giờ gửi đã qua rồi. Chọn một thời điểm trong tương lai giúp bạn nhé.");
+      return;
+    }
     const done = {
       onSuccess: () => {
         toast.success(reminder ? "Đã cập nhật lời nhắc." : "Đã đặt lịch nhắc.");
@@ -251,8 +274,34 @@ export function ReminderComposerModal({
       },
       onError: () => toast.error("Không lưu được lời nhắc. Vui lòng thử lại."),
     };
-    if (reminder) updateReminder.mutate({ id: reminder.id, payload }, done);
-    else createReminder.mutate(payload, done);
+    if (reminder) {
+      // PATCH chỉ mang những gì sửa được: backend không cho đổi đối tượng hay loại nhắc.
+      updateReminder.mutate(
+        {
+          id: reminder.id,
+          payload: {
+            channel,
+            message_preview: message.trim() || null,
+            attachments: images,
+            ...(whenChanged ? { scheduled_at: plannedAt.toISOString() } : {}),
+          },
+        },
+        done,
+      );
+      return;
+    }
+    createReminder.mutate(
+      {
+        target_type: "deal",
+        target_id: deal.id,
+        reminder_type: type,
+        channel,
+        scheduled_at: plannedAt.toISOString(),
+        message_preview: message.trim() || null,
+        attachments: images,
+      },
+      done,
+    );
   };
 
   if (minimized) {
@@ -325,6 +374,9 @@ export function ReminderComposerModal({
               <Select
                 items={REMINDER_TYPES}
                 value={type}
+                // Backend không cho đổi loại khi sửa (loại nằm trong khoá chống trùng của bộ tự
+                // sinh lời nhắc). Để mở thì chọn xong vẫn lưu ra loại cũ mà không ai hay.
+                disabled={Boolean(reminder)}
                 onValueChange={(value) => {
                   const next = value as ReminderType;
                   setType(next);
@@ -436,7 +488,11 @@ export function ReminderComposerModal({
               </div>
               {/* Mặc định là NGÀY MAI — không nói ra thì người dùng chỉ sửa mỗi giờ rồi
                 tưởng gửi hôm nay, ngồi đợi mãi không thấy thư đi. */}
-              {plannedAt ? (
+              {plannedInPast ? (
+                <span className="mt-1 block text-[11px] text-destructive">
+                  Giờ này đã qua — chọn một thời điểm trong tương lai.
+                </span>
+              ) : plannedAt ? (
                 <span className="mt-1 block text-[11px] text-muted-foreground">
                   → gửi {formatRelative(plannedAt.toISOString())}
                 </span>

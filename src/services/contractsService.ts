@@ -208,10 +208,19 @@ export async function updateContract(
   return data.data;
 }
 
+/**
+ * Gửi giấy tờ cho khách = dựng PDF + gửi email thật, nên lâu hơn mốc 15s mặc định của axios: lần
+ * gửi đầu sau khi backend khởi động mất ~5-9s để dựng PDF, cộng thêm SMTP. Hết hạn mà server
+ * vẫn đang gửi thì người dùng thấy "thất bại" dù thư đã đi.  #Huynh
+ */
+const SEND_TIMEOUT_MS = 45_000;
+
 /** POST /contracts/{id}/send — move to pending_signatures and generate share link. */
 export async function sendContract(contractId: string): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
-    `/contracts/${contractId}/send`
+    `/contracts/${contractId}/send`,
+    undefined,
+    { timeout: SEND_TIMEOUT_MS }
   );
   return data.data;
 }

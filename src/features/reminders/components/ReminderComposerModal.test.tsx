@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReminderComposerModal } from "./ReminderComposerModal";
-import { previewReminder, uploadReminderImage } from "@/services/remindersService";
+import {
+  previewReminder,
+  uploadReminderImage,
+  type ReminderRecord,
+} from "@/services/remindersService";
 import type { Deal } from "@/features/deals/types";
+import { toast } from "sonner";
 
 /**
  * Cửa sổ soạn lời nhắc — nơi freelancer duyệt một lá thư CÓ TIỀN trước khi nó đi ra ngoài.
@@ -14,6 +19,7 @@ import type { Deal } from "@/features/deals/types";
 
 const mockGenerate = vi.fn();
 const mockCreate = vi.fn();
+const mockUpdate = vi.fn();
 
 vi.mock("@/services/remindersService", () => ({
   previewReminder: vi.fn(),
@@ -24,7 +30,7 @@ vi.mock("@/features/ai/hooks/useFollowUp", () => ({
 }));
 vi.mock("@/features/reminders/hooks/useReminders", () => ({
   useCreateReminder: () => ({ mutate: mockCreate, isPending: false }),
-  useUpdateReminder: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateReminder: () => ({ mutate: mockUpdate, isPending: false }),
 }));
 vi.mock("@/features/profile/hooks/useZalo", () => ({
   useZaloStatus: () => ({ data: { connected: false } }),
@@ -283,5 +289,77 @@ describe("<ReminderComposerModal /> — đóng và thu nhỏ", () => {
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Giờ hẹn khi SỬA lời nhắc. Lời nhắc quy tắc tự sinh nằm "Chờ bạn duyệt" thường đã quá giờ
+ * hẹn; bản cũ luôn gửi lại giờ cũ nên backend từ chối, sửa một chữ cũng không lưu được.
+ */
+describe("<ReminderComposerModal /> — giờ hẹn", () => {
+  const quaGio = {
+    id: "rem-1",
+    target_type: "deal",
+    target_id: "deal-1",
+    reminder_type: "payment_due",
+    channel: "email",
+    status: "pending",
+    requires_approval: true,
+    scheduled_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    message_preview: "Nội dung quy tắc soạn sẵn",
+    attachments: [{ key: "reminders/u1/qr.png", filename: "qr.png", content_type: "image/png" }],
+  } as unknown as ReminderRecord;
+
+  it("sửa nội dung lời nhắc đã quá giờ mà không đổi giờ thì KHÔNG gửi giờ lên", async () => {
+    const user = userEvent.setup();
+    render(<ReminderComposerModal deal={deal} reminder={quaGio} onClose={vi.fn()} />);
+
+    const box = document.querySelector("textarea") as HTMLTextAreaElement;
+    await user.type(box, " — thêm một câu");
+    await user.click(screen.getByRole("button", { name: /cập nhật lời nhắc/i }));
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    const { payload } = mockUpdate.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("scheduled_at");
+    // Ảnh vẫn đi kèm — backend giờ nhận `attachments` khi sửa.
+    expect(payload.attachments).toEqual(quaGio.attachments);
+    // Không gửi thứ backend không cho sửa.
+    expect(payload).not.toHaveProperty("reminder_type");
+    expect(payload).not.toHaveProperty("target_id");
+  });
+
+  it("đổi sang một giờ tương lai thì gửi giờ mới", async () => {
+    const user = userEvent.setup();
+    render(<ReminderComposerModal deal={deal} reminder={quaGio} onClose={vi.fn()} />);
+
+    const ngay = screen.getByPlaceholderText("dd/mm/yyyy");
+    await user.clear(ngay);
+    await user.type(ngay, "01/01/2099");
+    await user.click(screen.getByRole("button", { name: /cập nhật lời nhắc/i }));
+
+    const { payload } = mockUpdate.mock.calls[0][0];
+    expect(new Date(payload.scheduled_at).getFullYear()).toBe(2099);
+  });
+
+  it("đặt lịch mới vào giờ đã qua thì chặn ngay, không gọi API", async () => {
+    const user = userEvent.setup();
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    const ngay = screen.getByPlaceholderText("dd/mm/yyyy");
+    await user.clear(ngay);
+    await user.type(ngay, "01/01/2020");
+
+    expect(screen.getByText(/giờ này đã qua/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /đặt lịch nhắc/i }));
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/đã qua/i));
+  });
+
+  it("đang sửa thì khoá ô Loại nhắc — backend không cho đổi loại", () => {
+    render(<ReminderComposerModal deal={deal} reminder={quaGio} onClose={vi.fn()} />);
+    const combobox = screen.getByRole("combobox", { name: /loại nhắc/i });
+    expect(
+      combobox.hasAttribute("disabled") || combobox.getAttribute("data-disabled") !== null,
+    ).toBe(true);
   });
 });

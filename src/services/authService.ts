@@ -101,9 +101,33 @@ const STATUS_MESSAGES: Record<number, string> = {
   500: "Lỗi máy chủ. Vui lòng thử lại sau.",
 };
 
+/**
+ * Câu 409 backend trả khi email thuộc một tài khoản ĐÃ XOÁ — khớp từng chữ với
+ * `DELETED_ACCOUNT_EMAIL_MESSAGE` trong `backend/src/modules/auth/application/service.py`.
+ *
+ * So khớp câu chữ thay vì mã lỗi vì backend chỉ có một mã `CONFLICT` cho mọi 409. Đổi câu ở
+ * một bên thì phải đổi bên kia; lệch thì chỉ rơi về câu "Email này đã được đăng ký.", không vỡ gì.
+ */
+export const DELETED_ACCOUNT_MARKER = "This email belongs to a deleted account";
+
+/**
+ * Email của tài khoản đã xoá vẫn bị giữ (cố ý — người bị admin xoá không tự đăng ký lại được).
+ * Trước đây trường hợp này ra lỗi 500 "Lỗi máy chủ", nay nói rõ và chỉ đường.  #Huynh
+ */
+export const DELETED_ACCOUNT_MSG =
+  "Email này thuộc một tài khoản đã bị xoá. Liên hệ quản trị viên SoloDesk nếu bạn muốn dùng lại email này.";
+
 function toVietnameseError(err: unknown): Error {
-  const axiosErr = err as { response?: { status?: number; data?: { message?: string; detail?: string } } };
+  const axiosErr = err as {
+    response?: {
+      status?: number;
+      data?: { message?: string; detail?: string; error?: { message?: string } };
+    };
+  };
   const status = axiosErr.response?.status;
+  if (status === 409 && axiosErr.response?.data?.error?.message === DELETED_ACCOUNT_MARKER) {
+    return new Error(DELETED_ACCOUNT_MSG);
+  }
   const backendMsg = axiosErr.response?.data?.message ?? axiosErr.response?.data?.detail;
   const msg = STATUS_MESSAGES[status ?? 0] ?? backendMsg ?? "Đã có lỗi xảy ra. Vui lòng thử lại.";
   return new Error(msg);

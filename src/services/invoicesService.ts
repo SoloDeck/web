@@ -112,6 +112,12 @@ export async function listInvoices(options: ListInvoicesOptions = {}): Promise<I
   return rest.reduce((acc, res) => acc.concat(res.data.data ?? []), rows);
 }
 
+/** GET /invoices/{invoice_id} — một hóa đơn (dùng để lần ra deal của nó từ thông báo). */
+export async function getInvoice(invoiceId: string): Promise<InvoiceResponse> {
+  const { data } = await axiosClient.get<ApiResponse<InvoiceResponse>>(`/invoices/${invoiceId}`);
+  return data.data;
+}
+
 /** PATCH /invoices/{invoice_id} — chỉ chỉnh được khi hóa đơn còn là bản nháp. */
 export async function updateInvoice(invoiceId: string, payload: InvoiceUpdatePayload): Promise<InvoiceResponse> {
   const { data } = await axiosClient.patch<ApiResponse<InvoiceResponse>>(`/invoices/${invoiceId}`, payload);

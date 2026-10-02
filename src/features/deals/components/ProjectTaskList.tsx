@@ -27,6 +27,7 @@ import {
   dismissInvoiceReminder,
   readDismissedReminders,
 } from "@/features/deals/invoiceReminderDismissals";
+import { isUpfrontPayment } from "@/features/deals/taskActionGuards";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +83,11 @@ function groupTasks(tasks: ProjectTask[]): TaskGroup[] {
   return result;
 }
 
+/** Khoản "thu ngay" (cọc / tạm ứng) mà freelancer chưa tick là đã thu. */
+function isPendingUpfrontPayment(task: ProjectTask): boolean {
+  return !task.completed && isUpfrontPayment(task);
+}
+
 function getTaskCreatedTime(task: ProjectTask): number {
   const time = new Date(task.createdAt).getTime();
   return Number.isNaN(time) ? 0 : time;
@@ -89,7 +95,13 @@ function getTaskCreatedTime(task: ProjectTask): number {
 
 function sortTasksForWork(tasks: ProjectTask[], sortMode: TaskSortMode): ProjectTask[] {
   return [...tasks].sort((a, b) => {
+    // Việc đã tick xong chìm xuống cuối, việc còn lại nổi lên trên.
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    // Khoản "Thu ngay" chưa ghi nhận lên ĐẦU danh sách việc còn lại, bất kể thứ tự báo giá hay
+    // chế độ sắp xếp: quy trình đúng là thu cọc trước rồi mới làm, nên đó là việc đầu tiên
+    // freelancer phải nhìn thấy. Cả hai cùng xong thì cờ này đều tắt, không ảnh hưởng gì.  #Huynh
+    const upfrontGap = Number(isPendingUpfrontPayment(b)) - Number(isPendingUpfrontPayment(a));
+    if (upfrontGap !== 0) return upfrontGap;
     // "Theo thứ tự dự án" là mặc định MỚI: với task thu tiền, `position` chính là thứ tự hạng
     // mục freelancer đã sắp trên tờ báo giá. Sắp theo thời điểm tạo không làm được việc này —
     // cả lô task thu tiền sinh trong một transaction nên `createdAt` bằng nhau hết, và bản cũ
@@ -307,7 +319,15 @@ export function ProjectTaskPanel({
           </div>
         ) : (() => {
             const groups = groupTasks(visibleTasks);
-            const isGrouped = groups.some((g) => g.phaseLabel !== null);
+            // KHÔNG gom theo giai đoạn khi trong danh sách có task thu tiền. Nhãn giai đoạn suy
+            // ra từ TỪ KHÓA trong tên việc, vô nghĩa với hạng mục báo giá: "Bàn giao và triển
+            // khai" rơi vào "GIAI ĐOẠN 4" còn "Tạm ứng khi ký hợp đồng" rơi xuống đuôi không
+            // nhãn — khoản phải thu NGAY bị chôn dưới cùng, và việc đã xong không còn chìm
+            // xuống đáy vì mỗi nhóm một thứ tự riêng. Danh sách phẳng giữ đúng thứ tự đã sắp
+            // (Thu ngay lên đầu, việc đã xong xuống cuối). Chỉ danh sách việc thủ công thuần
+            // mới còn gom theo giai đoạn.  #Huynh
+            const hasPaymentTasks = tasks.some(isPaymentTask);
+            const isGrouped = !hasPaymentTasks && groups.some((g) => g.phaseLabel !== null);
             if (!isGrouped) {
               return (
                 <div className="divide-y divide-border">

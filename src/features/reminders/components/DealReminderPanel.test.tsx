@@ -16,10 +16,12 @@ import type { ReminderRecord } from "@/services/remindersService";
  */
 
 const mockSendNow = vi.fn();
+const mockRefetch = vi.fn();
+let loadError = false;
 const mockCancel = vi.fn();
 
 vi.mock("@/features/reminders/hooks/useReminders", () => ({
-  useDealReminders: () => ({ data: reminders, isLoading: false }),
+  useDealReminders: () => ({ data: reminders, isLoading: false, isError: loadError, refetch: mockRefetch }),
   useUpdateReminder: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelReminder: () => ({ mutate: mockCancel, isPending: false }),
   useSendReminderNow: () => ({ mutate: mockSendNow, isPending: false }),
@@ -57,6 +59,7 @@ let reminders: ReminderRecord[] = [];
 beforeEach(() => {
   vi.clearAllMocks();
   reminders = [reminder()];
+  loadError = false;
 });
 
 describe("<DealReminderPanel /> — gửi ngay", () => {
@@ -140,5 +143,55 @@ describe("<DealReminderPanel /> — bỏ lịch nhắc", () => {
     await userEvent.click(within(hopThoai).getByRole("button", { name: /bỏ lịch nhắc/i }));
 
     expect(mockCancel).toHaveBeenCalledWith("rem-1");
+  });
+});
+
+/**
+ * Bấm thông báo lời nhắc thì mở tab này — phải thấy ngay ĐÚNG dòng, và biết nó nhắc về cái gì.
+ * Lời nhắc tự sinh thường nhắm vào hoá đơn/hợp đồng chứ không phải deal.  #Huynh
+ */
+describe("<DealReminderPanel /> — mở từ thông báo", () => {
+  it("tô sáng đúng lời nhắc được nhắc trong thông báo, không tô dòng khác", () => {
+    reminders = [
+      reminder({ id: "rem-a", target_type: "deal" } as Partial<ReminderRecord>),
+      reminder({ id: "rem-b", target_type: "invoice" } as Partial<ReminderRecord>),
+    ];
+    const { container } = render(<DealReminderPanel deal={deal} focusReminderId="rem-b" />);
+
+    const focused = container.querySelectorAll("article[data-focused]");
+    expect(focused).toHaveLength(1);
+    expect(focused[0]).toHaveTextContent(/nhắc về hoá đơn của dự án/i);
+  });
+
+  it("ghi rõ lời nhắc về hợp đồng; lời nhắc về chính deal thì không thêm dòng phụ", () => {
+    reminders = [
+      reminder({ id: "rem-c", target_type: "contract" } as Partial<ReminderRecord>),
+      reminder({ id: "rem-d", target_type: "deal" } as Partial<ReminderRecord>),
+    ];
+    render(<DealReminderPanel deal={deal} />);
+
+    expect(screen.getAllByText(/nhắc về hợp đồng của dự án/i)).toHaveLength(1);
+    expect(screen.queryByText(/nhắc về hoá đơn/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("<DealReminderPanel /> — tải lỗi", () => {
+  it("tải lỗi thì nói lỗi và cho thử lại, KHÔNG báo 'Chưa có lịch nhắc'", async () => {
+    reminders = [];
+    loadError = true;
+    render(<DealReminderPanel deal={deal} />);
+
+    expect(screen.getByText(/chưa tải được lịch nhắc/i)).toBeInTheDocument();
+    expect(screen.queryByText(/chưa có lịch nhắc/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /thử lại/i }));
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it("dòng gửi lỗi mở từ thông báo thì không bảo quay lại chuông", () => {
+    reminders = [reminder({ id: "rem-x", status: "failed" })];
+    render(<DealReminderPanel deal={deal} focusReminderId="rem-x" />);
+
+    expect(screen.queryByText(/xem lý do ở chuông/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/rồi bấm “Soạn lời nhắc” để gửi lại/i)).toBeInTheDocument();
   });
 });

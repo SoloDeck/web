@@ -1,4 +1,4 @@
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
 
 import { DealDetailPage } from "@/features/deals/components/DealDetailPage";
 
@@ -15,5 +15,24 @@ const route = getRouteApi("/deals/$dealId");
 
 export function DealDetailRoute() {
   const { dealId } = route.useParams();
-  return <DealDetailPage dealId={dealId} />;
+  const search = route.useSearch();
+  const navigate = useNavigate();
+  return (
+    <DealDetailPage
+      dealId={dealId}
+      initialTab={search.tab}
+      focusInvoiceId={search.invoice}
+      focusReminderId={search.reminder}
+      // Mở hoá đơn xong thì gỡ `?invoice=` khỏi URL (thay thế, không thêm lịch sử): để nguyên
+      // thì mỗi lần tải lại trang cửa sổ hoá đơn lại bật lên dù người dùng đã đóng.
+      onInvoiceFocusHandled={() =>
+        navigate({
+          to: "/deals/$dealId",
+          params: { dealId },
+          search: { tab: search.tab, reminder: search.reminder },
+          replace: true,
+        })
+      }
+    />
+  );
 }

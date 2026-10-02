@@ -23,6 +23,12 @@ type ConfirmDialogProps = {
   tone?: ConfirmDialogTone;
   isLoading?: boolean;
   onConfirm: () => void;
+  /**
+   * Chạy khi người dùng bấm ĐÚNG nút từ chối. Đóng hộp thoại bằng Esc hay bấm ra ngoài thì
+   * KHÔNG chạy — chỗ gọi nhờ vậy phân biệt được "Để sau" (vẫn làm tiếp việc đang dở) với "bỏ
+   * hẳn" (đóng hộp thoại, không làm gì).
+   */
+  onCancel?: () => void;
 };
 
 export function ConfirmDialog({
@@ -35,6 +41,7 @@ export function ConfirmDialog({
   tone = "default",
   isLoading = false,
   onConfirm,
+  onCancel,
 }: ConfirmDialogProps) {
   const danger = tone === "danger";
 
@@ -50,7 +57,9 @@ export function ConfirmDialog({
         </AlertDialogHeader>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isLoading}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel disabled={isLoading} onClick={onCancel}>
+            {cancelLabel}
+          </AlertDialogCancel>
           <AlertDialogAction
             type="button"
             disabled={isLoading}

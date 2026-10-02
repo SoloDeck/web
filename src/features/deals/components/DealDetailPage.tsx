@@ -26,6 +26,8 @@ import {
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { NoticeDialog } from "@/components/solodesk/NoticeDialog";
+import { ConfirmSendContractDialog } from "@/features/deals/components/ConfirmSendContractDialog";
 import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -35,6 +37,9 @@ import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
 import { fillContractFromTemplate } from "@/services/contractsService";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { proposalToHtml } from "@/features/deals/proposalHtml";
+import { parseTaxRatePercent } from "@/features/deals/taxRate";
+import type { DealDetailTab } from "@/features/deals/dealSearch";
+import { pdfDownloadErrorMessage } from "@/features/deals/pdfDownloadError";
 import { getProposalPreview } from "@/services/proposalsService";
 import { DealActivityTimeline } from "@/features/deals/components/DealActivityTimeline";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
@@ -44,6 +49,7 @@ import {
   paymentMilestoneLabel,
   shouldTickAfterInvoiceSent,
 } from "@/features/deals/paymentTasks";
+import { missingUpfrontPayments, shouldOfferStartProject } from "@/features/deals/taskActionGuards";
 import {
   buildInvoiceDraft,
   composeInvoiceNotes,
@@ -126,7 +132,7 @@ import {
 import type { DealQualification } from "@/services/dealsService";
 import { homNayChoApi, ngayChoApi } from "@/lib/ngayApi";
 
-type DetailTab = "overview" | "tasks" | "documents" | "reminders" | "history";
+type DetailTab = DealDetailTab;
 type DealDetailDraft = {
   title: string;
   notes: string;
@@ -186,7 +192,23 @@ function contractErrorMessage(error: unknown): string {
   return "Không thể tạo hợp đồng. Vui lòng thử lại.";
 }
 
-export function DealDetailPage({ dealId }: { dealId: string }) {
+export function DealDetailPage({
+  dealId,
+  initialTab,
+  focusInvoiceId,
+  focusReminderId,
+  onInvoiceFocusHandled,
+}: {
+  dealId: string;
+  /** Tab mở sẵn — tới từ `?tab=` trên URL (thường là từ một thông báo). */
+  initialTab?: DetailTab;
+  /** Hoá đơn cần bật sẵn cửa sổ xem, ví dụ khi bấm thông báo "hoá đơn quá hạn". */
+  focusInvoiceId?: string;
+  /** Lời nhắc cần tô sáng trong tab Nhắc nhở. */
+  focusReminderId?: string;
+  /** Gọi sau khi đã mở hoá đơn trong `focusInvoiceId`, để bên ngoài gỡ tham số khỏi URL. */
+  onInvoiceFocusHandled?: () => void;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const dealQuery = useDeal(dealId);
@@ -259,7 +281,51 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceResponse | null>(null);
   /** File đính kèm đang chờ xác nhận xoá. Xoá là mất hẳn, nên phải hỏi. */
   const [attachmentPendingDelete, setAttachmentPendingDelete] = useState<DealAttachment | null>(null);
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [tab, setTab] = useState<DetailTab>(initialTab ?? "overview");
+  /**
+   * URL đổi tab khi trang ĐANG mở (bấm thông báo của chính deal này) thì chuyển theo.
+   *
+   * So với giá trị lần trước ngay trong lúc render — cách React khuyên cho "state chạy theo
+   * prop" — thay vì `useEffect` + `setState` (vẽ hai lần, và bị lint của dự án chặn).
+   */
+  const [lastInitialTab, setLastInitialTab] = useState(initialTab);
+  if (initialTab !== lastInitialTab) {
+    setLastInitialTab(initialTab);
+    if (initialTab) setTab(initialTab);
+  }
+  /**
+   * Hoá đơn trong `focusInvoiceId` đã được bật lên chưa. Chỉ bật MỘT lần cho mỗi id, và chỉ
+   * khi danh sách hoá đơn đã tải xong — mở trước khi có dữ liệu thì không có gì để mở.
+   */
+  const [openedFocusInvoiceId, setOpenedFocusInvoiceId] = useState<string | null>(null);
+  /** Hoá đơn trong thông báo không có trong dự án này (đã xoá, hoặc thuộc chỗ khác). */
+  const [focusInvoiceMissing, setFocusInvoiceMissing] = useState(false);
+  // Chờ lượt tải lại xong (`!isFetching`): chuông vừa đánh dấu dữ liệu cũ là hết hạn, mở ngay
+  // bằng bản trong cache thì hoá đơn quá hạn vẫn hiện "đã gửi".
+  if (
+    focusInvoiceId &&
+    focusInvoiceId !== openedFocusInvoiceId &&
+    invoices.data &&
+    !invoices.isFetching
+  ) {
+    setOpenedFocusInvoiceId(focusInvoiceId);
+    const focused = invoices.data.find((item) => item.id === focusInvoiceId);
+    setFocusInvoiceMissing(!focused);
+    if (focused) {
+      // Tab Tài liệu nằm sau cửa sổ: đóng hoá đơn là thấy ngay danh sách kèm nút "Ghi nhận thu tiền".
+      setTab("documents");
+      setSelectedInvoice(focused);
+      setInvoiceModalMode(focused.status === "draft" ? "edit" : "view");
+    }
+  }
+  useEffect(() => {
+    if (!openedFocusInvoiceId) return;
+    // Gỡ tham số khỏi URL lặng lẽ thì người dùng tưởng bấm thông báo không ra gì — nói rõ.
+    if (focusInvoiceMissing) toast.error("Không tìm thấy hoá đơn này trong dự án — có thể nó đã bị xoá.");
+    onInvoiceFocusHandled?.();
+    // Chỉ chạy khi vừa xử lý xong một id mới; callback đổi danh tính mỗi lần render bên ngoài.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openedFocusInvoiceId]);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [completePending, setCompletePending] = useState(false);
@@ -313,6 +379,18 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const [paymentTaskPrompt, setPaymentTaskPrompt] = useState<ProjectTask | null>(null);
   // Khoản "thu khi xong" bị bấm xuất hóa đơn lúc công việc chưa tick xong — đang chờ xác nhận.
   const [earlyInvoiceTask, setEarlyInvoiceTask] = useState<ProjectTask | null>(null);
+  // Hợp đồng bị bấm "Gửi cho khách ký" ở tab Tài liệu — đang chờ xác nhận (gửi là gửi email thật).
+  const [contractPendingSendId, setContractPendingSendId] = useState<string | null>(null);
+  // Hai luật chặn đứng trước khi tick việc / xuất hóa đơn (xem `guardTaskAction`).
+  // - Cọc chưa ghi nhận mà đã đụng tới khoản "thu khi xong": hộp thoại nhắc, chỉ có nút Đóng.
+  // - Deal chưa sang "Đang triển khai": hỏi có chuyển không; `proceed` là việc đang dở.
+  const [upfrontReminder, setUpfrontReminder] = useState<{
+    task: ProjectTask;
+    missing: ProjectTask[];
+  } | null>(null);
+  const [startProjectPrompt, setStartProjectPrompt] = useState<{ proceed: () => void } | null>(
+    null
+  );
 
   const proposalItems = proposals.data?.data ?? [];
   // Tài liệu chỉ kể bản đánh giá ĐÃ CHỐT; tab Lịch sử vẫn kể hết mọi lần chấm. Dùng chung
@@ -582,7 +660,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     });
   }
 
-  function handleStartProject() {
+  /**
+   * Chuyển deal sang "Đang triển khai". `afterStart` chạy SAU khi chuyển thành công — dùng cho
+   * hộp thoại hỏi chuyển giữa chừng một thao tác ở tab Công việc (xem `guardTaskAction`), để
+   * thao tác đang dở được làm tiếp. Chuyển hỏng thì KHÔNG chạy `afterStart`.
+   */
+  function startProject(afterStart?: () => void) {
     if (!deal) return;
     if (!hasDeploymentReadyContract) {
       toast.error("Cần ghi nhận khách đã ký hợp đồng trước khi bắt đầu triển khai.");
@@ -598,10 +681,15 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             text: "Dự án chuyển sang giai đoạn Đang triển khai.",
             channel: "message",
           });
+          afterStart?.();
         },
         onError: () => toast.error("Không thể chuyển sang triển khai. Vui lòng thử lại."),
       }
     );
+  }
+
+  function handleStartProject() {
+    startProject();
   }
 
   function handleCompleteProject() {
@@ -879,10 +967,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   function handleSendContract(contractId: string) {
     sendContract.mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng cho khách ký.");
+        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
         if (deal) addDealHistoryEntry(deal.id, { date: new Date().toISOString(), text: "Đã gửi hợp đồng cho khách ký.", channel: "email" });
       },
-      onError: () => toast.error("Gửi hợp đồng thất bại. Vui lòng thử lại."),
+      // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
+      // khi đó vẫn là bản nháp vì backend hoàn tác, gửi lại được.
+      onError: (error) => toast.error(getApiErrorMessage(error, "Gửi hợp đồng thất bại. Vui lòng thử lại.")),
     });
   }
 
@@ -973,11 +1063,40 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
    * thành lỗi. Còn gửi khách hóa đơn cho việc chưa làm thì đáng hỏi lại một câu.  #Huynh
    */
   function requestCreateAndSendInvoice(task: ProjectTask) {
-    if (task.billingDueType === "on_completion" && task.status !== "done") {
-      setEarlyInvoiceTask(task);
+    guardTaskAction(task, () => {
+      if (task.billingDueType === "on_completion" && task.status !== "done") {
+        setEarlyInvoiceTask(task);
+        return;
+      }
+      createInvoiceDraftForReview(task);
+    });
+  }
+
+  /**
+   * Hai luật chặn đứng TRƯỚC khi tick một việc hoặc xuất hóa đơn ở tab Công việc. Qua cả hai
+   * thì `proceed` (việc đang dở) mới chạy.
+   *
+   * 1. CỌC TRƯỚC, LÀM SAU. Đụng tới khoản "thu khi xong" mà còn khoản "thu ngay" chưa ghi nhận
+   *    đã thu thì dừng hẳn, chỉ hiện lời nhắc kèm nút Đóng để freelancer tự kiểm tra lại. Đi
+   *    ngược quy trình này là làm việc (và đòi tiền phần còn lại) khi cọc chưa về.
+   * 2. Deal chưa "Đang triển khai" thì hỏi có chuyển không. "Để sau" vẫn làm tiếp việc đang dở
+   *    (nếu không, không ai ghi nhận nổi khoản cọc lúc deal còn đang đàm phán); chỉ đóng hộp
+   *    thoại bằng Esc / bấm ra ngoài mới là bỏ hẳn.
+   *
+   * Luật 1 đứng trước luật 2 vì hai thứ mâu thuẫn nhau: chưa thu cọc thì chưa nên bắt đầu
+   * triển khai.  #Huynh
+   */
+  function guardTaskAction(task: ProjectTask, proceed: () => void) {
+    const missing = missingUpfrontPayments(task, taskQuery.data?.tasks ?? []);
+    if (missing.length > 0) {
+      setUpfrontReminder({ task, missing });
       return;
     }
-    createInvoiceDraftForReview(task);
+    if (deal && shouldOfferStartProject(deal.stage, hasDeploymentReadyContract)) {
+      setStartProjectPrompt({ proceed });
+      return;
+    }
+    proceed();
   }
 
   /**
@@ -1041,13 +1160,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
    */
   function sendExistingInvoice(task: ProjectTask) {
     if (!task.invoice) return;
-    const draft = (invoices.data ?? []).find((item) => item.id === task.invoice?.id);
-    if (!draft) {
-      toast.error("Không mở được hóa đơn của mốc này. Hãy tải lại trang.");
-      return;
-    }
-    setSelectedInvoice(draft);
-    setInvoiceModalMode("edit");
+    // Cùng hai luật chặn với "Soạn & gửi hóa đơn": gửi bản nháp đã có cho khoản "thu khi xong"
+    // lúc cọc chưa ghi nhận cũng là đi ngược quy trình y hệt.
+    guardTaskAction(task, () => {
+      const draft = (invoices.data ?? []).find((item) => item.id === task.invoice?.id);
+      if (!draft) {
+        toast.error("Không mở được hóa đơn của mốc này. Hãy tải lại trang.");
+        return;
+      }
+      setSelectedInvoice(draft);
+      setInvoiceModalMode("edit");
+    });
   }
 
   function recordFullPayment(task: ProjectTask) {
@@ -1079,18 +1202,30 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   function handleToggleTask(taskId: string, completed: boolean) {
     const task = (taskQuery.data?.tasks ?? []).find((item) => item.id === taskId);
 
-    // Chỉ hỏi khi TICK XONG một mốc thu tiền. Bỏ tick thì không hỏi gì — người ta đang sửa
-    // lại thao tác lỡ tay, chen một hộp thoại vào lúc đó chỉ tổ vướng.
-    //
-    // Hóa đơn đã thu đủ rồi thì cũng không hỏi: không còn gì để làm, hỏi nữa là phiền.
-    if (completed && task && isPaymentTask(task)) {
+    // BỎ tick thì không hỏi gì cả — người ta đang sửa lại thao tác lỡ tay, chen một hộp thoại
+    // vào lúc đó chỉ tổ vướng. Cả hai luật chặn của `guardTaskAction` chỉ áp khi TICK XONG.
+    if (!completed || !task) {
+      toggleTaskMutation.mutate({ taskId, is_done: completed });
+      return;
+    }
+    guardTaskAction(task, () => tickTask(task));
+  }
+
+  /**
+   * Tick XONG một việc (đã qua `guardTaskAction`).
+   *
+   * Mốc thu tiền thì hỏi tiếp "gửi hóa đơn / ghi nhận thanh toán / để sau". Hóa đơn đã thu đủ
+   * rồi thì không hỏi: không còn gì để làm, hỏi nữa là phiền.
+   */
+  function tickTask(task: ProjectTask) {
+    if (isPaymentTask(task)) {
       const daThuDu = task.invoice ? task.invoice.amountPaid >= task.invoice.total : false;
       if (!daThuDu) {
         setPaymentTaskPrompt(task);
         return;
       }
     }
-    toggleTaskMutation.mutate({ taskId, is_done: completed });
+    toggleTaskMutation.mutate({ taskId: task.id, is_done: true });
   }
 
   /** "Để sau" — vẫn tick xong task. Người ta bấm tick là để tick. */
@@ -1225,7 +1360,10 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                   <TabsTrigger value="documents">
                     Tài liệu ({proposalItems.length + contractItems.length + dealAttachments.length + (invoices.data?.length ?? 0) + savedQualificationDocs.length})
                   </TabsTrigger>
-                  <TabsTrigger value="reminders">Nhắc nhở ({reminders.data?.length ?? 0})</TabsTrigger>
+                  <TabsTrigger value="reminders">
+                    {/* Tải lỗi thì đừng hiện (0) — người dùng sẽ tin là không có lời nhắc nào. */}
+                    Nhắc nhở ({reminders.isError ? "?" : (reminders.data?.length ?? 0)})
+                  </TabsTrigger>
                   <TabsTrigger value="history">Lịch sử</TabsTrigger>
                 </TabsList>
 
@@ -1427,7 +1565,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                     onViewProposal={(id) => setViewProposalId(id)}
                     onEditProposal={handleEditProposal}
                     onDeleteProposal={(id) => setDeleteProposalId(id)}
-                    onSendContract={handleSendContract}
+                    onSendContract={(contractId) => setContractPendingSendId(contractId)}
                     onSignContract={(contract) => setContractPendingSign({ id: contract.id })}
                     onViewContract={(id) => setViewContractId(id)}
                     savedQualifications={savedQualificationDocs}
@@ -1442,7 +1580,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
                 {/* `overflow-hidden` chứ không phải `overflow-y-auto`: `DealReminderPanel`
                     đã tự cuộn danh sách bên trong nó. Cho tab cuộn nữa là hai thanh lồng. */}
                 <TabsContent value="reminders" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
-                  <DealReminderPanel deal={deal} />
+                  <DealReminderPanel deal={deal} focusReminderId={focusReminderId} />
                 </TabsContent>
 
                 <TabsContent value="history" className="min-w-0 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
@@ -1609,6 +1747,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           onUpdate={handleUpdateInvoice}
           onSaveAndSend={handleSaveAndSendInvoice}
           onDelete={handleDeleteInvoice}
+          onRecordPayment={(paidInvoice) => {
+            handleRecordInvoicePayment(paidInvoice);
+            setInvoiceModalMode(null);
+            setSelectedInvoice(null);
+          }}
         />
       )}
       <ConfirmDialog
@@ -1794,6 +1937,70 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           const task = earlyInvoiceTask;
           setEarlyInvoiceTask(null);
           if (task) createInvoiceDraftForReview(task);
+        }}
+      />
+      {/* LUẬT 1 — CỌC TRƯỚC, LÀM SAU. Đụng tới khoản "thu khi xong" mà còn khoản "thu ngay"
+          chưa ghi nhận đã thu thì DỪNG HẲN. Không có nút "cứ làm tiếp": quy trình đúng là thu
+          cọc trước, nên hộp thoại chỉ nói lý do và để freelancer tự kiểm tra lại.  #Huynh */}
+      <NoticeDialog
+        open={Boolean(upfrontReminder)}
+        onOpenChange={(open) => {
+          if (!open) setUpfrontReminder(null);
+        }}
+        title="Bạn chưa ghi nhận những khoản phải thu ngay"
+        description={
+          upfrontReminder
+            ? `"${upfrontReminder.task.title}" thu khi hoàn thành, nhưng các khoản thu ngay ` +
+              "(đặt cọc / tạm ứng) dưới đây chưa được ghi nhận là đã thu."
+            : undefined
+        }
+        items={upfrontReminder?.missing.map(
+          (item) =>
+            paymentMilestoneLabel(item) +
+            (item.billingAmount != null ? ` — ${formatVND(item.billingAmount)}` : "")
+        )}
+        footnote="Hãy thu và ghi nhận (tick) các khoản này trước, rồi mới làm tiếp khoản thu khi xong."
+        closeLabel="Đóng"
+      />
+      {/* LUẬT 2 — Deal chưa "Đang triển khai" thì hỏi có chuyển không. "Để sau" vẫn làm tiếp
+          việc đang dở (nếu không thì không ai ghi nhận nổi khoản cọc lúc deal còn đang đàm
+          phán). Đóng bằng Esc / bấm ra ngoài là bỏ hẳn thao tác.  #Huynh */}
+      <ConfirmDialog
+        open={Boolean(startProjectPrompt)}
+        onOpenChange={(open) => {
+          if (!open) setStartProjectPrompt(null);
+        }}
+        title="Chuyển qua trạng thái triển khai?"
+        description={
+          deal
+            ? `Deal đang ở giai đoạn "${STAGE_BY_ID[deal.stage].shortTitle}". Bạn đang làm việc và ` +
+              'thu tiền cho dự án này, nên có thể chuyển sang "Đang triển khai" để quy trình phản ánh đúng.'
+            : undefined
+        }
+        confirmLabel="Chuyển sang triển khai"
+        cancelLabel="Để sau"
+        isLoading={transitionDealStage.isPending}
+        onCancel={() => startProjectPrompt?.proceed()}
+        onConfirm={() => {
+          const pending = startProjectPrompt;
+          if (!pending) return;
+          startProject(() => {
+            setStartProjectPrompt(null);
+            pending.proceed();
+          });
+        }}
+      />
+      <ConfirmSendContractDialog
+        open={Boolean(contractPendingSendId)}
+        onOpenChange={(open) => {
+          if (!open) setContractPendingSendId(null);
+        }}
+        clientEmail={deal?.clientEmail ?? client?.email}
+        isLoading={sendContract.isPending}
+        onConfirm={() => {
+          const contractId = contractPendingSendId;
+          setContractPendingSendId(null);
+          if (contractId) handleSendContract(contractId);
         }}
       />
       <ConfirmDialog
@@ -2425,6 +2632,7 @@ export function InvoiceComposerModal({
   onUpdate,
   onSaveAndSend,
   onDelete,
+  onRecordPayment,
 }: {
   mode: "create" | "view" | "edit";
   deal: Deal;
@@ -2439,8 +2647,15 @@ export function InvoiceComposerModal({
   /** Lưu nội dung rồi gửi luôn cho khách. Bỏ trống thì cửa sổ chỉ có nút lưu. */
   onSaveAndSend?: (invoiceId: string, payload: InvoiceUpdatePayload) => void;
   onDelete: (invoice: InvoiceResponse) => void;
+  /**
+   * Ghi nhận khách đã trả đủ phần còn lại. Có thì cửa sổ XEM hoá đơn hiện nút này — mở hoá đơn
+   * quá hạn từ thông báo mà chỉ có nút "Đóng" thì người dùng phải tự đi tìm lại dòng đó.
+   */
+  onRecordPayment?: (invoice: InvoiceResponse) => void;
 }) {
   const [tone, setTone] = useState<InvoiceTone>("formal");
+  /** Đã bấm "Ghi nhận thanh toán", đang chờ xác nhận — ghi tiền vào sổ thì phải hỏi. */
+  const [paymentConfirmOpen, setPaymentConfirmOpen] = useState(false);
   // Hóa đơn ĐANG MỞ thì lấy số thứ tự của chính nó; chỉ khi tạo mới mới dùng số kế tiếp.
   const draftOrdinal = invoice ? invoiceOrdinal(existingInvoices, invoice) : suggestedInvoiceIndex;
   const isDraftInvoice = !invoice || invoice.status === "draft";
@@ -2465,7 +2680,10 @@ export function InvoiceComposerModal({
   /** Đã bấm "Lưu & gửi cho khách", đang chờ xác nhận lần cuối. */
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const subtotal = parseMoneyInput(draft.amount);
-  const taxRate = Math.max(0, parseMoneyInput(draft.taxRate) / 100);
+  // `null` = ô VAT gõ chưa hợp lệ. Tạm tính như 0% để phần tổng không nhảy lung tung khi
+  // đang gõ dở; `validateInvoiceDraft` chặn không cho lưu.
+  const parsedTaxRate = parseTaxRatePercent(draft.taxRate);
+  const taxRate = parsedTaxRate ?? 0;
   const taxAmount = Math.round(subtotal * taxRate);
   const total = subtotal + taxAmount;
   const title =
@@ -2529,6 +2747,10 @@ export function InvoiceComposerModal({
     setDueDateText(formatDate(parsedDueDate));
     if (subtotal <= 0) {
       toast.error("Tổng tiền hóa đơn phải lớn hơn 0đ.");
+      return false;
+    }
+    if (parsedTaxRate === null) {
+      toast.error("Thuế/VAT cần là một số từ 0 đến 100, ví dụ 8 hoặc 8,5.");
       return false;
     }
     return true;
@@ -2667,6 +2889,8 @@ export function InvoiceComposerModal({
                 <input
                   value={draft.taxRate}
                   disabled={!canEdit}
+                  inputMode="decimal"
+                  placeholder="0"
                   onChange={(event) => updateDraft("taxRate", event.target.value)}
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
                 />
@@ -2786,6 +3010,20 @@ export function InvoiceComposerModal({
             <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary">
               Đóng
             </button>
+            {/* Cùng điều kiện với nút "Ghi nhận thanh toán" ở danh sách hoá đơn (tab Tài liệu). */}
+            {onRecordPayment &&
+              invoice &&
+              remainingOf(invoice) > 0 &&
+              !["draft", "void", "cancelled"].includes(invoice.status) && (
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setPaymentConfirmOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-success px-4 py-2 text-sm font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Ghi nhận thanh toán
+                </button>
+              )}
             {mode === "create" && (
               <button
                 type="button"
@@ -2881,6 +3119,26 @@ export function InvoiceComposerModal({
           }}
         />
       )}
+      {/* Cùng câu hỏi với hộp xác nhận ở danh sách hoá đơn: ghi tiền rồi thì không gỡ khỏi sổ. */}
+      {invoice && onRecordPayment && (
+        <ConfirmDialog
+          open={paymentConfirmOpen}
+          onOpenChange={setPaymentConfirmOpen}
+          title={`Ghi nhận đã thu ${formatVND(remainingOf(invoice))}?`}
+          description={
+            `Hệ thống sẽ ghi hóa đơn ${invoice.invoice_number} đã nhận đủ ` +
+            `${formatVND(remainingOf(invoice))} vào hôm nay. Chỉ bấm khi bạn đã thấy ` +
+            "tiền về tài khoản — ghi rồi thì không gỡ khỏi sổ được."
+          }
+          confirmLabel={`Đã nhận ${formatVND(remainingOf(invoice))}`}
+          cancelLabel="Chưa, kiểm tra lại"
+          isLoading={isLoading}
+          onConfirm={() => {
+            setPaymentConfirmOpen(false);
+            onRecordPayment(invoice);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2910,8 +3168,8 @@ function DownloadPdfButton({
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Tải PDF thất bại. Vui lòng thử lại.");
+    } catch (error) {
+      toast.error(pdfDownloadErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -3886,15 +4144,27 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
     enabled: !!contractId && !!contract,
   });
 
-  const { iframeRef } = useContractInlineEditor(contract, previewQuery.data);
+  const { iframeRef, flush: flushEdits } = useContractInlineEditor(contract, previewQuery.data);
+  // Gửi hợp đồng = gửi email thật cho khách, nên hỏi lại một lần trước khi gửi.
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
-  function handleSend() {
+  async function handleSend() {
+    // GHI NGAY bản sửa đang chờ trước khi gửi: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, nên
+    // bấm "Gửi" liền sau khi gõ sẽ gửi PDF của bản CŨ rồi bản sửa mới đến sau ghi đè lên hợp đồng
+    // đã khoá. Ghi hụt thì dừng, không gửi (toast lỗi đã hiện).  #Huynh
+    try {
+      await flushEdits();
+    } catch {
+      return;
+    }
     sendContract.mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng cho khách ký.");
+        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
         onClose();
       },
-      onError: () => toast.error("Gửi hợp đồng thất bại. Vui lòng thử lại."),
+      // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
+      // khi đó vẫn là bản nháp vì backend hoàn tác, gửi lại được.
+      onError: (error) => toast.error(getApiErrorMessage(error, "Gửi hợp đồng thất bại. Vui lòng thử lại.")),
     });
   }
 
@@ -4004,7 +4274,7 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
                 Đóng
               </button>
               <button
-                onClick={handleSend}
+                onClick={() => setConfirmSendOpen(true)}
                 disabled={sendContract.isPending}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -4022,6 +4292,15 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
           )}
         </div>
       </div>
+      <ConfirmSendContractDialog
+        open={confirmSendOpen}
+        onOpenChange={setConfirmSendOpen}
+        isLoading={sendContract.isPending}
+        onConfirm={() => {
+          setConfirmSendOpen(false);
+          void handleSend();
+        }}
+      />
     </div>
   );
 }
