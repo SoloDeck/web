@@ -65,6 +65,7 @@ import type {
   AdminUserStatus,
   LLMProvider,
 } from "@/services/adminService";
+import { AI_PROVIDERS, defaultModelFor, modelsFor } from "@/features/admin/aiProviders";
 import { isPayableAmount } from "@/services/subscriptionsService";
 
 /**
@@ -1675,40 +1676,41 @@ const TEMPLATE_SKELETON_FIELDS: Record<
 };
 
 /**
- * Trang cho Admin đổi nhà cung cấp AI của toàn hệ thống. Trung
+ * Trang cho Admin đổi nhà cung cấp AI và model của toàn hệ thống.
  *
- * CHỈ đổi nhà cung cấp, không chọn model. Backend cố ý ghi cứng model của từng nhà cung
- * cấp trong code (`GroqProvider.MODEL`, `GeminiProvider.MODEL`…) — xem comment ở bảng
- * `ai_provider_configuration`. Bảng đó chỉ có một cột `llm_provider`, và cả schema request
- * lẫn response đều không có `llm_model`.
- *
- * Bản cũ có thêm một ô chọn Model. Nó lưu được, hiện lại được, nhưng backend vứt trường đó
- * đi và AI vẫn chạy model ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi
- * cả.  #Huynh
+ * Gửi CẢ `llm_provider` lẫn `llm_model`: backend bắt buộc cả hai và từ chối model không thuộc
+ * nhà cung cấp đã chọn. Bản cũ chỉ gửi nhà cung cấp (tin rằng model ghi cứng trong code) nên
+ * mọi lần lưu đều 422 — đúng việc phải làm trước buổi bảo vệ (đổi sang Gemini) lại không làm
+ * được từ giao diện.  #Huynh
  */
 export function AdminAiConfigPage() {
-  // Phải khớp `SUPPORTED_LLM_PROVIDERS` bên backend. Bản cũ khai `ollama` (backend trả
-  // 422) và thiếu `openai` (backend hỗ trợ thật) — chọn Ollama là lưu không nổi.
-  const AI_PROVIDER_OPTIONS: { value: LLMProvider; label: string }[] = [
-    { value: "groq", label: "Groq" },
-    { value: "gemini", label: "Gemini" },
-    { value: "openai", label: "OpenAI" },
-  ];
-
   const { data, isLoading, isError, refetch } = useAdminLLMProvider();
   const updateMutation = useUpdateAdminLLMProvider();
 
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>("groq");
+  const [selectedModel, setSelectedModel] = useState<string>(defaultModelFor("groq"));
 
   useEffect(() => {
     if (!data) return;
 
     setSelectedProvider(data.llm_provider);
+    setSelectedModel(data.llm_model || defaultModelFor(data.llm_provider));
   }, [data]);
 
-  function handleSave() {
-    updateMutation.mutate({ llm_provider: selectedProvider });
+  /** Đổi nhà cung cấp thì model cũ không còn hợp lệ — chuyển về model đầu của hãng mới. */
+  function changeProvider(provider: LLMProvider) {
+    setSelectedProvider(provider);
+    if (!modelsFor(provider).includes(selectedModel)) {
+      setSelectedModel(defaultModelFor(provider));
+    }
   }
+
+  function handleSave() {
+    updateMutation.mutate({ llm_provider: selectedProvider, llm_model: selectedModel });
+  }
+
+  const providerHint = AI_PROVIDERS.find((item) => item.value === selectedProvider)?.hint;
+  const modelOptions = modelsFor(selectedProvider).map((model) => ({ value: model, label: model }));
 
   if (isLoading) {
     return (
@@ -1748,19 +1750,42 @@ export function AdminAiConfigPage() {
             Nhà cung cấp AI
           </label>
 
-          {/* `items` để nút hiện "Groq"/"Gemini"/"OpenAI" chứ không phải mã máy trần. */}
+          {/* `items` để nút hiện "Groq"/"Gemini"/"Ollama" chứ không phải mã máy trần. */}
           <Select
-            items={AI_PROVIDER_OPTIONS}
+            items={AI_PROVIDERS}
             value={selectedProvider}
-            onValueChange={(value) => setSelectedProvider(value as LLMProvider)}
+            onValueChange={(value) => changeProvider(value as LLMProvider)}
           >
             <SelectTrigger id="ai-provider" className="h-10 w-full rounded-lg">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {AI_PROVIDER_OPTIONS.map((provider) => (
+              {AI_PROVIDERS.map((provider) => (
                 <SelectItem key={provider.value} value={provider.value}>
                   {provider.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {providerHint && <p className="text-xs leading-5 text-amber-700">{providerHint}</p>}
+        </div>
+
+        <div className="max-w-sm space-y-2">
+          <label htmlFor="ai-model" className="text-sm font-semibold">
+            Model
+          </label>
+          <Select
+            items={modelOptions}
+            value={selectedModel}
+            onValueChange={(value) => setSelectedModel(String(value))}
+          >
+            <SelectTrigger id="ai-model" className="h-10 w-full rounded-lg">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modelOptions.map((model) => (
+                <SelectItem key={model.value} value={model.value}>
+                  {model.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1772,16 +1797,18 @@ export function AdminAiConfigPage() {
             <Settings className="mt-0.5 size-5 text-muted-foreground" />
 
             <div>
-              <p className="text-sm font-semibold">Cấu hình hiện tại</p>
+              <p className="text-sm font-semibold">Đang chạy</p>
+              {/* Lấy từ SERVER, không lấy từ ô đang chọn: chọn rồi mà chưa lưu thì hệ thống
+                  vẫn chạy cấu hình cũ, hiện ô đang chọn ở đây là nói sai. */}
               <p className="mt-1 text-sm text-muted-foreground">
                 Nhà cung cấp:{" "}
-                <span className="font-medium text-foreground">{selectedProvider}</span>
+                <span className="font-medium text-foreground">{data.llm_provider}</span>
+                {" · "}Model:{" "}
+                <span className="font-medium text-foreground">{data.llm_model || "—"}</span>
               </p>
-              {/* Nói rõ là CỐ Ý không cho chọn model, để người dùng khỏi tưởng màn hình
-                  thiếu mất một ô. */}
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Mỗi nhà cung cấp dùng một model mặc định do hệ thống chọn sẵn. Đổi model
-                phải sửa trong mã nguồn, không đổi được từ đây.
+                Đổi xong, mọi tính năng AI (chấm điểm deal, soạn báo giá, hợp đồng, nhắc khách)
+                dùng ngay cấu hình mới.
               </p>
             </div>
           </div>

@@ -1,4 +1,6 @@
 import axiosClient from "@/configs/axios";
+import { listContracts } from "@/services/contractsService";
+import { listInvoices } from "@/services/invoicesService";
 
 export type ReminderTargetType = "deal" | "client" | "invoice" | "contract";
 export type ReminderStatus = "pending" | "sent" | "failed" | "cancelled" | "skipped";
@@ -126,10 +128,36 @@ export async function listReminders(params: GetRemindersParams = {}): Promise<Re
   return data.data ?? [];
 }
 
+/**
+ * Mọi lời nhắc thuộc về một deal: nhắm vào chính deal, vào HOÁ ĐƠN của deal, và vào HỢP ĐỒNG
+ * của deal.
+ *
+ * Bản cũ chỉ lấy `target_type = "deal"`. Nhưng bộ tự sinh lời nhắc tạo nhắc thanh toán nhắm vào
+ * hoá đơn và nhắc ký nhắm vào hợp đồng — hai quy tắc bật sẵn — nên những lời nhắc "Chờ bạn duyệt"
+ * đó KHÔNG hiện ở đâu cả: chuông báo có, mà không có chỗ nào để duyệt.  #Huynh
+ *
+ * Backend chưa lọc được theo `target_id`, nên tải về rồi lọc ở đây (cùng cách bản cũ đã làm).
+ */
 export async function listDealReminders(dealId: string): Promise<ReminderRecord[]> {
-  const reminders = await listReminders({ target_type: "deal" });
-  // BE hiện chưa hỗ trợ query target_id, nên FE lọc local để màn detail chỉ thấy reminder của deal hiện tại.
-  return reminders.filter((reminder) => reminder.target_id === dealId);
+  const [reminders, invoices, contracts] = await Promise.all([
+    listReminders(),
+    listInvoices({ dealId }),
+    listContracts({ deal_id: dealId, page_size: 100 }),
+  ]);
+  const invoiceIds = new Set(invoices.map((invoice) => invoice.id));
+  const contractIds = new Set((contracts.data ?? []).map((contract) => contract.id));
+  return reminders.filter(
+    (reminder) =>
+      (reminder.target_type === "deal" && reminder.target_id === dealId) ||
+      (reminder.target_type === "invoice" && invoiceIds.has(reminder.target_id)) ||
+      (reminder.target_type === "contract" && contractIds.has(reminder.target_id))
+  );
+}
+
+/** GET /reminders/{id} — một lời nhắc (dùng để lần ra thứ nó nhắc tới từ thông báo). */
+export async function getReminder(id: string): Promise<ReminderRecord> {
+  const { data } = await axiosClient.get<ApiEnvelope<ReminderRecord>>(`/reminders/${id}`);
+  return data.data;
 }
 
 export async function createReminder(payload: ReminderPayload): Promise<ReminderRecord> {
@@ -137,7 +165,25 @@ export async function createReminder(payload: ReminderPayload): Promise<Reminder
   return data.data;
 }
 
-export async function updateReminder(id: string, payload: ReminderPayload): Promise<ReminderRecord> {
+/**
+ * Thân `PATCH /reminders/{id}` — CHỈ bốn trường backend chịu sửa. Trường nào vắng mặt thì
+ * backend giữ nguyên.
+ *
+ * Tách kiểu riêng thay vì dùng lại `ReminderPayload`: gửi kèm `reminder_type`/`target_*` thì
+ * backend lặng lẽ bỏ qua, màn hình vẫn báo "đã cập nhật" dù thứ người dùng chọn không được lưu.
+ * Còn `scheduled_at` chỉ nên gửi khi thật sự đổi giờ — xem `ReminderComposerModal`.  #Huynh
+ */
+export type ReminderUpdatePayload = {
+  scheduled_at?: string;
+  message_preview?: string | null;
+  channel?: ReminderChannel;
+  attachments?: ReminderImage[];
+};
+
+export async function updateReminder(
+  id: string,
+  payload: ReminderUpdatePayload
+): Promise<ReminderRecord> {
   const { data } = await axiosClient.patch<ApiEnvelope<ReminderRecord>>(`/reminders/${id}`, payload);
   return data.data;
 }

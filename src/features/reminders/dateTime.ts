@@ -62,3 +62,21 @@ export function formatRelative(value: string): string | null {
   const days = Math.round(hours / 24);
   return days === 1 ? "còn 1 ngày nữa (ngày mai)" : `còn ${days} ngày nữa`;
 }
+
+/**
+ * Khoảng lùi cho mốc giờ của lượt "Duyệt và gửi" (gửi NGAY).
+ *
+ * Gửi ngay vẫn phải tạo một lời nhắc trước rồi mới gửi, mà backend chỉ nhận lời nhắc có giờ
+ * hẹn ở TƯƠNG LAI. Bản cũ đặt đúng giờ lúc bấm: request tới nơi thì giờ đó đã thành quá khứ
+ * → 422 → nút "Duyệt và gửi" hỏng hoàn toàn từ khi backend thêm luật đó (02/08).
+ *
+ * 5 phút đủ đỡ độ trễ mạng và đồng hồ máy người dùng chạy chậm hơn máy chủ. Nó còn đỡ thêm
+ * một chuyện: lời nhắc chưa tới giờ nên beat (quét mỗi 60 giây) không nhặt nó gửi chen vào
+ * giữa hai request "tạo" và "gửi".  #Huynh
+ */
+export const SEND_NOW_LEAD_MS = 5 * 60 * 1000;
+
+/** Giờ hẹn dùng khi tạo lời nhắc để gửi ngay. Xem `SEND_NOW_LEAD_MS`. */
+export function sendNowScheduledAt(now: Date = new Date()): string {
+  return new Date(now.getTime() + SEND_NOW_LEAD_MS).toISOString();
+}

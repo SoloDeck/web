@@ -5,12 +5,15 @@ import {
   createReminder,
   listDealReminders,
   listReminderRules,
+  previewReminder,
   sendReminderNow,
   updateReminder,
   updateReminderRule,
   type ReminderPayload,
+  type ReminderUpdatePayload,
   type ReminderRuleType,
   type ReminderRuleUpdate,
+  type ReminderType,
 } from "@/services/remindersService";
 
 export const reminderKeys = {
@@ -64,7 +67,8 @@ export function useCreateReminder(dealId: string | undefined) {
 export function useUpdateReminder(dealId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: ReminderPayload }) => updateReminder(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: ReminderUpdatePayload }) =>
+      updateReminder(id, payload),
     onSuccess: () => {
       if (dealId) qc.invalidateQueries({ queryKey: reminderKeys.byDeal(dealId) });
       toast.success("Đã cập nhật lịch nhắc.");
@@ -85,7 +89,16 @@ export function useApproveAndSend(dealId: string | undefined) {
   return useMutation({
     mutationFn: async (payload: ReminderPayload) => {
       const reminder = await createReminder(payload);
-      return sendReminderNow(reminder.id);
+      try {
+        return await sendReminderNow(reminder.id);
+      } catch (error) {
+        // Bước gửi hỏng hẳn (mất mạng, 500) thì lời nhắc vừa tạo vẫn nằm "Chờ gửi" với giờ hẹn
+        // vài phút tới — màn hình báo "Không gửi được" mà ít phút sau beat lại gửi thư đi thật.
+        // Huỷ nó để câu báo lỗi nói đúng: không có gì được gửi. Huỷ hỏng thì thôi, vẫn báo
+        // lỗi gửi — đó mới là việc người dùng vừa làm.  #Huynh
+        await cancelReminder(reminder.id).catch(() => undefined);
+        throw error;
+      }
     },
     onSuccess: (result) => {
       if (dealId) qc.invalidateQueries({ queryKey: reminderKeys.byDeal(dealId) });
@@ -96,6 +109,35 @@ export function useApproveAndSend(dealId: string | undefined) {
     onError: () => {
       toast.error("Không gửi được lời nhắc. Vui lòng thử lại.");
     },
+  });
+}
+
+/**
+ * Tiêu đề THẬT của thư khách sẽ nhận cho một loại nhắc, do server dựng.
+ *
+ * Hộp "Nhắc khách bằng AI" có ô tiêu đề sửa được, nhưng thư gửi qua SoloDesk không dùng ô đó:
+ * backend tự đặt tiêu đề theo loại nhắc. Hiện câu này ra để người dùng biết khách nhận gì,
+ * thay vì sửa một ô rồi tưởng mình đã đổi tiêu đề thư.  #Huynh
+ */
+export function useReminderSubject(
+  reminderType: ReminderType,
+  dealId: string | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ["reminders", "subject", reminderType, dealId ?? ""] as const,
+    queryFn: async () =>
+      (
+        await previewReminder({
+          reminder_type: reminderType,
+          target_type: "deal",
+          target_id: dealId!,
+          message: "",
+        })
+      ).subject,
+    enabled: enabled && Boolean(dealId),
+    // Tiêu đề chỉ phụ thuộc loại nhắc + tên dự án, không đổi trong lúc hộp thoại đang mở.
+    staleTime: 5 * 60 * 1000,
   });
 }
 

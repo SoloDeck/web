@@ -111,7 +111,7 @@ beforeEach(() => {
   mockUpdateProvider.mockClear();
 
   vi.mocked(useAdminLLMProvider).mockReturnValue({
-    data: { llm_provider: "groq" },
+    data: { llm_provider: "groq", llm_model: "openai/gpt-oss-120b" },
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -415,14 +415,14 @@ describe("<AdminPlansPage /> — xoá gói", () => {
 /**
  * Cấu hình AI.
  *
- * Backend cố ý chỉ cho đổi NHÀ CUNG CẤP — model của từng nhà cung cấp ghi cứng trong code.
- * Giao diện cũ lệch khỏi hợp đồng đó ở hai chỗ: bày thêm ô chọn Model (backend vứt đi), và
- * danh sách nhà cung cấp sai (có `ollama` backend không nhận, thiếu `openai` backend có).
+ * Backend bắt buộc cả `llm_provider` lẫn `llm_model` (openapi: AdminUpdateLLMProviderRequest)
+ * và từ chối model không thuộc nhà cung cấp. Bản cũ tin rằng model ghi cứng trong code nên chỉ
+ * gửi nhà cung cấp — mọi lần lưu đều 422, admin không đổi được AI. Mấy bài test cũ còn khoá
+ * đúng cái sai đó ("lưu chỉ gửi llm_provider"), nên đã được viết lại.  #Huynh
  */
 describe("<AdminAiConfigPage />", () => {
   // Ô chọn giờ là <Select> dùng chung (base-ui), KHÔNG phải <select> thuần: danh sách nằm
-  // trong portal và chỉ tồn tại sau khi bấm mở. Mọi khẳng định về lựa chọn phải mở nó ra
-  // trước, thay vì đọc thẳng <option> con như thời native select.
+  // trong portal và chỉ tồn tại sau khi bấm mở.
   async function moOChon(nhan: RegExp) {
     await userEvent.click(screen.getByLabelText(nhan));
     return screen.findByRole("listbox");
@@ -436,18 +436,10 @@ describe("<AdminAiConfigPage />", () => {
       .getAllByRole("option")
       .map((o) => o.textContent);
 
-    expect(options).toEqual(["Groq", "Gemini", "OpenAI"]);
+    expect(options).toEqual(["Groq", "Gemini", "Ollama"]);
   });
 
-  it("không còn ô chọn Model", () => {
-    render(<AdminAiConfigPage />);
-
-    // Ô cũ lưu được, hiện lại được, nhưng backend vứt trường đó đi và AI vẫn chạy model
-    // ghi cứng — người dùng tin là đã đổi trong khi không có gì đổi.
-    expect(screen.queryByLabelText(/^model$/i)).not.toBeInTheDocument();
-  });
-
-  it("lưu chỉ gửi llm_provider, không gửi llm_model", async () => {
+  it("đổi sang Gemini rồi lưu thì gửi cả nhà cung cấp lẫn model của Gemini", async () => {
     render(<AdminAiConfigPage />);
 
     const danhSach = await moOChon(/nhà cung cấp ai/i);
@@ -455,12 +447,31 @@ describe("<AdminAiConfigPage />", () => {
     await userEvent.click(screen.getByRole("button", { name: /lưu cấu hình/i }));
 
     expect(mockUpdateProvider).toHaveBeenCalledTimes(1);
-    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({ llm_provider: "gemini" });
+    expect(mockUpdateProvider.mock.calls[0][0]).toEqual({
+      llm_provider: "gemini",
+      llm_model: "gemini-2.5-flash",
+    });
   });
 
-  it("nói rõ vì sao không cho chọn model", () => {
+  it("ô Model chỉ bày model của nhà cung cấp đang chọn", async () => {
     render(<AdminAiConfigPage />);
 
-    expect(screen.getByText(/model mặc định do hệ thống chọn sẵn/i)).toBeInTheDocument();
+    const hang = await moOChon(/nhà cung cấp ai/i);
+    await userEvent.click(within(hang).getByRole("option", { name: "Gemini" }));
+    const models = await moOChon(/^model$/i);
+
+    expect(within(models).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+    ]);
+  });
+
+  it("phần 'Đang chạy' hiện cấu hình trên server, không phải ô đang chọn chưa lưu", async () => {
+    render(<AdminAiConfigPage />);
+
+    const danhSach = await moOChon(/nhà cung cấp ai/i);
+    await userEvent.click(within(danhSach).getByRole("option", { name: "Gemini" }));
+
+    expect(screen.getByText("openai/gpt-oss-120b", { selector: "span" })).toBeInTheDocument();
   });
 });

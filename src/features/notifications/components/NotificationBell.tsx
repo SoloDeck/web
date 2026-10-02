@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
   BellRing,
@@ -12,7 +13,11 @@ import {
   Sparkles,
   UserPlus,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { AppNotification, NotificationType } from "@/services/notificationsService";
+import { resolveNotificationTarget } from "@/features/notifications/notificationTarget";
+import { invoiceKeys } from "@/features/deals/hooks/useInvoices";
+import { reminderKeys } from "@/features/reminders/hooks/useReminders";
 import {
   useMarkAllRead,
   useMarkNotificationRead,
@@ -59,6 +64,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: unreadCount = 0 } = useUnreadCount();
   const { data, isLoading } = useNotifications(open);
@@ -84,12 +90,32 @@ export function NotificationBell() {
    * Đây mới là điểm khiến thông báo có ích: "Khách hàng mới gửi yêu cầu" mà bấm vào không
    * đi đâu thì người dùng vẫn phải tự mò xem deal nào.  #Huynh
    */
-  function handleClick(notification: AppNotification) {
+  async function handleClick(notification: AppNotification) {
     if (!notification.is_read) markRead.mutate(notification.id);
     setOpen(false);
 
-    if (notification.entity_type === "deal" && notification.entity_id) {
-      navigate({ to: "/deals/$dealId", params: { dealId: notification.entity_id } });
+    try {
+      // Hoá đơn / lời nhắc không có trang riêng: lần ra deal (hoặc khách) chứa nó, rồi mở đúng
+      // tab và làm nổi bật đúng mục để người dùng làm tiếp được ngay.
+      const target = await resolveNotificationTarget(notification);
+      if (target?.kind === "deal") {
+        // Thông báo tới từ việc chạy NỀN (beat gửi lời nhắc, job đánh dấu quá hạn), không qua
+        // mutation nào của web — cache có thể còn "tươi" 5 phút mà đã sai: lời nhắc vừa gửi hỏng
+        // vẫn hiện "Chờ gửi", hoá đơn vừa quá hạn vẫn hiện "Đã gửi". Làm mới trước khi mở.
+        void queryClient.invalidateQueries({ queryKey: reminderKeys.byDeal(target.dealId) });
+        void queryClient.invalidateQueries({ queryKey: invoiceKeys.deal(target.dealId) });
+        navigate({
+          to: "/deals/$dealId",
+          params: { dealId: target.dealId },
+          search: { tab: target.tab, invoice: target.invoiceId, reminder: target.reminderId },
+        });
+      } else if (target?.kind === "client") {
+        navigate({ to: "/clients/$clientId", params: { clientId: target.clientId } });
+      } else if (notification.type === "reminder_drafted") {
+        toast.info("Không còn lời nhắc nào đang chờ bạn duyệt.");
+      }
+    } catch {
+      toast.error("Không mở được mục này — có thể nó đã bị xoá.");
     }
   }
 
@@ -151,7 +177,7 @@ export function NotificationBell() {
                   return (
                     <li key={n.id}>
                       <button
-                        onClick={() => handleClick(n)}
+                        onClick={() => void handleClick(n)}
                         className={`flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary ${
                           n.is_read ? "" : "bg-primary/[0.04]"
                         }`}

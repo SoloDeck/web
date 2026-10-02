@@ -2,6 +2,7 @@ import { formatVND } from "@/utils/format";
 import type { Deal } from "@/features/deals/types";
 import type { InvoiceResponse } from "@/services/invoicesService";
 import { ngayChoApi } from "@/lib/ngayApi";
+import { formatTaxRatePercent } from "@/features/deals/taxRate";
 
 /**
  * Tên và nội dung của một hóa đơn ở màn chi tiết deal — phần THUẦN, không dính React.
@@ -130,7 +131,7 @@ export function buildInvoiceDraft(
     title,
     description: deal.projectType,
     amount: String(amount),
-    taxRate: String(Number(invoice?.tax_rate ?? 0) * 100),
+    taxRate: formatTaxRatePercent(invoice?.tax_rate),
     dueDate: invoice?.due_date
       ? toDateInputValue(invoice.due_date)
       : toApiDateValue(addDays(new Date(), 7)),

@@ -46,8 +46,11 @@ export type AppNotification = {
    * `"reminder"` là loại backend BẮN THẬT (bốn loại `reminder_*`) nhưng trước đây thiếu ở
    * đây; còn `"client"` thì khai sẵn mà backend chưa bao giờ bắn — bỏ đi cho khỏi hiểu
    * nhầm là đã có.  #Huynh
+   *
+   * `"client"` nay CÓ thật: thông báo "lời nhắc chờ duyệt" gộp theo deal, lời nhắc không thuộc
+   * deal nào (nhắc "nối lại liên lạc") thì gắn vào khách.
    */
-  entity_type: "deal" | "invoice" | "reminder" | null;
+  entity_type: "deal" | "invoice" | "reminder" | "client" | null;
   entity_id: string | null;
   is_read: boolean;
   read_at: string | null;

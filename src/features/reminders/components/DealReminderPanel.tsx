@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, CalendarClock, Loader2, Mail, Pencil, Send, Sparkles, Trash2, Zap } from "lucide-react";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
 import { FollowUpModal } from "@/features/ai/components/FollowUpModal";
@@ -41,7 +41,20 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
   skipped: { label: "Đã bỏ qua", cls: "bg-slate-50 text-slate-600 border-slate-200" },
 };
 
-export function DealReminderPanel({ deal }: { deal: Deal }) {
+/** Dòng phụ nói lời nhắc đang nhắc về cái gì, khi nó không nhắm thẳng vào deal. */
+const TARGET_NOUN: Partial<Record<ReminderRecord["target_type"], string>> = {
+  invoice: "Nhắc về hoá đơn của dự án",
+  contract: "Nhắc về hợp đồng của dự án",
+};
+
+export function DealReminderPanel({
+  deal,
+  focusReminderId,
+}: {
+  deal: Deal;
+  /** Lời nhắc cần làm nổi bật — tới từ thông báo trên chuông (`?reminder=` trên URL). */
+  focusReminderId?: string;
+}) {
   const remindersQuery = useDealReminders(deal.id);
   const updateReminder = useUpdateReminder(deal.id);
   const cancelReminder = useCancelReminder(deal.id);
@@ -108,7 +121,23 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
             </div>
           )}
 
-          {!remindersQuery.isLoading && reminders.length === 0 && (
+          {/* Danh sách ghép từ ba lượt gọi (lời nhắc, hoá đơn, hợp đồng). Hỏng một lượt mà rơi
+              xuống "Chưa có lịch nhắc" thì người vừa bấm thông báo chờ duyệt tưởng không còn gì
+              để duyệt — nói thẳng là tải lỗi và cho thử lại. */}
+          {remindersQuery.isError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-sm">
+              <p className="font-semibold text-destructive">Chưa tải được lịch nhắc của dự án.</p>
+              <button
+                type="button"
+                onClick={() => void remindersQuery.refetch()}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+              >
+                Thử lại
+              </button>
+            </div>
+          )}
+
+          {!remindersQuery.isLoading && !remindersQuery.isError && reminders.length === 0 && (
             <div className="rounded-lg border border-dashed border-border p-8 text-center">
               <CalendarClock className="mx-auto h-8 w-8 text-muted-foreground/60" />
               <h3 className="mt-3 text-sm font-semibold">Chưa có lịch nhắc</h3>
@@ -133,6 +162,7 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
             <ReminderRow
               key={reminder.id}
               reminder={reminder}
+              focused={reminder.id === focusReminderId}
               onEdit={() =>
                 reminder.status === "pending" ? setComposerFor(reminder) : undefined
               }
@@ -206,24 +236,40 @@ export function DealReminderPanel({ deal }: { deal: Deal }) {
 
 function ReminderRow({
   reminder,
+  focused = false,
   onEdit,
   onCancel,
   onSendNow,
   busy,
 }: {
   reminder: ReminderRecord;
+  /** Người dùng vừa bấm thông báo về đúng lời nhắc này: cuộn tới và viền sáng. */
+  focused?: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onSendNow: () => void;
   busy: boolean;
 }) {
+  const rowRef = useRef<HTMLElement>(null);
+  // Chỉ đụng DOM, không đổi state — cuộn tới dòng được nhắc trong thông báo, kẻo nó nằm khuất
+  // dưới cả chục lời nhắc khác và người dùng tưởng bấm vào không ra gì.
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [focused]);
   const typeLabel = REMINDER_TYPES.find((type) => type.value === reminder.reminder_type)?.label ?? reminder.reminder_type;
   const channel = CHANNELS.find((item) => item.value === reminder.channel);
   const sendsToClient = reminder.channel === "email" || reminder.channel === "both";
   const relative = formatRelative(reminder.scheduled_at);
 
   return (
-    <article className="rounded-xl border border-border p-4">
+    <article
+      ref={rowRef}
+      data-focused={focused || undefined}
+      className={cn(
+        "rounded-xl border border-border p-4",
+        focused && "border-primary ring-2 ring-primary/30"
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -245,6 +291,9 @@ function ReminderRow({
             )}
           </div>
           <h3 className="mt-2 text-sm font-semibold">{typeLabel}</h3>
+          {TARGET_NOUN[reminder.target_type] && (
+            <p className="text-xs text-muted-foreground">{TARGET_NOUN[reminder.target_type]}</p>
+          )}
           <p className="mt-1 text-sm text-muted-foreground">
             {formatDateTime(reminder.scheduled_at)}
             {/* Chờ duyệt thì KHÔNG hiện "còn X giờ nữa" — câu đó ngụ ý tới giờ là tự gửi,
@@ -293,7 +342,10 @@ function ReminderRow({
 
       {(reminder.status === "failed" || reminder.status === "skipped") && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Xem lý do ở chuông thông báo — SoloDesk đã gửi cho bạn một thông báo kèm nguyên nhân.
+          {/* Người tới đây TỪ chính thông báo đó thì bảo "xem ở chuông" là bắt họ quay lại. */}
+          {focused
+            ? "Sửa thông tin còn thiếu (thường là email hoặc Zalo của khách) rồi bấm “Soạn lời nhắc” để gửi lại."
+            : "Xem lý do ở chuông thông báo — SoloDesk đã gửi cho bạn một thông báo kèm nguyên nhân."}
         </p>
       )}
 
