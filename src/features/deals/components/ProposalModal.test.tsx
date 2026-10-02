@@ -562,7 +562,7 @@ describe("ProposalModal", () => {
       "proposal-456",
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
     );
-    expect(toast.success).toHaveBeenCalledWith("Đã gửi báo giá cho khách hàng.");
+    expect(toast.success).toHaveBeenCalledWith("Đã gửi báo giá kèm file PDF tới email khách hàng.");
     expect(onClose).toHaveBeenCalled();
   });
 

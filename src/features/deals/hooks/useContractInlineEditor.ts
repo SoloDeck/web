@@ -31,6 +31,11 @@ export function useContractInlineEditor(
   const contentRef = useRef<ContractContentDTO>(contract?.content ?? {});
   const idsRef = useRef<{ deal_id: string; proposal_id: string; client_id: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bản sửa đang chờ ghi (đã gõ xong nhưng chưa qua 800ms). Giữ ở đây để `flush` ghi ngay được.
+  const pendingRef = useRef<{
+    contractId: string;
+    payload: { deal_id: string; proposal_id: string; client_id: string; content: ContractContentDTO };
+  } | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -47,6 +52,30 @@ export function useContractInlineEditor(
     []
   );
 
+  /**
+   * Ghi NGAY bản sửa đang chờ (nếu có) và đợi server xác nhận. Không có gì chờ thì trả về luôn.
+   *
+   * Dùng trước khi GỬI hợp đồng cho khách: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, mà
+   * bấm "Gửi" ngay sau khi gõ chỉ mất ~100ms. Gửi chạy trước thì PDF khách nhận là bản CŨ, rồi
+   * bản sửa mới đến sau và ghi đè lên hợp đồng đã khoá — trong app có điều khoản mới, khách
+   * thì không. Ghi hụt thì ném lỗi để chỗ gọi DỪNG việc gửi (toast lỗi đã hiện).  #Huynh
+   */
+  const flush = useCallback(async () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const pending = pendingRef.current;
+    if (!pending) return;
+    pendingRef.current = null;
+    try {
+      await updateContract.mutateAsync(pending);
+    } catch (error) {
+      toast.error("Không lưu được nội dung vừa sửa. Vui lòng thử lại.");
+      throw error;
+    }
+  }, [updateContract]);
+
   const handleFieldChange = useCallback(
     (field: string, value: string) => {
       const ids = idsRef.current;
@@ -61,15 +90,14 @@ export function useContractInlineEditor(
       // Gõ liên tục thì gộp lại, 800ms sau mới ghi một lượt — không đập server mỗi phím.
       // Payload mang đủ id vì backend ContractRequest đòi (xem updateContract).  #Huynh
       if (timerRef.current) clearTimeout(timerRef.current);
-      const contractId = contract.id;
+      pendingRef.current = { contractId: contract.id, payload: { ...ids, content: next } };
       timerRef.current = setTimeout(() => {
-        updateContract.mutate(
-          { contractId, payload: { ...ids, content: next } },
-          { onError: () => toast.error("Không lưu được nội dung vừa sửa. Vui lòng thử lại.") }
-        );
+        void flush().catch(() => {
+          // `flush` đã hiện toast lỗi; ở đây chỉ nuốt để không thành lỗi chưa bắt.
+        });
       }, 800);
     },
-    [contract, editable, updateContract]
+    [contract, editable, flush]
   );
 
   // Gắn ô sửa (draft) hoặc khổ giấy A4 (đọc-only) mỗi khi HTML xem trước đổi. `attachInlineEdit`
@@ -90,5 +118,5 @@ export function useContractInlineEditor(
     return () => iframe.removeEventListener("load", apply);
   }, [editable, handleFieldChange, previewHtml]);
 
-  return { editable, iframeRef };
+  return { editable, iframeRef, flush };
 }

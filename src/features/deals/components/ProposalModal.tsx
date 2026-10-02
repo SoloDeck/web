@@ -39,6 +39,7 @@ import {
 import type { PricingDetail } from "@/features/deals/proposalHtml";
 import { useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
+import { getApiErrorMessage } from "@/lib/api-error";
 import type { ProposalContentDTO } from "@/services/proposalsService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
@@ -1105,7 +1106,9 @@ export function ProposalModal({
         send.mutate(proposalId, {
           onSuccess: () => {
             setPendingAction(null);
-            toast.success("Đã gửi báo giá cho khách hàng.");
+            // Backend gửi email kèm file PDF tới khách rồi mới chốt trạng thái "đã gửi" — nên
+            // toast nói đúng việc đã xảy ra, không chỉ "đã gửi" chung chung.  #Huynh
+            toast.success("Đã gửi báo giá kèm file PDF tới email khách hàng.");
             addDealHistoryEntry(deal.id, {
               date: new Date().toISOString(),
               text: `Đã gửi báo giá AI cho khách "${deal.client}".`,
@@ -1124,9 +1127,12 @@ export function ProposalModal({
             if (jobId) removeJob(jobId);
             onClose();
           },
-          onError: () => {
+          // Hiện NGUYÊN câu backend trả về: gửi hỏng vì khách chưa có email, vì chưa chốt giá hay
+          // vì hộp thư hệ thống đang lỗi là ba việc khác nhau mà người dùng phải làm khác nhau.
+          // Báo giá khi đó vẫn là bản nháp (backend hoàn tác), gửi lại được.  #Huynh
+          onError: (error) => {
             setPendingAction(null);
-            toast.error("Gửi báo giá thất bại. Vui lòng thử lại.");
+            toast.error(getApiErrorMessage(error, "Gửi báo giá thất bại. Vui lòng thử lại."));
           },
         });
       },
@@ -1652,7 +1658,7 @@ export function ProposalModal({
         title={`Gửi báo giá ${formatVND(priceToSend)} cho ${deal.client}?`}
         description={
           `Bạn đang nhận dự án "${deal.projectType}" với giá ${formatVND(priceToSend)}. ` +
-          `Bản báo giá sẽ được gửi cho khách và deal chuyển sang cột "Đã gửi báo giá". ` +
+          `Bản báo giá sẽ được gửi qua email cho khách (kèm file PDF) và deal chuyển sang cột "Đã gửi báo giá". ` +
           `Hãy kiểm tra lại con số trước khi gửi — sau khi gửi thì không rút lại được.`
         }
         confirmLabel={`Gửi ${formatVND(priceToSend)}`}
