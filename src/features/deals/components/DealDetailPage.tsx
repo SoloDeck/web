@@ -34,9 +34,8 @@ import { ConfirmSendInvoiceDialog } from "@/features/deals/components/ConfirmSen
 import { PaymentTaskPromptDialog } from "@/features/deals/components/PaymentTaskPromptDialog";
 import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
-import { DocTemplateChooser } from "@/features/deals/components/DocTemplateChooser";
+import { ContractChooserDialog } from "@/features/deals/components/ContractChooserDialog";
 import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
 import { fillContractFromTemplate } from "@/services/contractsService";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
@@ -1695,55 +1694,22 @@ export function DealDetailPage({
       <NewDealModal open={newDealOpen} onClose={() => setNewDealOpen(false)} />
       <AIActivityCenter />
 
-      <Dialog open={contractChooserOpen} onOpenChange={setContractChooserOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Tạo hợp đồng</DialogTitle>
-          </DialogHeader>
-          <DocTemplateChooser
-            templates={contractTemplates.data ?? []}
-            value={contractTemplateId}
-            onChange={setContractTemplateId}
-            docLabel="hợp đồng"
-          />
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setContractChooserOpen(false)}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              title="Không gọi AI, không tốn lượt — bạn tự điền nội dung trên tờ hợp đồng"
-              onClick={() => {
-                setContractChooserOpen(false);
-                runGenerateContract(contractTemplateId, true);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"
-            >
-              Tôi tự soạn
-            </button>
-            <button
-              type="button"
-              disabled={canUseAi === false}
-              title={
-                canUseAi === false
-                  ? "Gói hiện tại chưa dùng được AI — bạn vẫn soạn tay được"
-                  : "AI viết nội dung hợp đồng dựa trên báo giá đã chốt"
-              }
-              onClick={() => {
-                setContractChooserOpen(false);
-                runGenerateContract(contractTemplateId);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Nhờ AI viết
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ContractChooserDialog
+        open={contractChooserOpen}
+        onOpenChange={setContractChooserOpen}
+        templates={contractTemplates.data ?? []}
+        templateId={contractTemplateId}
+        onTemplateChange={setContractTemplateId}
+        canUseAi={canUseAi}
+        onSelfCompose={() => {
+          setContractChooserOpen(false);
+          runGenerateContract(contractTemplateId, true);
+        }}
+        onAi={() => {
+          setContractChooserOpen(false);
+          runGenerateContract(contractTemplateId);
+        }}
+      />
 
       {viewContractId && <ContractViewModal contractId={viewContractId} onClose={() => setViewContractId(null)} />}
       {viewProposalId && (

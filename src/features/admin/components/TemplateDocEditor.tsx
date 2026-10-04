@@ -3,6 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronUp,
   Circle,
   Eye,
   EyeOff,
@@ -40,6 +42,7 @@ import {
   tenDauMucTrenGiay,
   themDauMuc,
   xoaDauMuc,
+  doiViTriDauMuc,
   truongTrenGiay,
   xoaChuMuc,
   HIDEABLE,
@@ -47,6 +50,11 @@ import {
   dangTat,
   lyDoKhoa,
 } from "@/features/admin/templateContent";
+import { labelMap } from "@/features/admin/selectItems";
+
+// Bảng nhãn cho `<Select items>` — thiếu nó ô chọn in ra "proposal" / "contract" thay vì tiếng Việt.
+const TEMPLATE_TYPE_ITEMS: Record<string, string> = { proposal: "Báo giá", contract: "Hợp đồng" };
+const PROFESSION_ITEMS = labelMap(PROFESSIONS, { "": "Dùng chung cho mọi nghề" });
 
 /**
  * Màn soạn mẫu kiểu TÀI LIỆU: admin gõ thẳng lên tờ giấy thật, thấy ngay kết quả.
@@ -66,6 +74,12 @@ import {
  * chừng đó mà đổi lại là mất con trỏ và mất chỗ đang xem. Chỉ nạp lại khi đổi LOẠI tài liệu —
  * lúc đó cả bộ khung đổi.  #Huynh
  */
+
+/** Tên một đầu mục tự soạn để đọc ra cho nút bấm; mục chưa đặt tên thì nói thẳng là chưa đặt tên. */
+function tenDauMucTuSoan(muc: { title: string }): string {
+  const ten = muc.title.trim();
+  return ten ? `“${ten}”` : "đầu mục chưa đặt tên";
+}
 
 export type TemplateDocPayload = {
   name: string;
@@ -188,6 +202,7 @@ export function TemplateDocEditor({
           <div className="block text-sm">
             <span className="mb-1 block font-medium">Loại tài liệu</span>
             <Select
+              items={TEMPLATE_TYPE_ITEMS}
               value={templateType}
               onValueChange={(value) => setTemplateType(value as AdminTemplateType)}
               disabled={!!template}
@@ -209,7 +224,11 @@ export function TemplateDocEditor({
 
           <div className="block text-sm">
             <span className="mb-1 block font-medium">Áp dụng cho nghề</span>
-            <Select value={profession} onValueChange={(value) => setProfession(value as string)}>
+            <Select
+              items={PROFESSION_ITEMS}
+              value={profession}
+              onValueChange={(value) => setProfession(value as string)}
+            >
               <SelectTrigger className="w-full rounded-lg" aria-label="Áp dụng cho nghề">
                 <SelectValue />
               </SelectTrigger>
@@ -359,7 +378,7 @@ export function TemplateDocEditor({
               </p>
               <ul className="space-y-0.5">
                 {mucTuSoan.map((muc, i) => (
-                  <li key={`extra-${i}`} className="group flex items-center gap-1">
+                  <li key={`extra-${i}`} className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => nhayToi(`extra_title_${i}`)}
@@ -379,14 +398,42 @@ export function TemplateDocEditor({
                         {muc.title.trim() || "Chưa đặt tên — gõ tên trên giấy"}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      title="Xoá hẳn đầu mục này"
-                      onClick={() => doiCauTruc(xoaDauMuc(content, i))}
-                      className="shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {/* Ba nút điều khiển gom thành MỘT cụm sát mép phải, rộng cố định, nên vị trí của chúng
+                      không phụ thuộc độ dài tên mục. Thùng rác hiện sẵn (không đợi rê chuột): khi nó
+                      vô hình thì hai mũi tên trông như lơ lửng giữa hàng chứ không dính mép phải.
+
+                      Thứ tự trong danh sách này CHÍNH LÀ thứ tự in trên giấy. Mũi tên mờ sẵn vì thứ chỉ
+                      hiện khi rê chuột thì chỉ người đã biết mới tìm thấy.  #Huynh */}
+                    <div className="flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        aria-label={`Đưa ${tenDauMucTuSoan(muc)} lên trên`}
+                        title="Đưa lên trên"
+                        disabled={i === 0}
+                        onClick={() => doiCauTruc(doiViTriDauMuc(content, i, -1))}
+                        className="shrink-0 rounded p-1 text-muted-foreground/60 transition hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Đưa ${tenDauMucTuSoan(muc)} xuống dưới`}
+                        title="Đưa xuống dưới"
+                        disabled={i === mucTuSoan.length - 1}
+                        onClick={() => doiCauTruc(doiViTriDauMuc(content, i, 1))}
+                        className="shrink-0 rounded p-1 text-muted-foreground/60 transition hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Xoá hẳn đầu mục này"
+                        onClick={() => doiCauTruc(xoaDauMuc(content, i))}
+                        className="shrink-0 rounded p-1 text-muted-foreground/60 transition hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

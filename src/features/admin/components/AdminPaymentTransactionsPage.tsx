@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Coins, Loader2, Receipt, RotateCcw, Search, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,10 @@ import {
   PanelShell,
 } from "@/features/admin/components/AdminDashboard";
 import { useAdminPayments } from "@/features/admin/hooks/useAdmin";
+import { useDebounced } from "@/features/admin/hooks/useDebounced";
 import { cn } from "@/lib/utils";
+import { labelMap } from "@/features/admin/selectItems";
+import { DateFilterField } from "@/features/admin/components/DateFilterField";
 import type {
   AdminPayment,
   AdminPaymentFilters,
@@ -92,6 +95,11 @@ const SORT_OPTIONS: {
   { value: "amount:asc", label: "Số tiền thấp → cao", sortBy: "amount", sortOrder: "asc" },
 ];
 
+// Bảng nhãn cho `<Select items>` — thiếu nó ô chọn in ra giá trị thô ("succeeded", "momo"...).
+const STATUS_FILTER_ITEMS = labelMap(STATUS_OPTIONS, { all: "Tất cả trạng thái" });
+const PROVIDER_FILTER_ITEMS = labelMap(PROVIDER_OPTIONS, { all: "Tất cả kênh" });
+const SORT_ITEMS = labelMap(SORT_OPTIONS);
+
 const ROW_GRID = "lg:grid-cols-[minmax(220px,1.5fr)_minmax(130px,1fr)_140px_150px_140px_150px]";
 
 /**
@@ -143,7 +151,9 @@ export function AdminPaymentTransactionsPage() {
   const firstVisible = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastVisible = Math.min(page * PAGE_SIZE, total);
 
-  const pageStats = summarisePage(rows);
+  // Tổng do MÁY CHỦ cộng trên cả tập đang lọc (qua mọi trang). Bản trước tự cộng các dòng của trang
+  // đang xem nên phải ghi "(trang này)" và sai ngay khi có hơn một trang.  #Huynh
+  const totals = query.data?.totals;
 
   const hasFilters =
     search !== "" || status !== "all" || provider !== "all" || fromDate !== "" || toDate !== "";
@@ -191,24 +201,24 @@ export function AdminPaymentTransactionsPage() {
         <MetricCard
           compact
           icon={Coins}
-          label="Đã thu (trang này)"
-          value={formatMoney(pageStats.collected, pageStats.currency)}
-          hint="Chỉ cộng giao dịch thành công đang hiển thị"
+          label="Đã thu"
+          value={formatMoney(totals?.collected_amount ?? 0, totals?.currency ?? "VND")}
+          hint="Cộng các giao dịch thành công"
           tone="success"
         />
         <MetricCard
           compact
           icon={CheckCircle2}
-          label="Thành công (trang này)"
-          value={String(pageStats.succeeded)}
-          hint={`Trên ${rows.length} giao dịch đang hiển thị`}
+          label="Thành công"
+          value={String(totals?.succeeded_count ?? 0)}
+          hint={`Trên ${total.toLocaleString("vi-VN")} giao dịch`}
           tone="default"
         />
         <MetricCard
           compact
           icon={Clock3}
-          label="Đang chờ (trang này)"
-          value={String(pageStats.pending)}
+          label="Đang chờ"
+          value={String(totals?.pending_count ?? 0)}
           hint="Chờ thanh toán hoặc đang xử lý"
           tone="warning"
         />
@@ -231,8 +241,10 @@ export function AdminPaymentTransactionsPage() {
           </div>
         }
       >
-        <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_170px] xl:grid-cols-[minmax(0,1fr)_160px_160px_190px]">
-          <label className="relative">
+        {/* MỘT hàng: ô tìm co giãn chiếm phần còn lại, các ô lọc giữ độ rộng vừa đủ; hẹp màn hình thì
+            tự xuống dòng thay vì ép chữ. */}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label className="relative min-w-[200px] flex-1 basis-[220px]">
             <span className="sr-only">Tìm theo tên hoặc email người mua</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -242,13 +254,28 @@ export function AdminPaymentTransactionsPage() {
               className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
+          <DateFilterField
+            label="Từ"
+            ariaLabel="Từ ngày"
+            value={fromDate}
+            maxDate={toDate || undefined}
+            onChange={(value) => changeFilter(() => setFromDate(value))}
+          />
+          <DateFilterField
+            label="Đến"
+            ariaLabel="Đến ngày"
+            value={toDate}
+            minDate={fromDate || undefined}
+            onChange={(value) => changeFilter(() => setToDate(value))}
+          />
           <Select
+            items={STATUS_FILTER_ITEMS}
             value={status}
             onValueChange={(value) =>
               changeFilter(() => setStatus(value as AdminPaymentStatus | "all"))
             }
           >
-            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc trạng thái">
+            <SelectTrigger className="h-9 w-44 rounded-xl" aria-label="Lọc trạng thái">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -261,12 +288,13 @@ export function AdminPaymentTransactionsPage() {
             </SelectContent>
           </Select>
           <Select
+            items={PROVIDER_FILTER_ITEMS}
             value={provider}
             onValueChange={(value) =>
               changeFilter(() => setProvider(value as AdminPaymentProviderFilter | "all"))
             }
           >
-            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc kênh thanh toán">
+            <SelectTrigger className="h-9 w-40 rounded-xl" aria-label="Lọc kênh thanh toán">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -279,10 +307,11 @@ export function AdminPaymentTransactionsPage() {
             </SelectContent>
           </Select>
           <Select
+            items={SORT_ITEMS}
             value={sort}
             onValueChange={(value) => changeFilter(() => setSort(value as string))}
           >
-            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Sắp xếp">
+            <SelectTrigger className="h-9 w-52 rounded-xl" aria-label="Sắp xếp">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -293,39 +322,12 @@ export function AdminPaymentTransactionsPage() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        <div className="mb-4 flex flex-wrap items-end gap-3">
-          <label className="space-y-1.5">
-            <span className="block text-xs font-semibold text-muted-foreground">Từ ngày</span>
-            <input
-              type="date"
-              value={fromDate}
-              max={toDate || undefined}
-              onChange={(event) => changeFilter(() => setFromDate(event.target.value))}
-              className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="block text-xs font-semibold text-muted-foreground">Đến ngày</span>
-            <input
-              type="date"
-              value={toDate}
-              min={fromDate || undefined}
-              onChange={(event) => changeFilter(() => setToDate(event.target.value))}
-              className="h-9 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-          </label>
           {hasFilters && (
             <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
               <RotateCcw className="size-4" />
               Xoá bộ lọc
             </Button>
           )}
-          <p className="ml-auto max-w-md text-xs text-muted-foreground">
-            Khoảng ngày lọc theo <span className="font-semibold">lúc tạo giao dịch</span>, không
-            phải lúc thanh toán — để các lượt chờ và thất bại vẫn nằm trong tầm nhìn.
-          </p>
         </div>
 
         {rows.length === 0 ? (
@@ -370,6 +372,10 @@ export function AdminPaymentTransactionsPage() {
             unit="giao dịch"
           />
         )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Khoảng ngày lọc theo <span className="font-semibold">lúc tạo giao dịch</span>, không phải lúc
+          thanh toán — để các lượt chờ và thất bại vẫn nằm trong tầm nhìn.
+        </p>
       </PanelShell>
     </div>
   );
@@ -452,15 +458,6 @@ function StatusBadge({ status }: { status: string }) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delay);
-    return () => window.clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
 /**
  * `amount` về dạng CHUỖI (`"199000.00"`) vì pydantic tuần tự hoá `Decimal` như vậy.
  * `Number(...)` trước khi cộng hay định dạng; cộng thẳng chuỗi thì "1" + "2" = "12".
@@ -508,25 +505,4 @@ function endOfDayIso(value: string): string {
 
 function shortId(id: string): string {
   return `#${id.slice(0, 8)}`;
-}
-
-/**
- * Thống kê của RIÊNG trang đang xem.
- *
- * Cố ý không gọi là "tổng doanh thu": máy chủ chỉ trả về 20 dòng, cộng chúng lại rồi gắn
- * nhãn tổng là nói dối bằng một con số trông rất thật. Nhãn ở thẻ ghi rõ "(trang này)".
- */
-function summarisePage(rows: AdminPayment[]) {
-  let collected = 0;
-  let succeeded = 0;
-  let pending = 0;
-  for (const row of rows) {
-    if (row.status === "succeeded") {
-      collected += toAmount(row.amount);
-      succeeded += 1;
-    } else if (row.status === "pending" || row.status === "processing") {
-      pending += 1;
-    }
-  }
-  return { collected, succeeded, pending, currency: rows[0]?.currency ?? "VND" };
 }

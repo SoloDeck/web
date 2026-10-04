@@ -17,6 +17,11 @@ import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { attachInlineEdit } from "@/features/deals/inlineEditPreview";
 import { giuKhoaCauTruc } from "@/features/admin/templateContent";
+import {
+  apDoiCauTruc,
+  laOCauTruc,
+  tinhDoiCauTruc,
+} from "@/features/deals/structuredFieldEdit";
 import { LineItemsEditor, MilestonesEditor } from "@/features/deals/components/ProposalMoneyEditors";
 import {
   DEPOSIT_DEFAULT_PERCENT,
@@ -1045,6 +1050,26 @@ export function ProposalModal({
 
   /** Một mục trong tờ báo giá vừa được sửa xong (người dùng rời khỏi ô). */
   const handleInlineFieldChange = (field: string, value: string) => {
+    // Tên đầu mục, chữ trong điều có sẵn và đầu mục tự soạn không có ô trong `EditFields`: chúng
+    // nằm ở ba khoá gom của content (`section_titles`, `clause_texts`, `extra_sections`). Bảng
+    // `INLINE_FIELD_MAP` không biết chúng nên trước đây chữ sửa ở đó bị bỏ lặng lẽ — hiện trên
+    // màn nhưng không bao giờ được lưu. `giuKhoaCauTruc` ở `buildContentToSave` mang ba khoá
+    // này theo từ `proposalContentRef`, nên chỉ cần cập nhật ref đó.  #Huynh
+    if (laOCauTruc(field)) {
+      if (!proposalId) return;
+      const base = (proposalContentRef.current ?? {}) as Record<string, unknown>;
+      const doi = tinhDoiCauTruc(base, "proposal", field, value);
+      if (Object.keys(doi).length === 0) return;
+
+      const next = apDoiCauTruc(base, doi) as ProposalContentDTO;
+      proposalContentRef.current = next;
+      setProposalContent(next);
+      setDirtyContent(true);
+      if (contentTimerRef.current) clearTimeout(contentTimerRef.current);
+      contentTimerRef.current = setTimeout(saveContentSilently, 800);
+      return;
+    }
+
     const key = INLINE_FIELD_MAP[field];
     if (!key || !proposalId) return;
     // Bấm vào rồi bấm ra mà không sửa gì cũng nổ sự kiện blur — không lọc thì mỗi lần

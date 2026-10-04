@@ -208,6 +208,81 @@ describe("<AdminDashboardPage /> + <AdminUsersPage />", () => {
 });
 
 /**
+ * Các ô chọn ở trang Tài khoản phải hiện NHÃN TIẾNG VIỆT cả khi đã chọn xong / đang đóng, không in
+ * giá trị thô. Lỗi thật: danh sách xổ ra ghi "Người dùng" nhưng ô chọn lại ghi "freelancer",
+ * "active", "all" và nút "Đổi" gói hiện cả mã UUID của gói.
+ */
+describe("<AdminUsersPage /> — ô chọn hiện nhãn tiếng Việt", () => {
+  const nguoiCoGoi: AdminUser = {
+    ...freelancerUser,
+    status: "active",
+    subscription: { id: "s1", plan_id: "p1", plan_name: "Pro", plan_slug: "pro", status: "active" },
+  };
+
+  it("bộ lọc quyền và trạng thái lúc mới mở ghi 'Tất cả ...', không ghi 'all'", () => {
+    render(<AdminUsersPage />);
+
+    expect(screen.getByRole("combobox", { name: "Lọc quyền" })).toHaveTextContent("Tất cả quyền");
+    expect(screen.getByRole("combobox", { name: "Lọc trạng thái" })).toHaveTextContent(
+      "Tất cả trạng thái"
+    );
+    expect(screen.queryByText("all")).toBeNull();
+  });
+
+  it("chọn lọc 'Người dùng' xong thì ô chọn ghi 'Người dùng', không ghi 'freelancer'", async () => {
+    render(<AdminUsersPage />);
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Lọc quyền" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Người dùng" }));
+
+    const o = screen.getByRole("combobox", { name: "Lọc quyền" });
+    expect(o).toHaveTextContent("Người dùng");
+    expect(o).not.toHaveTextContent("freelancer");
+  });
+
+  it("chọn lọc 'Đang hoạt động' xong thì ô chọn ghi tiếng Việt, không ghi 'active'", async () => {
+    render(<AdminUsersPage />);
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Lọc trạng thái" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Đang hoạt động" }));
+
+    const o = screen.getByRole("combobox", { name: "Lọc trạng thái" });
+    expect(o).toHaveTextContent("Đang hoạt động");
+    expect(o).not.toHaveTextContent("active");
+  });
+
+  it("bấm Sửa thì ô Quyền và Trạng thái của dòng ghi nhãn tiếng Việt", async () => {
+    render(<AdminUsersPage />);
+
+    // Dòng thứ hai là Freelancer Demo: quyền freelancer, trạng thái suspended.
+    await userEvent.click(screen.getAllByRole("button", { name: /Sửa/i })[1]);
+
+    expect(screen.getByRole("combobox", { name: "Quyền" })).toHaveTextContent("Người dùng");
+    expect(screen.getByRole("combobox", { name: "Quyền" })).not.toHaveTextContent("freelancer");
+    expect(screen.getByRole("combobox", { name: "Trạng thái" })).toHaveTextContent("Tạm khóa");
+    expect(screen.getByRole("combobox", { name: "Trạng thái" })).not.toHaveTextContent(
+      "suspended"
+    );
+  });
+
+  it("bấm Đổi gói thì ô chọn ghi TÊN gói, không ghi mã gói", async () => {
+    vi.mocked(useAdminUsers).mockReturnValue({
+      data: [nguoiCoGoi],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useAdminUsers>);
+    render(<AdminUsersPage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Đổi" }));
+
+    const o = screen.getByRole("combobox", { name: "Đổi gói" });
+    expect(o).toHaveTextContent("Pro");
+    expect(o).not.toHaveTextContent("p1");
+  });
+});
+
+/**
  * Hạn mức giá gói.
  *
  * Sự cố gốc: quản trị viên tạo được một gói giá 200đ. Form không cản, backend không cản,
@@ -289,7 +364,7 @@ describe("<AdminPlansPage /> — hạn mức giá gói", () => {
     render(<AdminPlansPage />);
     await userEvent.click(screen.getByRole("button", { name: /^sửa$/i }));
     await userEvent.clear(screen.getByLabelText("Giá tháng (VND)"));
-    await userEvent.click(screen.getByRole("button", { name: /lưu gói/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^lưu$/i }));
 
     expect(screen.queryByText(/hạn mức MoMo/i)).not.toBeInTheDocument();
     expect(mockUpdatePlan).toHaveBeenCalledTimes(1);
@@ -327,18 +402,61 @@ describe("<AdminPlansPage /> — sửa gói đọc lại giá cũ", () => {
     expect(screen.getByLabelText("Giá tháng (VND)")).toHaveValue("199.000");
   });
 
+  it("nút lưu của form sửa chỉ ghi 'Lưu', không còn 'Lưu gói'", async () => {
+    await moFormSua();
+
+    expect(screen.getByRole("button", { name: "Lưu" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /lưu gói/i })).toBeNull();
+  });
+
   it("chỉ sửa tên rồi lưu thì giá gửi lên vẫn nguyên, không gấp 100 lần", async () => {
     await moFormSua();
 
     await userEvent.clear(screen.getByLabelText("Tên gói"));
     await userEvent.type(screen.getByLabelText("Tên gói"), "Pro 2026");
-    await userEvent.click(screen.getByRole("button", { name: /lưu gói/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^lưu$/i }));
 
     expect(mockUpdatePlan).toHaveBeenCalledTimes(1);
     expect(mockUpdatePlan.mock.calls[0][0]).toMatchObject({
       id: "p1",
       payload: expect.objectContaining({ name: "Pro 2026", price_monthly: "199000" }),
     });
+  });
+});
+
+/**
+ * Bốn thẻ số liệu của trang Gói dịch vụ xếp NGANG (số và dòng phụ cùng một hàng) cho thấp, giống các
+ * trang quản trị khác — bản xếp dọc cao gấp đôi mà chỉ bày bốn con số.
+ */
+describe("<AdminPlansPage /> — thẻ số liệu gọn", () => {
+  const THE: [string, string][] = [
+    ["Tổng gói", "Danh mục gói dịch vụ"],
+    ["Đang mở bán", "Có thể bán cho người dùng"],
+    ["Gói có AI", "Cho phép tạo nội dung bằng AI"],
+    ["Gói có PDF", "Cho phép xuất PDF"],
+  ];
+
+  it.each(THE)("thẻ '%s': số và dòng phụ nằm cùng một hàng, nhãn ở trên", (nhan, phu) => {
+    render(<AdminPlansPage />);
+
+    const the = screen.getByText(nhan).closest("section") as HTMLElement;
+    const hang = within(the).getByText(phu).parentElement as HTMLElement;
+    expect(hang.className).toContain("flex");
+    expect(hang).not.toContainElement(screen.getByText(nhan));
+    expect(hang.querySelector("p")).not.toBeNull();
+  });
+
+  it("bốn thẻ nằm chung một lưới, không có thẻ nào cao hơn kiểu xếp dọc cũ", () => {
+    const { container } = render(<AdminPlansPage />);
+
+    const luoi = screen.getByText("Tổng gói").closest("section")?.parentElement as HTMLElement;
+    expect(luoi.querySelectorAll(":scope > section")).toHaveLength(4);
+    // Kiểu xếp dọc cũ để biểu tượng nằm TRÊN nhãn (hàng đầu là cột); kiểu gọn để biểu tượng cạnh chữ.
+    for (const section of Array.from(luoi.querySelectorAll(":scope > section"))) {
+      expect((section.firstElementChild as HTMLElement).className).not.toContain("flex-col");
+      expect((section.firstElementChild as HTMLElement).className).toContain("flex");
+    }
+    expect(container).toBeTruthy();
   });
 });
 

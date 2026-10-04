@@ -269,6 +269,11 @@ export function attachInlineEdit(
     // Ngày cần nhớ giá trị cũ để hoàn tác khi gõ sai.
     if (element.dataset.kind === "date") element.dataset.prev = textOf(element).trim();
 
+    // Giá trị lần gần nhất đã BÁO ra ngoài (hoặc lúc mới gắn). Bấm vào rồi bấm ra mà không gõ gì
+    // thì bằng đúng nó — khi đó không báo gì cả, để mỗi lần liếc qua một điều khoản không thành
+    // một lượt ghi xuống server.
+    let lastReported = readField(element);
+
     // Dán: ép về chữ thuần ngay lúc dán, cho ô danh sách (ô chữ `plaintext-only` thì trình
     // duyệt đã tự lột rồi).
     //
@@ -310,7 +315,10 @@ export function attachInlineEdit(
         return;
       }
 
-      onFieldChange(field, readField(element));
+      const value = readField(element);
+      if (value === lastReported) return;
+      lastReported = value;
+      onFieldChange(field, value);
     });
   });
 }

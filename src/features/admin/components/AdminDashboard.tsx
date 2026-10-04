@@ -56,6 +56,8 @@ import {
 import { PROFESSIONS } from "@/features/profile/types";
 import { cn } from "@/lib/utils";
 import type {
+  AdminAiCostFilters,
+  AdminAiModule,
   AdminPlan,
   AdminPlanPayload,
   AdminTemplate,
@@ -66,6 +68,9 @@ import type {
   LLMProvider,
 } from "@/services/adminService";
 import { AI_PROVIDERS, defaultModelFor, modelsFor } from "@/features/admin/aiProviders";
+import { labelMap } from "@/features/admin/selectItems";
+import { matchesSearch } from "@/features/admin/textSearch";
+import { useDebounced } from "@/features/admin/hooks/useDebounced";
 import { isPayableAmount } from "@/services/subscriptionsService";
 
 /**
@@ -85,6 +90,18 @@ const USER_STATUS_OPTIONS: { value: AdminUserStatus; label: string }[] = [
   { value: "suspended", label: "Tạm khóa" },
   { value: "deleted", label: "Đã xóa" },
 ];
+
+// Bảng nhãn cho `<Select items>` — xem `selectItems.ts` vì sao thiếu nó ô chọn in ra giá trị thô.
+const USER_ROLE_ITEMS = labelMap(USER_ROLE_OPTIONS);
+const USER_ROLE_FILTER_ITEMS = labelMap(USER_ROLE_OPTIONS, { all: "Tất cả quyền" });
+const USER_STATUS_ITEMS = labelMap(USER_STATUS_OPTIONS);
+const USER_STATUS_FILTER_ITEMS = labelMap(USER_STATUS_OPTIONS, { all: "Tất cả trạng thái" });
+const TEMPLATE_TYPE_FILTER_ITEMS: Record<string, string> = {
+  "": "Tất cả loại",
+  proposal: "Báo giá",
+  contract: "Hợp đồng",
+};
+const PROFESSION_FILTER_ITEMS = labelMap(PROFESSIONS, { "": "Tất cả nghề" });
 
 const USERS_PAGE_SIZE = 5;
 
@@ -280,6 +297,7 @@ export function AdminUsersPage() {
             />
           </label>
           <Select
+            items={USER_ROLE_FILTER_ITEMS}
             value={roleFilter}
             onValueChange={(value) => setRoleFilter(value as "all" | AdminUserRole)}
           >
@@ -296,6 +314,7 @@ export function AdminUsersPage() {
             </SelectContent>
           </Select>
           <Select
+            items={USER_STATUS_FILTER_ITEMS}
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as "all" | AdminUserStatus)}
           >
@@ -377,7 +396,11 @@ function UserRow({ user }: { user: AdminUser }) {
       </div>
 
       {editing ? (
-        <Select value={role} onValueChange={(value) => setRole(value as AdminUserRole)}>
+        <Select
+          items={USER_ROLE_ITEMS}
+          value={role}
+          onValueChange={(value) => setRole(value as AdminUserRole)}
+        >
           <SelectTrigger className="w-full min-w-0 rounded-lg" aria-label="Quyền">
             <SelectValue />
           </SelectTrigger>
@@ -394,7 +417,11 @@ function UserRow({ user }: { user: AdminUser }) {
       )}
 
       {editing ? (
-        <Select value={status} onValueChange={(value) => setStatus(value as AdminUserStatus)}>
+        <Select
+          items={USER_STATUS_ITEMS}
+          value={status}
+          onValueChange={(value) => setStatus(value as AdminUserStatus)}
+        >
           <SelectTrigger className="w-full min-w-0 rounded-lg" aria-label="Trạng thái">
             <SelectValue />
           </SelectTrigger>
@@ -528,12 +555,12 @@ export function AdminPlansPage() {
   if (plansQuery.isError) return <AdminErrorState onRefresh={() => plansQuery.refetch()} />;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-        <MetricCard icon={CreditCard} label="Tổng gói" value={String(stats.totalPlans)} hint="Danh mục gói dịch vụ" tone="primary" />
-        <MetricCard icon={CheckCircle2} label="Đang mở bán" value={String(stats.activePlans)} hint="Có thể bán cho người dùng" tone="success" />
-        <MetricCard icon={Bot} label="Gói có AI" value={String(stats.aiPlans)} hint="Cho phép tạo nội dung bằng AI" tone="default" />
-        <MetricCard icon={FileText} label="Gói có PDF" value={String(stats.pdfPlans)} hint="Cho phép xuất PDF" tone="warning" />
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard compact icon={CreditCard} label="Tổng gói" value={String(stats.totalPlans)} hint="Danh mục gói dịch vụ" tone="primary" />
+        <MetricCard compact icon={CheckCircle2} label="Đang mở bán" value={String(stats.activePlans)} hint="Có thể bán cho người dùng" tone="success" />
+        <MetricCard compact icon={Bot} label="Gói có AI" value={String(stats.aiPlans)} hint="Cho phép tạo nội dung bằng AI" tone="default" />
+        <MetricCard compact icon={FileText} label="Gói có PDF" value={String(stats.pdfPlans)} hint="Cho phép xuất PDF" tone="warning" />
       </div>
 
       <PanelShell
@@ -581,7 +608,7 @@ function PlanCard({ plan }: { plan: AdminPlan }) {
       <article className="rounded-xl border border-primary/25 bg-primary/5 p-4">
         <PlanForm
           plan={plan}
-          submitLabel="Lưu gói"
+          submitLabel="Lưu"
           isSubmitting={updatePlan.isPending}
           onCancel={() => setEditing(false)}
           onSubmit={(payload) => {
@@ -867,11 +894,45 @@ export function MetricCard({
           ? "bg-warning/15 text-warning-foreground"
           : "bg-secondary text-foreground";
 
+  const progressBar = progress !== undefined && (
+    <div className={cn("h-1.5 overflow-hidden rounded-full bg-muted", compact ? "mt-2" : "mt-4")}>
+      <div className={cn("h-full rounded-full", toneClass)} style={{ width: `${clamp(progress)}%` }} />
+    </div>
+  );
+
+  /* Thẻ gọn nằm NGANG: biểu tượng bên trái, bên phải là nhãn rồi "số + dòng phụ" cùng một hàng.
+     Bản xếp dọc (biểu tượng / nhãn / số / dòng phụ chồng lên nhau) cao gấp đôi mà chỉ để bày bốn con
+     số — chiếm hết nửa màn hình trước khi tới bảng.  #Huynh */
+  if (compact) {
+    return (
+      <section className="rounded-2xl border border-border bg-card px-3 py-2.5 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className={cn("grid size-9 shrink-0 place-items-center rounded-lg", toneClass)}>
+            <Icon className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+            <div className="flex items-baseline gap-2">
+              <p className="shrink-0 text-xl font-bold leading-tight tracking-tight">{value}</p>
+              <p className="min-w-0 truncate text-xs text-muted-foreground">{hint}</p>
+            </div>
+          </div>
+          {progress !== undefined && (
+            <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+              {Math.round(progress)}%
+            </span>
+          )}
+        </div>
+        {progressBar}
+      </section>
+    );
+  }
+
   return (
-    <section className={cn("rounded-2xl border border-border bg-card shadow-sm", compact ? "p-3" : "p-5")}>
+    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
-        <div className={cn("grid place-items-center", compact ? "size-8 rounded-lg" : "size-10 rounded-xl", toneClass)}>
-          <Icon className={compact ? "size-3.5" : "size-4"} />
+        <div className={cn("grid size-10 place-items-center rounded-xl", toneClass)}>
+          <Icon className="size-4" />
         </div>
         {progress !== undefined && (
           <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
@@ -879,14 +940,10 @@ export function MetricCard({
           </span>
         )}
       </div>
-      <p className={cn("text-xs font-medium text-muted-foreground", compact ? "mt-2" : "mt-4")}>{label}</p>
-      <p className={cn("mt-0.5 font-bold tracking-tight", compact ? "text-2xl" : "text-3xl")}>{value}</p>
+      <p className="mt-4 text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-3xl font-bold tracking-tight">{value}</p>
       <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>
-      {progress !== undefined && (
-        <div className={cn("h-1.5 overflow-hidden rounded-full bg-muted", compact ? "mt-2" : "mt-4")}>
-          <div className={cn("h-full rounded-full", toneClass)} style={{ width: `${clamp(progress)}%` }} />
-        </div>
-      )}
+      {progressBar}
     </section>
   );
 }
@@ -1207,6 +1264,8 @@ function PlanCell({ user }: { user: AdminUser }) {
   const { data: plans } = useAdminPlans();
   const override = useOverrideSubscription();
   const [open, setOpen] = useState(false);
+  // Giá trị của ô chọn là MÃ gói (UUID); không có bảng này nó in cả mã ra thay vì tên gói.
+  const planItems = Object.fromEntries((plans ?? []).map((plan) => [plan.id, plan.name]));
 
   const sub = user.subscription;
   const planName = sub?.plan_name ?? sub?.plan_slug ?? "—";
@@ -1235,6 +1294,7 @@ function PlanCell({ user }: { user: AdminUser }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       <Select
+        items={planItems}
         defaultValue={sub.plan_id}
         onValueChange={(value) => {
           const planId = value as string;
@@ -1345,10 +1405,15 @@ function templateExcerpt(template: AdminTemplate, limit = 140): string {
   return "";
 }
 
+/** Số mẫu mỗi trang của Thư viện mẫu — 3 hàng × 2 cột thẻ, vừa một màn hình. */
+const TEMPLATES_PAGE_SIZE = 6;
+
 export function AdminTemplatesPage() {
   const [typeFilter, setTypeFilter] = useState<AdminTemplateType | "">("");
   const [professionFilter, setProfessionFilter] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const filter = {
     ...(typeFilter ? { template_type: typeFilter } : {}),
@@ -1356,7 +1421,19 @@ export function AdminTemplatesPage() {
   };
   const templatesQuery = useAdminTemplates(filter);
   const createTemplate = useCreateAdminTemplate();
-  const templates = templatesQuery.data ?? [];
+  const loaded = templatesQuery.data ?? [];
+  // Tìm theo tên làm ngay trên danh sách đã tải (bỏ dấu, không phân biệt hoa thường): thư viện do
+  // admin tự soạn nên nhỏ, không đáng một lượt gọi máy chủ cho mỗi phím gõ.
+  const searching = search.trim() !== "";
+  const templates = searching ? loaded.filter((t) => matchesSearch(t.name, search)) : loaded;
+
+  // Thư viện tải về đủ rồi mới chia trang ở đây: endpoint trả cả danh sách, và số mẫu do admin tự
+  // soạn nên không bao giờ lớn. Không chia thì mỗi mẫu thêm vào là trang dài thêm một thẻ.
+  // `currentPage` kẹp lại để xoá mẫu cuối của trang cuối không bỏ admin lại ở một trang trống.
+  const pageCount = Math.max(1, Math.ceil(templates.length / TEMPLATES_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const firstIndex = (currentPage - 1) * TEMPLATES_PAGE_SIZE;
+  const pageTemplates = templates.slice(firstIndex, firstIndex + TEMPLATES_PAGE_SIZE);
 
   const activeCount = templates.filter((t) => t.is_active).length;
   const byProfession = new Set(templates.map((t) => t.profession).filter(Boolean)).size;
@@ -1392,11 +1469,42 @@ export function AdminTemplatesPage() {
           </Button>
         }
       >
-        {/* Bộ lọc theo loại + nghề — đúng cách admin duyệt thư viện "theo nhóm nghề". */}
-        <div className="mb-4 flex flex-wrap gap-2">
+        {/* Bộ lọc theo loại + nghề — đúng cách admin duyệt thư viện "theo nhóm nghề" — và ô tìm
+            theo tên khi thư viện đã dài. */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <label className="relative min-w-[220px] flex-1 basis-[260px]">
+            <span className="sr-only">Tìm mẫu theo tên</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Tìm theo tên mẫu"
+              className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            {search !== "" && (
+              <button
+                type="button"
+                aria-label="Xóa tìm kiếm"
+                onClick={() => {
+                  setSearch("");
+                  setPage(1);
+                }}
+                className="absolute right-2 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </label>
           <Select
+            items={TEMPLATE_TYPE_FILTER_ITEMS}
             value={typeFilter}
-            onValueChange={(value) => setTypeFilter(value as AdminTemplateType | "")}
+            onValueChange={(value) => {
+              setTypeFilter(value as AdminTemplateType | "");
+              setPage(1);
+            }}
           >
             <SelectTrigger className="rounded-lg" aria-label="Lọc loại tài liệu">
               <SelectValue />
@@ -1408,8 +1516,12 @@ export function AdminTemplatesPage() {
             </SelectContent>
           </Select>
           <Select
+            items={PROFESSION_FILTER_ITEMS}
             value={professionFilter}
-            onValueChange={(value) => setProfessionFilter(value as string)}
+            onValueChange={(value) => {
+              setProfessionFilter(value as string);
+              setPage(1);
+            }}
           >
             <SelectTrigger className="rounded-lg" aria-label="Lọc nghề">
               <SelectValue />
@@ -1444,13 +1556,30 @@ export function AdminTemplatesPage() {
             <Loader2 className="size-4 animate-spin" /> Đang tải thư viện mẫu...
           </div>
         ) : templates.length === 0 ? (
-          <EmptyState text="Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm điều khoản và khung soạn sẵn." />
+          <EmptyState
+            text={
+              searching
+                ? `Không có mẫu nào có tên chứa “${search.trim()}”. Thử gõ ít chữ hơn hoặc bỏ bớt bộ lọc.`
+                : "Chưa có mẫu nào khớp bộ lọc. Bấm “Tạo mẫu” để thêm điều khoản và khung soạn sẵn."
+            }
+          />
         ) : (
-          <div className="grid gap-3 xl:grid-cols-2">
-            {templates.map((template) => (
-              <TemplateCard key={template.id} template={template} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {pageTemplates.map((template) => (
+                <TemplateCard key={template.id} template={template} />
+              ))}
+            </div>
+            <PaginationFooter
+              currentPage={currentPage}
+              pageCount={pageCount}
+              firstVisible={firstIndex + 1}
+              lastVisible={firstIndex + pageTemplates.length}
+              total={templates.length}
+              onPageChange={setPage}
+              unit="mẫu"
+            />
+          </>
         )}
       </PanelShell>
     </div>
@@ -1844,32 +1973,124 @@ export function AdminAiConfigPage() {
  * tự nhân đơn giá. Giao diện phải nói rõ, đừng để ai tưởng đây là hoá đơn.  #Huynh
  */
 export function AdminAiCostsPage() {
-  const { data, isLoading } = useAiCosts();
+  const [search, setSearch] = useState("");
+  const [feature, setFeature] = useState<AdminAiModule | "all">("all");
+  const [page, setPage] = useState(1);
 
-  if (isLoading) {
+  /* Gõ xong mới hỏi máy chủ (350ms) — gõ một email là đúng MỘT request. */
+  const debouncedSearch = useDebounced(search, 350);
+  const filters: AdminAiCostFilters = useMemo(
+    () => ({
+      ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+      ...(feature !== "all" ? { ai_module: feature } : {}),
+      page,
+      page_size: AI_COSTS_PAGE_SIZE,
+    }),
+    [debouncedSearch, feature, page],
+  );
+  const query = useAiCosts(filters);
+  const { data } = query;
+
+  const rows = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totals = data?.totals;
+  const totalCost = Number(totals?.estimated_cost_usd ?? 0);
+  const pageCount = Math.max(1, Math.ceil(total / AI_COSTS_PAGE_SIZE));
+  const firstVisible = total === 0 ? 0 : (page - 1) * AI_COSTS_PAGE_SIZE + 1;
+  const lastVisible = Math.min(page * AI_COSTS_PAGE_SIZE, total);
+  const hasFilters = search.trim() !== "" || feature !== "all";
+
+  /* Đổi điều kiện thì về trang 1 NGAY trong hàm xử lý sự kiện (không dùng effect): đứng ở trang 7
+     của bộ lọc cũ rồi sang bộ lọc chỉ còn 2 trang sẽ rơi vào bảng trống — trông y hệt "không có dữ liệu". */
+  function changeFilter(apply: () => void) {
+    apply();
+    setPage(1);
+  }
+
+  /* Chỉ che màn ở lượt tải ĐẦU; các lượt sau đã có `placeholderData` giữ bảng cũ. */
+  if (query.isLoading && !data) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" /> Đang tải chi phí AI...
       </div>
     );
   }
-
-  const rows = data?.data ?? [];
-  const totals = data?.totals;
-  const totalCost = Number(totals?.estimated_cost_usd ?? 0);
+  if (query.isError) return <AdminErrorState onRefresh={() => query.refetch()} />;
 
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact icon={Bot} label="Lượt gọi AI" value={String(data?.total ?? 0)} hint="Toàn hệ thống" tone="primary" />
+        <MetricCard compact icon={Bot} label="Lượt gọi AI" value={String(total)} hint={hasFilters ? "Khớp bộ lọc hiện tại" : "Toàn hệ thống"} tone="primary" />
         <MetricCard compact icon={Coins} label="Chi phí ước tính" value={`$${totalCost.toFixed(4)}`} hint="Không phải hoá đơn thật" tone="warning" />
         <MetricCard compact icon={ArrowDownToLine} label="Token vào" value={(totals?.input_tokens ?? 0).toLocaleString("vi-VN")} hint="Prompt gửi lên" tone="default" />
         <MetricCard compact icon={ArrowUpFromLine} label="Token ra" value={(totals?.output_tokens ?? 0).toLocaleString("vi-VN")} hint="Model trả về" tone="success" />
       </div>
 
-      <PanelShell title="Lịch sử gọi AI" icon={Bot}>
+      <PanelShell
+        title="Lịch sử gọi AI"
+        icon={Bot}
+        action={
+          <span className="text-xs font-semibold text-muted-foreground">
+            {firstVisible}-{lastVisible} / {total} kết quả
+          </span>
+        }
+      >
+        <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_auto]">
+          <label className="relative">
+            <span className="sr-only">Tìm theo tên hoặc email người dùng</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(event) => changeFilter(() => setSearch(event.target.value))}
+              placeholder="Tìm theo tên hoặc email người dùng"
+              className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <Select
+            items={AI_MODULE_FILTER_ITEMS}
+            value={feature}
+            onValueChange={(value) =>
+              changeFilter(() => setFeature(value as AdminAiModule | "all"))
+            }
+          >
+            <SelectTrigger className="h-9 w-full rounded-xl" aria-label="Lọc tính năng">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả tính năng</SelectItem>
+              {Object.entries(AI_MODULE_LABEL).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {hasFilters && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                changeFilter(() => {
+                  setSearch("");
+                  setFeature("all");
+                })
+              }
+            >
+              <X className="size-4" />
+              Xóa lọc
+            </Button>
+          )}
+        </div>
+
         {rows.length === 0 ? (
-          <EmptyState text="Chưa có lượt gọi AI nào được ghi nhận." />
+          <EmptyState
+            text={
+              hasFilters
+                ? "Không có lượt gọi AI nào khớp bộ lọc."
+                : "Chưa có lượt gọi AI nào được ghi nhận."
+            }
+          />
         ) : (
           <div className="overflow-hidden rounded-xl border border-border">
             <div className="hidden grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_80px_80px_100px_130px] gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
@@ -1898,11 +2119,23 @@ export function AdminAiCostsPage() {
             </div>
           </div>
         )}
+        {total > 0 && (
+          <PaginationFooter
+            currentPage={page}
+            pageCount={pageCount}
+            firstVisible={firstVisible}
+            lastVisible={lastVisible}
+            total={total}
+            onPageChange={setPage}
+            unit="lượt gọi"
+          />
+        )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Chi phí là <span className="font-semibold">ước tính</span> (số token × đơn giá Groq). Hoá đơn
-          thật xem ở console.groq.com.
+          Chi phí là <span className="font-semibold">ước tính</span> (số token × đơn giá của nhà cung cấp
+          AI). Hoá đơn thật xem ở trang quản lý của nhà cung cấp.
         </p>
       </PanelShell>
+
     </div>
   );
 }
@@ -1961,6 +2194,13 @@ const AI_MODULE_LABEL: Record<string, string> = {
   contract_generator: "Soạn hợp đồng",
   followup_generator: "Nhắc khách",
 };
+const AI_MODULE_FILTER_ITEMS: Record<string, string> = {
+  all: "Tất cả tính năng",
+  ...AI_MODULE_LABEL,
+};
+
+/** Số lượt gọi AI mỗi trang của bảng Chi phí AI. */
+const AI_COSTS_PAGE_SIZE = 20;
 
 const AUDIT_TONE: Record<string, string> = {
   "subscription.overridden": "bg-primary",
