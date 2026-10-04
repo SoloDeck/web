@@ -3,6 +3,18 @@ import type { ApiResponse } from "@/features/auth/types";
 
 export type InvoiceStatus = "draft" | "sent" | "partially_paid" | "paid" | "overdue" | "void" | "cancelled" | string;
 
+/** Lời nhắc thanh toán vừa được tự đặt (hoặc vì sao không đặt được) khi gửi một hóa đơn. */
+export type PaymentReminderInfo = {
+  scheduled: boolean;
+  scheduled_at?: string | null;
+  /** Quy tắc đang nhắc trước hạn mấy ngày (có cả khi không đặt được). */
+  days_before_due?: number | null;
+  /** Lời nhắc do quy tắc tạo luôn chờ freelancer duyệt trước khi gửi cho khách. */
+  requires_approval?: boolean;
+  /** Không đặt được thì vì sao. */
+  reason?: "disabled" | "too_soon" | "no_client_email" | "error" | null;
+};
+
 export type InvoiceResponse = {
   id: string;
   owner_user_id: string;
@@ -21,6 +33,8 @@ export type InvoiceResponse = {
   amount_paid: number;
   notes: string | null;
   share_token: string | null;
+  /** Kết quả việc tự đặt lời nhắc thanh toán khi GỬI hóa đơn này. Chỉ có trong phản hồi của lệnh gửi. */
+  payment_reminder?: PaymentReminderInfo | null;
   created_at: string;
   updated_at: string;
 };
@@ -137,7 +151,11 @@ export async function deleteInvoice(invoiceId: string): Promise<void> {
  * Gửi hỏng thì hóa đơn ở nguyên `draft` và trả 502 kèm lý do — đừng bắt lỗi rồi coi như xong.
  */
 export async function sendInvoice(invoiceId: string): Promise<InvoiceResponse> {
-  const { data } = await axiosClient.post<ApiResponse<InvoiceResponse>>(`/invoices/${invoiceId}/send`);
+  const { data } = await axiosClient.post<ApiResponse<InvoiceResponse>>(`/invoices/${invoiceId}/send`, {
+    // Đặt sẵn lời nhắc thanh toán ở tab Nhắc nhở THEO quy tắc "Nhắc trước khi hóa đơn tới hạn" của
+    // người dùng (số ngày, giờ, kênh, tự gửi/chờ duyệt, bật/tắt đều do quy tắc đó quyết định).
+    schedule_payment_reminder: true,
+  });
   return data.data;
 }
 

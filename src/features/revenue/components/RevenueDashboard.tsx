@@ -64,26 +64,52 @@ export function RevenueDashboard() {
   const won = winRate.data?.won ?? 0;
   const lost = winRate.data?.lost ?? 0;
   const winRatePct = Math.round((winRate.data?.win_rate ?? 0) * 100);
-  const activeDeals = dashboard.data?.active_deals ?? 0;
+  // Giá trị trung bình mỗi deal đã chốt do backend tính sẵn (cùng nguồn với thẻ "Tổng", bỏ deal không
+  // thành công). Backend cũ chưa trả thì hiện "—" chứ không tự chia ở đây: một con số bịa trông vẫn
+  // hợp lý nên không ai biết là sai.
+  const averageDeal = revenue.data?.average_deal_value;
+  const shownClients = (topClients.data ?? []).length;
   const totalClients = dashboard.data?.total_clients ?? 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4 lg:p-6">
-      {/* HÀNG 1 — bốn con số phải trả lời được ngay: đã ký bao nhiêu, về bao nhiêu,
-          còn bao nhiêu, đang chạy mấy việc. */}
-      <div className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Tổng đã ký" value={formatVND(contracted)} hint={`${activeDeals} deal đang chạy`} />
-        <Kpi label="Đã thu" value={formatVND(collected)} tone="success" hint="Mốc đã tick xong" />
+      {/* HÀNG 1 — năm con số phải trả lời được ngay: đã ký bao nhiêu (của mấy deal), về bao
+          nhiêu, còn bao nhiêu (mấy mốc), thắng được bao nhiêu phần trăm, và một deal trung bình
+          đáng bao nhiêu. Số deal "đang chạy" nằm ở phễu bên dưới.
+
+          Năm thẻ chỉ nằm đủ trên MỘT hàng từ màn rộng (2xl): nhãn "Giá trị deal trung bình" viết
+          hoa dài cỡ 200px, hẹp hơn thì xuống dòng và làm lệch số ở riêng thẻ đó. Màn vừa thì 3 + 2.
+            #Huynh */}
+      <div className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
+        {/* Mỗi thẻ có DÒNG PHỤ nói con số cộng từ đâu: người xem không tự đoán được "Đã thu" là mốc
+            đã tick hay hóa đơn đã trả — hai thứ khác nhau. Cố ý KHÔNG có chú thích hiện ra khi rê
+            chuột vào thẻ (user không muốn).  #Huynh */}
+        <Kpi
+          label="Tổng"
+          value={formatVND(contracted)}
+          hint="Các deal đã chốt"
+        />
+        <Kpi
+          label="Đã thu"
+          value={formatVND(collected)}
+          tone="success"
+          hint="Các mốc thanh toán đã tick xong"
+        />
         <Kpi
           label="Còn phải thu"
           value={formatVND(outstanding)}
           tone="warning"
-          hint={`${pendingMilestones} mốc chưa thu`}
+          hint={`${pendingMilestones} mốc thanh toán chưa tick`}
         />
         <Kpi
-          label="Tỷ lệ chốt deal"
+          label="Tỷ lệ thắng"
           value={`${winRatePct}%`}
-          hint={`${won} thắng · ${lost} thua`}
+          hint={`${won} thắng · ${lost} thua · chưa tính deal đang chạy`}
+        />
+        <Kpi
+          label="Giá trị deal trung bình"
+          value={averageDeal === undefined ? "—" : formatVND(Number(averageDeal))}
+          hint="Trung bình mỗi deal đã chốt"
         />
       </div>
 
@@ -98,7 +124,14 @@ export function RevenueDashboard() {
             <div className="flex items-center gap-2 font-semibold">
               <Users className="h-4 w-4 text-primary" /> Khách hàng mang lại nhiều tiền nhất
             </div>
-            <span className="text-xs text-muted-foreground">{totalClients} khách</span>
+            {/* Chỉ khách ĐÃ CÓ hợp đồng ký mới có tiền để xếp hạng — nên hiện "6/18" chứ không
+                "18 khách" trong khi danh sách chỉ có 6 dòng.  #Huynh */}
+            <span
+              className="text-xs text-muted-foreground"
+              title="Chỉ hiện khách đã có hợp đồng ký"
+            >
+              {shownClients}/{totalClients} khách
+            </span>
           </div>
 
           {/* Cuộn TRONG card, không đẩy cả trang xuống. */}
@@ -179,10 +212,8 @@ function Kpi({
         <Icon className="h-3 w-3" />
         {label}
       </div>
-      <div className={`mt-1 truncate text-xl font-bold tabular-nums ${valueCls}`} title={value}>
-        {value}
-      </div>
-      {hint && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</div>}
+      <div className={`mt-1 truncate text-xl font-bold tabular-nums ${valueCls}`}>{value}</div>
+      {hint && <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{hint}</div>}
     </div>
   );
 }

@@ -220,7 +220,8 @@ describe("hỏi lại trước khi gửi hoá đơn / ghi nhận thanh toán", (
     expect(hopThoai).toHaveTextContent("INV-A");
     expect(hopThoai).toHaveTextContent(/37\.199\.000/);
     expect(hopThoai).toHaveTextContent("khach@example.com");
-    expect(hopThoai).toHaveTextContent(/không thu hồi được/i);
+    // Nội dung gọn: không còn câu dặn "không thu hồi được…", và hai nút theo khuôn hộp thoại báo giá.
+    expect(hopThoai).not.toHaveTextContent(/không thu hồi được/i);
   });
 
   it("xác nhận xong mới thật sự gửi", async () => {
@@ -229,17 +230,17 @@ describe("hỏi lại trước khi gửi hoá đơn / ghi nhận thanh toán", (
 
     await userEvent.click(screen.getByRole("button", { name: /Gửi hóa đơn/ }));
     const hopThoai = screen.getByRole("alertdialog");
-    await userEvent.click(within(hopThoai).getByRole("button", { name: /^Gửi 37\.199\.000/ }));
+    await userEvent.click(within(hopThoai).getByRole("button", { name: "Lưu & gửi" }));
 
     expect(onSendInvoice).toHaveBeenCalledWith("inv-a");
   });
 
-  it("bấm 'Để tôi xem lại' thì không gửi gì cả", async () => {
+  it("bấm 'Hủy' thì không gửi gì cả", async () => {
     const onSendInvoice = vi.fn();
     renderTab([draft], { onSendInvoice });
 
     await userEvent.click(screen.getByRole("button", { name: /Gửi hóa đơn/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Để tôi xem lại/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Hủy" }));
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(onSendInvoice).not.toHaveBeenCalled();

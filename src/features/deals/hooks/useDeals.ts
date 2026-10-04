@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/api-error";
+import { lamMoiSoLieuTien } from "@/features/revenue/hooks/useAnalytics";
 import {
   deleteDeal,
   getDeal,
@@ -146,10 +148,37 @@ export function useDeleteDeal() {
     onSuccess: (_, dealId) => {
       removeDeal(dealId);
       qc.invalidateQueries({ queryKey: dealKeys.all });
-      toast.success("Đã loại bỏ dự án.");
+      // Xóa deal không thành công là bỏ nó khỏi cả tỷ lệ thắng và các số tiền.
+      lamMoiSoLieuTien(qc);
+      toast.success("Đã xóa vĩnh viễn dự án.");
     },
     onError: () => {
-      toast.error("Không thể loại bỏ dự án. Vui lòng thử lại.");
+      toast.error("Không thể xóa dự án. Vui lòng thử lại.");
+    },
+  });
+}
+
+/**
+ * "Loại bỏ dự án" = đánh dấu dự án KHÔNG THÀNH CÔNG kèm lý do (chuyển sang giai đoạn `lost`).
+ *
+ * Làm mới cả số liệu tiền: phần chưa thu của deal thất bại không còn là "còn phải thu", và tỷ lệ thắng
+ * đổi theo.  #Huynh
+ */
+export function useMarkDealLost() {
+  const qc = useQueryClient();
+  const moveToStage = useDealStore((s) => s.moveToStage);
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      updateDealStage(id, "lost", reason),
+    onSuccess: (deal, { id }) => {
+      moveToStage(id, "lost");
+      qc.invalidateQueries({ queryKey: dealKeys.all });
+      qc.invalidateQueries({ queryKey: dealKeys.detail(deal.id) });
+      lamMoiSoLieuTien(qc);
+      toast.success("Đã chuyển dự án vào Kho lưu trữ (không thành công).");
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, "Không thể loại bỏ dự án. Vui lòng thử lại."));
     },
   });
 }

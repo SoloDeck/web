@@ -37,7 +37,7 @@ import {
   setProposalPrice,
 } from "@/services/proposalsService";
 import type { PricingDetail } from "@/features/deals/proposalHtml";
-import { useAiGenerateProposal, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
+import { useAiGenerateProposal, useRecordProposalSent, useSendProposal, useUpdateProposal, useDownloadProposalPdf, useProposal, useProposalList } from "@/features/deals/hooks/useProposals";
 import { updateDealStage } from "@/services/dealsService";
 import { getApiErrorMessage } from "@/lib/api-error";
 import type { ProposalContentDTO } from "@/services/proposalsService";
@@ -547,6 +547,7 @@ export function ProposalModal({
   });
   const updateDraft = useUpdateProposal();
   const send = useSendProposal();
+  const recordSent = useRecordProposalSent();
   const downloadPdf = useDownloadProposalPdf();
   const [pendingAction, setPendingAction] = useState<"send" | "pdf" | null>(null);
 
@@ -1082,8 +1083,11 @@ export function ProposalModal({
     });
   };
 
-  const handleSend = async () => {
+  const handleSend = async (mode: "email" | "record" = "email") => {
     if (!proposalId) return;
+    // "record" = freelancer đã tự gửi bằng kênh khác (Zalo, tin nhắn...): chỉ ghi nhận đã gửi,
+    // KHÔNG gửi email. Mọi cổng giá / hạng mục phía backend vẫn chạy như khi gửi thật.  #Huynh
+    const sender = mode === "record" ? recordSent : send;
     const contentToSave = buildContentToSave();
 
     setPendingAction("send");
@@ -1103,12 +1107,16 @@ export function ProposalModal({
     // Backend Swagger hiện chỉ nhận ProposalContentDTO chuẩn, nên FE chuẩn hóa payload trước khi khóa và gửi.
     updateDraft.mutate({ proposalId, payload: { deal_id: deal.id, content: contentToSave } }, {
       onSuccess: () => {
-        send.mutate(proposalId, {
+        sender.mutate(proposalId, {
           onSuccess: () => {
             setPendingAction(null);
             // Backend gửi email kèm file PDF tới khách rồi mới chốt trạng thái "đã gửi" — nên
             // toast nói đúng việc đã xảy ra, không chỉ "đã gửi" chung chung.  #Huynh
-            toast.success("Đã gửi báo giá kèm file PDF tới email khách hàng.");
+            toast.success(
+              mode === "record"
+                ? "Đã ghi nhận báo giá là đã gửi (không gửi email)."
+                : "Đã gửi báo giá kèm file PDF tới email khách hàng."
+            );
             addDealHistoryEntry(deal.id, {
               date: new Date().toISOString(),
               text: `Đã gửi báo giá AI cho khách "${deal.client}".`,
@@ -1657,16 +1665,24 @@ export function ProposalModal({
         onOpenChange={setSendDialogOpen}
         title={`Gửi báo giá ${formatVND(priceToSend)} cho ${deal.client}?`}
         description={
-          `Bạn đang nhận dự án "${deal.projectType}" với giá ${formatVND(priceToSend)}. ` +
-          `Bản báo giá sẽ được gửi qua email cho khách (kèm file PDF) và deal chuyển sang cột "Đã gửi báo giá". ` +
-          `Hãy kiểm tra lại con số trước khi gửi — sau khi gửi thì không rút lại được.`
+          <>
+            {`Bạn đang nhận dự án "${deal.projectType}" với giá `}
+            {/* In đậm đúng con số sắp gửi cho khách — mắt người dùng phải dừng ở đây.  #Huynh */}
+            <strong className="font-semibold text-foreground">{formatVND(priceToSend)}</strong>
+            {`. Bản báo giá sẽ được gửi qua email cho khách (kèm file PDF) và deal sẽ chuyển qua giai đoạn tiếp theo.`}
+          </>
         }
-        confirmLabel={`Gửi ${formatVND(priceToSend)}`}
-        cancelLabel="Để tôi xem lại"
+        confirmLabel="Lưu & gửi"
+        cancelLabel="Hủy"
         isLoading={isSending}
         onConfirm={() => {
           setSendDialogOpen(false);
           handleSend();
+        }}
+        secondaryLabel="Chỉ lưu"
+        onSecondary={() => {
+          setSendDialogOpen(false);
+          handleSend("record");
         }}
       />
 

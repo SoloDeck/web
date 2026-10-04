@@ -335,6 +335,20 @@ export async function sendProposal(proposalId: string): Promise<ProposalResponse
   return data.data;
 }
 
+/**
+ * PATCH /proposals/{id}/status {sent} — CHỈ GHI NHẬN đã gửi, KHÔNG gửi email.
+ *
+ * Cho freelancer đã tự gửi báo giá qua Zalo/tin nhắn (khách không có email, hoặc họ thích kênh
+ * khác). Các cổng giá / hạng mục vẫn chạy như khi gửi thật; chỉ bỏ bước gửi thư.  #Huynh
+ */
+export async function recordProposalSent(proposalId: string): Promise<ProposalResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ProposalResponse>>(
+    `/proposals/${proposalId}/status`,
+    { status: "sent" }
+  );
+  return data.data;
+}
+
 /** PATCH /proposals/{id}/status - Freelancer ghi nhận phản hồi của khách bên ngoài SoloDesk. */
 export async function transitionProposalStatus(
   proposalId: string,

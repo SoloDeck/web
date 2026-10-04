@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { formatDateForInput, formatTimeForInput } from "@/features/reminders/dateTime";
 
 const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
-  { value: "follow_up", label: "Follow-up chung" },
+  { value: "follow_up", label: "Hỏi thăm chung" },
   { value: "proposal_follow_up", label: "Nhắc phản hồi báo giá" },
   { value: "contract_signing_nudge", label: "Nhắc ký hợp đồng" },
   { value: "payment_due", label: "Nhắc thanh toán đến hạn" },
@@ -142,7 +142,7 @@ export function DealReminderPanel({
               <CalendarClock className="mx-auto h-8 w-8 text-muted-foreground/60" />
               <h3 className="mt-3 text-sm font-semibold">Chưa có lịch nhắc</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Tạo lịch nhắc để không bỏ sót follow-up, báo giá, hợp đồng hoặc thanh toán.
+                Tạo lịch nhắc để không bỏ sót việc hỏi thăm khách, báo giá, hợp đồng hoặc thanh toán.
               </p>
               {/* Nút ngay tại chỗ trống: bỏ cột phải rồi thì đây là chỗ mắt người dùng đang
                 nhìn, bắt họ ngước lên góc trên tìm nút là thừa một bước.  #Huynh */}
@@ -198,8 +198,8 @@ export function DealReminderPanel({
               `Lịch hẹn ban đầu là ${formatDateTime(sendNowPending.scheduled_at)}.`
             : undefined
         }
-        confirmLabel="Gửi ngay cho khách"
-        cancelLabel="Giữ đúng lịch"
+        confirmLabel="Gửi"
+        cancelLabel="Hủy"
         isLoading={sendNow.isPending}
         onConfirm={() => {
           if (!sendNowPending) return;

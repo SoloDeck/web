@@ -208,6 +208,14 @@ describe("<ProjectTaskPanel />", () => {
     expect(screen.queryByText("Thu khi xong")).not.toBeInTheDocument();
   });
 
+  it("ô chọn kiểu sắp xếp hiện NHÃN tiếng Việt, không phải mã nội bộ 'order'", () => {
+    render(<TaskHarness initialTasks={[makeTask()]} />);
+
+    const trigger = screen.getByRole("combobox", { name: "Sắp xếp công việc" });
+    expect(trigger).toHaveTextContent("Theo thứ tự dự án");
+    expect(trigger).not.toHaveTextContent(/^order$/);
+  });
+
   describe("thứ tự hiển thị khi có task thu tiền", () => {
     /** Tên các hàng việc theo đúng thứ tự trên màn hình. */
     function rowTitles(titles: string[]): string[] {

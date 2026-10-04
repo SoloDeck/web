@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Loader2, MessageSquareText, Zap } from "lucide-react";
+import { ChevronDown, Loader2, MessageSquareText, Zap } from "lucide-react";
 
 import {
   Select,
@@ -10,6 +10,12 @@ import {
 } from "@/components/ui/select";
 import { useZaloStatus } from "@/features/profile/hooks/useZalo";
 import { useReminderRules, useUpdateReminderRule } from "@/features/reminders/hooks/useReminders";
+import {
+  friendlyToken,
+  fromFriendly,
+  previewParts,
+  toFriendly,
+} from "@/features/reminders/templateTokens";
 import type { ReminderChannel, ReminderRule } from "@/services/remindersService";
 import { cn } from "@/lib/utils";
 
@@ -38,8 +44,7 @@ const OFFSET_LABEL: Record<string, string> = {
 function moTaNgan(rule: ReminderRule): string {
   const kenh = CHANNELS.find((c) => c.value === normalizeChannel(rule.channel))?.label ?? "Chỉ nhắc tôi";
   const gio = `${String(rule.send_at_hour).padStart(2, "0")}:00`;
-  const tuDong = rule.auto_send ? " · tự gửi" : "";
-  return `${rule.offset_days} ngày · ${kenh.toLowerCase()} · ${gio}${tuDong}`;
+  return `${rule.offset_days} ngày · ${kenh.toLowerCase()} · ${gio}`;
 }
 
 const CHANNELS: Array<{ value: ReminderChannel; label: string }> = [
@@ -94,7 +99,7 @@ export function ReminderRulesSettings() {
           <h2 className="text-sm font-semibold">Nhắc nhở tự động</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             SoloDesk tự theo dõi báo giá, hợp đồng và hoá đơn của bạn, rồi soạn sẵn lời nhắc.
-            Mặc định bạn duyệt trước khi gửi.
+            Bạn luôn duyệt trước khi gửi.
           </p>
         </div>
       </div>
@@ -238,41 +243,6 @@ export function ReminderRulesSettings() {
                   </Select>
                 </div>
 
-                <div
-                  className={cn(
-                    "flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3",
-                    rule.auto_send
-                      ? "border-amber-200 bg-amber-50"
-                      : "border-border bg-muted/40"
-                  )}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-sm font-medium">
-                      {rule.auto_send && (
-                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                      )}
-                      Tự động gửi, không cần tôi duyệt
-                    </div>
-                    {/* Bật công tắc này là cho phép hệ thống email khách hàng THẬT mà không
-                        ai đọc lại. Phải nói thẳng ra, không giấu trong tooltip. */}
-                    <p
-                      className={cn(
-                        "mt-0.5 text-xs",
-                        rule.auto_send ? "text-amber-700" : "text-muted-foreground"
-                      )}
-                    >
-                      {rule.auto_send
-                        ? "Email sẽ gửi thẳng tới khách khi tới giờ — bạn sẽ không kịp xem lại."
-                        : "Đang tắt: SoloDesk soạn sẵn rồi báo bạn, bạn bấm Gửi ngay."}
-                    </p>
-                  </div>
-                  <Toggle
-                    checked={rule.auto_send}
-                    onChange={(auto_send) => patch(rule, { auto_send })}
-                    label="Tự động gửi"
-                  />
-                </div>
-
                 <TemplateEditor
                   rule={rule}
                   isSaving={updateRule.isPending}
@@ -302,20 +272,27 @@ function TemplateEditor({
   onSave: (template: string) => void;
   isSaving: boolean;
 }) {
-  const [draft, setDraft] = useState(rule.message_template);
+  const variables = rule.template_variables;
+  // Ô soạn hiện CHỮ TIẾNG VIỆT trong ngoặc vuông (`[Tên khách hàng]`) chứ không phải `{client_name}`;
+  // đổi ngược về dạng của server lúc lưu. Xem `templateTokens.ts`.
+  const [draft, setDraft] = useState(() => toFriendly(rule.message_template, variables));
   // Bám giá trị server lần trước để nhận biết khi nào cần reset draft (sau khi lưu /
   // khôi phục mặc định). Đồng bộ ngay trong render — pattern chuẩn của React, không cần
   // useEffect + tránh nhấp nháy.
   const [serverTemplate, setServerTemplate] = useState(rule.message_template);
   if (serverTemplate !== rule.message_template) {
     setServerTemplate(rule.message_template);
-    setDraft(rule.message_template);
+    setDraft(toFriendly(rule.message_template, variables));
   }
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const dirty = draft.trim() !== rule.message_template.trim();
+  // Dạng server của thứ đang gõ: để so với bản đã lưu, để lưu, và để dựng khung xem trước.
+  const stored = fromFriendly(draft, variables);
+  const dirty = stored.trim() !== rule.message_template.trim();
+  const preview = previewParts(stored, variables);
 
-  function insertVariable(token: string) {
+  function insertVariable(variable: (typeof variables)[number]) {
+    const token = friendlyToken(variable);
     const el = textareaRef.current;
     if (!el) {
       setDraft((prev) => prev + token);
@@ -324,7 +301,7 @@ function TemplateEditor({
     const start = el.selectionStart ?? draft.length;
     const end = el.selectionEnd ?? draft.length;
     setDraft(draft.slice(0, start) + token + draft.slice(end));
-    // Đặt con trỏ ngay sau token vừa chèn để gõ tiếp cho mượt.
+    // Đặt con trỏ ngay sau chỗ vừa chèn để gõ tiếp cho mượt.
     requestAnimationFrame(() => {
       el.focus();
       const pos = start + token.length;
@@ -355,20 +332,53 @@ function TemplateEditor({
         className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
       />
 
-      {rule.template_variables.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">Chèn biến:</span>
-          {rule.template_variables.map((variable) => (
-            <button
-              key={variable.token}
-              type="button"
-              onClick={() => insertVariable(variable.token)}
-              title={`Chèn ${variable.label}`}
-              className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground hover:border-primary/40 hover:text-primary"
-            >
-              {variable.label}
-            </button>
-          ))}
+      {variables.length > 0 && (
+        <>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Chữ trong <span className="font-medium text-foreground">[ngoặc vuông]</span> là thông tin
+            SoloDesk tự điền khi gửi, ví dụ [{variables[0].label}] sẽ thành thông tin thật. Bấm nút
+            bên dưới để chèn thêm, đừng sửa chữ bên trong ngoặc.
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Chèn thông tin tự động:</span>
+            {variables.map((variable) => (
+              <button
+                key={variable.token}
+                type="button"
+                onClick={() => insertVariable(variable)}
+                title={`Chèn ${friendlyToken(variable)} vào chỗ con trỏ`}
+                className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground hover:border-primary/40 hover:text-primary"
+              >
+                + {variable.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {preview.length > 0 && (
+        <div className="rounded-lg bg-muted/40 p-3">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+            Xem trước (dùng thông tin mẫu — phần tô màu là chỗ tự điền)
+          </div>
+          <p
+            data-testid="template-preview"
+            className="whitespace-pre-wrap text-sm leading-relaxed text-foreground"
+          >
+            {preview.map((part, index) =>
+              part.variable ? (
+                <mark
+                  key={index}
+                  title={part.variable}
+                  className="rounded bg-primary/10 px-0.5 font-medium text-primary"
+                >
+                  {part.text}
+                </mark>
+              ) : (
+                <span key={index}>{part.text}</span>
+              )
+            )}
+          </p>
         </div>
       )}
 
@@ -376,7 +386,7 @@ function TemplateEditor({
         <button
           type="button"
           disabled={!dirty || isSaving}
-          onClick={() => onSave(draft)}
+          onClick={() => onSave(stored)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

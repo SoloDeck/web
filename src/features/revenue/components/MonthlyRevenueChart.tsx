@@ -70,11 +70,22 @@ export function MonthlyRevenueChart({ data }: { data: MonthlyRevenue[] }) {
                 </div>
 
                 {hover === index && (
-                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 w-44 -translate-x-1/2 rounded-lg border border-border bg-popover p-2.5 text-xs shadow-lg">
+                  <div
+                    className={cn(
+                      "pointer-events-none absolute bottom-full z-10 mb-1.5 w-56 rounded-lg border border-border bg-popover p-2.5 text-xs shadow-lg",
+                      // Chú thích rộng gấp nhiều lần một cột: hai cột đầu / hai cột cuối căn theo mép
+                      // thay vì căn giữa, kẻo nó tràn ra ngoài khung biểu đồ.
+                      index < 2
+                        ? "left-0"
+                        : index >= data.length - 2
+                          ? "right-0"
+                          : "left-1/2 -translate-x-1/2"
+                    )}
+                  >
                     <div className="font-semibold">{monthLabel(month.month, true)}</div>
                     <div className="mt-1.5 space-y-1">
-                      <Line swatch="bg-primary" label="Đã thu" value={month.collected} />
-                      <Line swatch="bg-primary/20" label="Còn phải thu" value={outstanding} />
+                      <Line swatch="bg-primary" label="Khách đã trả" value={month.collected} />
+                      <Line swatch="bg-primary/20" label="Chưa trả" value={outstanding} />
                       <div className="border-t border-dashed border-border pt-1">
                         <Line label="Đã xuất" value={month.invoiced} bold />
                       </div>
@@ -119,7 +130,9 @@ function ChartFrame({
       <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
         {/* Tên là "HOÁ ĐƠN theo tháng", không phải "doanh thu": biểu đồ này đếm chứng từ đã
             xuất, còn khối tiền phía trên đếm mốc thanh toán của hợp đồng. Hai nguồn khác
-            nhau mà gọi chung một tên thì người đọc tự cộng nhầm.  #Huynh */}
+            nhau mà gọi chung một tên thì người đọc tự cộng nhầm — nên ở đây KHÔNG dùng chữ
+            "Đã thu" (thẻ phía trên đang dùng nó cho mốc đã tick): hoá đơn thì "khách đã trả".
+              #Huynh */}
         <div className="flex items-center gap-2 font-semibold">
           <BarChart3 className="h-4 w-4 text-primary" /> Hoá đơn theo tháng
         </div>
@@ -127,20 +140,20 @@ function ChartFrame({
             nhãn, không chỉ bằng màu. */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Đã thu
+            <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Khách đã trả
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-primary/20" /> Chưa thu
+            <span className="h-2.5 w-2.5 rounded-sm bg-primary/20" /> Chưa trả
           </span>
         </div>
       </div>
       {totalInvoiced !== undefined && (
         <div className="mb-3 flex shrink-0 flex-wrap gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">
-            Đã xuất: <span className="font-semibold text-foreground">{formatVND(totalInvoiced)}</span>
+            Hoá đơn đã xuất: <span className="font-semibold text-foreground">{formatVND(totalInvoiced)}</span>
           </span>
           <span className="text-muted-foreground">
-            Đã thu: <span className="font-semibold text-primary">{formatVND(totalCollected ?? 0)}</span>
+            Khách đã trả: <span className="font-semibold text-primary">{formatVND(totalCollected ?? 0)}</span>
           </span>
         </div>
       )}
@@ -164,11 +177,16 @@ function Line({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-        {swatch && <span className={cn("h-2 w-2 rounded-sm", swatch)} />}
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+        {swatch && <span className={cn("h-2 w-2 shrink-0 rounded-sm", swatch)} />}
         {label}
       </span>
-      <span className={cn("tabular-nums", bold ? "font-semibold text-foreground" : "text-foreground")}>
+      <span
+        className={cn(
+          "whitespace-nowrap tabular-nums",
+          bold ? "font-semibold text-foreground" : "text-foreground"
+        )}
+      >
         {formatVND(value)}
       </span>
     </div>

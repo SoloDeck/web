@@ -20,13 +20,15 @@ import { toast } from "sonner";
 const mockGenerate = vi.fn();
 const mockCreate = vi.fn();
 const mockUpdate = vi.fn();
+/** Trạng thái "AI đang soạn" của hook — để thử nút bị khoá khi đang chờ. */
+const ai = vi.hoisted(() => ({ pending: false }));
 
 vi.mock("@/services/remindersService", () => ({
   previewReminder: vi.fn(),
   uploadReminderImage: vi.fn(),
 }));
 vi.mock("@/features/ai/hooks/useFollowUp", () => ({
-  useGenerateFollowUp: () => ({ mutate: mockGenerate, isPending: false }),
+  useGenerateFollowUp: () => ({ mutate: mockGenerate, isPending: ai.pending }),
 }));
 vi.mock("@/features/reminders/hooks/useReminders", () => ({
   useCreateReminder: () => ({ mutate: mockCreate, isPending: false }),
@@ -55,6 +57,8 @@ const deal = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ai.pending = false;
+  mockGenerate.mockReset();
   vi.mocked(previewReminder).mockResolvedValue({
     subject: "Nhắc thanh toán",
     html: "<p>Thư mẫu có 1027123456</p>",
@@ -85,6 +89,29 @@ describe("<ReminderComposerModal />", () => {
     expect(frame).toHaveAttribute("srcdoc", expect.stringContaining("1027123456"));
   });
 
+  it("ô 'Loại nhắc' toàn tiếng Việt: 'Hỏi thăm chung', không còn chữ 'Follow-up'", async () => {
+    const user = userEvent.setup();
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    const combobox = screen.getByRole("combobox", { name: /loại nhắc/i });
+    expect(combobox).toHaveTextContent("Hỏi thăm chung"); // loại mặc định
+    await user.click(combobox);
+    const nhan = within(await screen.findByRole("listbox"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+
+    expect(nhan).toEqual([
+      "Hỏi thăm chung",
+      "Nhắc phản hồi báo giá",
+      "Nhắc ký hợp đồng",
+      "Nhắc thanh toán đến hạn",
+      "Nhắc thanh toán quá hạn",
+      "Chăm sóc lại khách cũ",
+      "Tùy chỉnh",
+    ]);
+    expect(nhan.join(" ")).not.toMatch(/follow/i);
+  });
+
   it("đổi giọng thì AI được gọi kèm giọng đó", async () => {
     const user = userEvent.setup();
     render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
@@ -96,6 +123,67 @@ describe("<ReminderComposerModal />", () => {
       expect.objectContaining({ tone: "friendly", target_id: "deal-1" }),
       expect.anything(),
     );
+  });
+
+  it("AI soạn xong thì chữ AI trả về nằm trong ô nội dung và xem trước đổi theo", async () => {
+    const user = userEvent.setup();
+    const aiText = "Chào anh An, em nhắc nhẹ khoản thanh toán đợt 1 ạ.";
+    mockGenerate.mockImplementation((_payload, options) =>
+      options.onSuccess({ message_text: aiText }),
+    );
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /AI soạn tin/i }));
+
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(aiText);
+    await waitFor(
+      () =>
+        expect(previewReminder).toHaveBeenLastCalledWith(
+          expect.objectContaining({ message: aiText }),
+        ),
+      { timeout: 3000 },
+    );
+  });
+
+  it("AI không soạn được thì báo lỗi và GIỮ NGUYÊN chữ đang có", async () => {
+    const user = userEvent.setup();
+    mockGenerate.mockImplementation((_payload, options) => options.onError(new Error("503")));
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    const box = document.querySelector("textarea") as HTMLTextAreaElement;
+    await user.clear(box);
+    await user.type(box, "Nội dung tôi tự viết");
+    await user.click(screen.getByRole("button", { name: /AI soạn tin/i }));
+
+    expect(toast.error).toHaveBeenCalledWith("AI chưa soạn được tin. Bạn thử lại sau nhé.");
+    expect(box.value).toBe("Nội dung tôi tự viết");
+  });
+
+  it("AI soạn theo loại nhắc đang chọn", async () => {
+    const user = userEvent.setup();
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    await chonLoaiNhac(user, "Nhắc thanh toán quá hạn");
+    await user.click(screen.getByRole("button", { name: /AI soạn tin/i }));
+
+    expect(mockGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({ reminder_type: "payment_overdue", target_type: "deal" }),
+      expect.anything(),
+    );
+  });
+
+  it("AI đang soạn thì nút bị khoá — mỗi lượt gọi AI tốn hạn mức", () => {
+    ai.pending = true;
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /AI soạn tin/i })).toBeDisabled();
+  });
+
+  it("AI soạn và 'Dùng mẫu có sẵn' cùng có mặt: mẫu cho tin quen thuộc, AI cho tình huống cần viết khéo", () => {
+    render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /AI soạn tin/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /dùng mẫu có sẵn/i })).toBeEnabled();
   });
 
   it("bấm 'Dùng mẫu có sẵn' thì đổ mẫu vào ô nội dung", async () => {
@@ -140,13 +228,13 @@ describe("<ReminderComposerModal />", () => {
     expect(box.value).toBe("Nội dung tôi tự viết");
   });
 
-  it("nhắc thanh toán mà thư chưa có cách trả tiền thì mách chèn ảnh QR", async () => {
+  it("nhắc thanh toán thì KHÔNG hiện cảnh báo 'chưa có thông tin chuyển khoản' (đã bỏ theo ý người dùng)", async () => {
     const user = userEvent.setup();
     render(<ReminderComposerModal deal={deal} onClose={vi.fn()} />);
 
     await chonLoaiNhac(user, "Nhắc thanh toán đến hạn");
 
-    expect(screen.getByText(/chưa có thông tin chuyển khoản/i)).toBeInTheDocument();
+    expect(screen.queryByText(/chưa có thông tin chuyển khoản/i)).toBeNull();
   });
 
   it("ảnh chèn vào được gửi kèm sang XEM TRƯỚC — không phải nhìn một đằng gửi một nẻo", async () => {
@@ -353,6 +441,28 @@ describe("<ReminderComposerModal /> — giờ hẹn", () => {
     await user.click(screen.getByRole("button", { name: /đặt lịch nhắc/i }));
     expect(mockCreate).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/đã qua/i));
+  });
+
+  it("sửa lời nhắc nhắm vào HOÁ ĐƠN thì AI soạn theo hoá đơn đó, không theo deal", async () => {
+    const user = userEvent.setup();
+    const hoaDon = {
+      ...quaGio,
+      target_type: "invoice",
+      target_id: "inv-9",
+      reminder_type: "payment_due",
+    } as unknown as ReminderRecord;
+    render(<ReminderComposerModal deal={deal} reminder={hoaDon} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /AI soạn tin/i }));
+
+    expect(mockGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reminder_type: "payment_due",
+        target_type: "invoice",
+        target_id: "inv-9",
+      }),
+      expect.anything(),
+    );
   });
 
   it("đang sửa thì khoá ô Loại nhắc — backend không cho đổi loại", () => {

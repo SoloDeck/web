@@ -243,16 +243,16 @@ export const AUDIENCE_HEADER = {
 } as const;
 
 /**
- * Cố ý BỎ "giá trị deal trung bình" dù phiếu có liệt kê: `modules/analytics` không có
- * trường nào tính chỉ số đó và dashboard cũng không render ô nào như vậy. Phiếu hứa
- * thì phiếu chịu; trang này chỉ nói thứ bấm vào là thấy.  #Huynh
+ * Trang này chỉ nói thứ bấm vào là thấy. Bảng doanh thu có đủ hai chỉ số phiếu liệt kê — tỷ lệ
+ * thắng và giá trị deal trung bình — nên ghi cả hai. (Trước đây dòng này cố ý bỏ "giá trị deal
+ * trung bình" vì dashboard chưa có ô nào tính chỉ số đó.)  #Huynh
  */
 export const FREELANCER_FEATURES = [
   "Bảng Kanban sáu giai đoạn, kéo–thả",
   "AI chấm điểm lead HOT / WARM / COLD",
   "Báo giá và hợp đồng tiếng Việt, xuất PDF",
   "Nhắc thanh toán và tái kết nối tự động",
-  "Bảng doanh thu và tỷ lệ chốt deal",
+  "Bảng doanh thu, tỷ lệ thắng và giá trị deal trung bình",
 ] as const;
 
 /**

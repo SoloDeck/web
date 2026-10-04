@@ -4,7 +4,7 @@ import { Bot, CheckCircle2, Loader2, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import type { Deal } from "@/features/deals/types";
-import { useCreateContract, useGenerateContractContent, useSendContract } from "@/features/deals/hooks/useContracts";
+import { useCreateContract, useGenerateContractContent, useRecordContractSent, useSendContract } from "@/features/deals/hooks/useContracts";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { ConfirmSendContractDialog } from "@/features/deals/components/ConfirmSendContractDialog";
@@ -65,6 +65,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
   const createContract = useCreateContract();
   const generateContract = useGenerateContractContent();
   const sendContract = useSendContract();
+  const recordSent = useRecordContractSent();
 
   const [contract, setContract] = useState<ContractResponse | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -127,7 +128,7 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deal]);
 
-  async function handleSend() {
+  async function handleSend(mode: "email" | "record" = "email") {
     if (!contract) return;
     // GHI NGAY bản sửa đang chờ trước khi gửi: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, nên
     // bấm "Gửi" liền sau khi gõ sẽ gửi PDF của bản CŨ rồi bản sửa mới đến sau ghi đè lên hợp đồng
@@ -137,9 +138,13 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
     } catch {
       return;
     }
-    sendContract.mutate(contract.id, {
+    (mode === "record" ? recordSent : sendContract).mutate(contract.id, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
+        toast.success(
+          mode === "record"
+            ? "Đã ghi nhận hợp đồng là đã gửi (không gửi email)."
+            : "Đã gửi hợp đồng kèm file PDF tới email khách ký."
+        );
         if (deal) addDealHistoryEntry(deal.id, { date: new Date().toISOString(), text: "Đã gửi hợp đồng cho khách ký.", channel: "email" });
         onClose();
       },
@@ -243,10 +248,14 @@ export function ContractModal({ deal, onClose }: { deal: Deal | null; onClose: (
         open={confirmSendOpen}
         onOpenChange={setConfirmSendOpen}
         clientEmail={deal?.clientEmail}
-        isLoading={sendContract.isPending}
+        isLoading={sendContract.isPending || recordSent.isPending}
         onConfirm={() => {
           setConfirmSendOpen(false);
           void handleSend();
+        }}
+        onRecordOnly={() => {
+          setConfirmSendOpen(false);
+          void handleSend("record");
         }}
       />
     </div>

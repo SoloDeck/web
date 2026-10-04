@@ -2,10 +2,10 @@ import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Menu, Plus, RefreshCw, Search } from "lucide-react";
 import { AppSidebar } from "@/components/layout/Sidebar";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { KanbanBoard } from "@/features/deals/components/KanbanBoard";
 import { ArchivedDealsDrawer } from "@/features/deals/components/ArchivedDealsDrawer";
-import { countArchivedDeals } from "@/services/dealsService";
+import { useArchiveCounts } from "@/features/deals/hooks/useArchiveCounts";
 import { NewDealModal } from "@/features/deals/components/NewDealModal";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
 import { AIActivityCenter } from "@/features/ai/components/AIActivityCenter";
@@ -107,19 +107,18 @@ export function WorkspaceScreen() {
   /**
    * Đúng những deal ĐANG BÀY RA trên bảng — dùng cho dòng "N deal · Tổng ...".
    *
-   * Bản trước cộng thẳng `filtered`, mà `filtered` gồm cả deal "Không chốt được" vốn KHÔNG
+   * Bản trước cộng thẳng `filtered`, mà `filtered` gồm cả deal "Không thành công" vốn KHÔNG
    * hiển thị (bảng lọc bỏ `lost`). Nên con số ở đầu trang đếm cả thứ người dùng không nhìn
    * thấy, và tổng tiền cộng cả những deal đã trượt — đếm sai theo hướng làm mình vui.  #Huynh
    */
   const onBoard = useMemo(() => filtered.filter((deal) => deal.stage !== "lost"), [filtered]);
 
   // Kho lưu trữ: chỉ ĐẾM ở đây (một con số cho chân cột), danh sách để ngăn kéo tự tải theo
-  // trang khi mở ra. Đặt ở màn này chứ không trong bảng — bảng cố ý thuần trình bày.  #Huynh
+  // trang khi mở ra. Đặt ở màn này chứ không trong bảng — bảng cố ý thuần trình bày.
+  // Kho gồm hai mục (đã hoàn thành lâu ngày + không thành công) nên con số là tổng cả hai: nếu
+  // chỉ đếm mục đầu thì freelancer chỉ có dự án không thành công sẽ không thấy lối vào.  #Huynh
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const { data: archivedCount = 0 } = useQuery({
-    queryKey: ["deals", "archived", "count"],
-    queryFn: countArchivedDeals,
-  });
+  const { total: archivedCount } = useArchiveCounts();
 
   const totalValue = useMemo(
     () => onBoard.reduce((sum, deal) => sum + deal.value, 0),

@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ActionsPanel } from "@/features/deals/components/DealDetailPage";
 import type { Deal } from "@/features/deals/types";
@@ -103,13 +104,44 @@ describe("ActionsPanel — giai đoạn Đang Đàm Phán", () => {
     expect(screen.getByRole("button", { name: /bắt đầu triển khai/i })).toBeEnabled();
   });
 
-  it("chưa có hợp đồng thì vẫn nói rõ bước kế tiếp", () => {
+  it("chưa có hợp đồng thì chỉ còn nút 'Tạo Hợp Đồng AI' — không có dòng nhắc thừa bên dưới", () => {
     renderPanel({ hasContract: false, hasActiveContract: false });
-    expect(screen.getByText(/gửi cho khách ký trước khi mở project/i)).toBeInTheDocument();
+    // Nút đã tự nói bước kế tiếp; dòng "Cần tạo hợp đồng và gửi cho khách ký trước khi mở project
+    // triển khai." chỉ lặp lại điều đó nên đã bị bỏ.
+    expect(screen.getByRole("button", { name: /tạo hợp đồng ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/gửi cho khách ký trước khi mở project/i)).not.toBeInTheDocument();
   });
 
   it("hợp đồng đang chờ ký thì chỉ đường tới chỗ ghi nhận", () => {
     renderPanel({ hasContract: true, hasActiveContract: false });
     expect(screen.getByText(/Ghi nhận: khách đã ký/i)).toBeInTheDocument();
+  });
+
+  it("hợp đồng ĐÃ GỬI, đang chờ khách ký: nút tạo hợp đồng bị khoá — như báo giá đã gửi", async () => {
+    // Báo giá đã gửi thì không còn nút AI; hợp đồng đã gửi mà vẫn bấm "Tạo Hợp Đồng AI" được là
+    // mời freelancer đẻ hợp đồng thứ hai trong khi khách đang cầm bản đầu (backend cũng chặn: mỗi
+    // deal chỉ một hợp đồng chờ ký / đang hiệu lực).
+    const user = userEvent.setup();
+    const onContract = vi.fn();
+    renderPanel({ hasContract: true, hasPendingContract: true, onContract });
+
+    const nut = screen.getByRole("button", { name: /tạo hợp đồng ai/i });
+    expect(nut).toBeDisabled();
+    expect(nut).toHaveAttribute("title", "Hợp đồng đã gửi, đang chờ khách ký");
+    await user.click(nut);
+    expect(onContract).not.toHaveBeenCalled();
+    // Vẫn chỉ đường tới chỗ ghi nhận khách đã ký.
+    expect(screen.getByText(/Ghi nhận: khách đã ký/i)).toBeInTheDocument();
+  });
+
+  it("bản nháp thì vẫn viết lại được — chỉ khoá khi hợp đồng đã gửi", async () => {
+    const user = userEvent.setup();
+    const onContract = vi.fn();
+    renderPanel({ hasContract: true, hasDraftContract: true, hasPendingContract: false, onContract });
+
+    const nut = screen.getByRole("button", { name: /tạo lại hợp đồng ai/i });
+    expect(nut).toBeEnabled();
+    await user.click(nut);
+    expect(onContract).toHaveBeenCalledTimes(1);
   });
 });

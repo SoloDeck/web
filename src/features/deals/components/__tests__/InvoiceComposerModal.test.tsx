@@ -1,12 +1,15 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { InvoiceComposerModal } from "@/features/deals/components/DealDetailPage";
 import type { Deal } from "@/features/deals/types";
 import type { InvoiceResponse } from "@/services/invoicesService";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 /**
  * Lỗi thật người dùng bắt được: hàng trong tab Tài liệu ghi "Thanh toán đợt 1", bấm vào thì
@@ -150,7 +153,7 @@ describe("xem lại trước khi gửi", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
     const hopThoai = screen.getByRole("alertdialog");
-    await userEvent.click(within(hopThoai).getByRole("button", { name: /^Gửi 37\.199\.000/ }));
+    await userEvent.click(within(hopThoai).getByRole("button", { name: "Lưu & gửi" }));
 
     expect(onSaveAndSend).toHaveBeenCalledTimes(1);
     const [invoiceId, payload] = onSaveAndSend.mock.calls[0];
@@ -194,7 +197,7 @@ describe("hoá đơn nháp quá hạn", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
     const hopThoai = screen.getByRole("alertdialog");
-    await userEvent.click(within(hopThoai).getByRole("button", { name: /^Gửi 37\.199\.000/ }));
+    await userEvent.click(within(hopThoai).getByRole("button", { name: "Lưu & gửi" }));
 
     expect(onSaveAndSend).toHaveBeenCalledTimes(1);
   });
@@ -218,7 +221,7 @@ describe("hoá đơn nháp quá hạn", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /lưu nháp/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
 
     expect(onUpdate).toHaveBeenCalledTimes(1);
   });
@@ -247,5 +250,341 @@ describe("trạng thái đang gửi", () => {
     renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
 
     expect(screen.getByRole("button", { name: /lưu & gửi cho khách/i })).toBeEnabled();
+  });
+});
+
+/**
+ * Lỗi thật khi soạn hóa đơn nhiều đợt: API trả hóa đơn MỚI NHẤT TRƯỚC nên hóa đơn vừa tạo luôn ra
+ * "Thanh toán đợt 1", trùng đợt 1 đã gửi, "Lưu & gửi" bị chặn vì trùng tên — freelancer phải gõ tay
+ * "2", "3"... mỗi lần.
+ */
+describe("tên hóa đơn khi danh sách trả MỚI NHẤT TRƯỚC", () => {
+  const cu = invoice({
+    id: "inv-cu",
+    status: "sent",
+    created_at: "2026-10-02T08:00:00Z",
+    notes: "Hóa đơn: Thanh toán đợt 1\n\nCảm ơn anh.",
+  });
+  const moi = invoice({ id: "inv-moi", status: "draft", created_at: "2026-10-02T09:00:00Z", notes: null });
+
+  it("hóa đơn vừa tạo ra 'đợt 2' và gửi được ngay, không bị chặn vì trùng tên", async () => {
+    const onSaveAndSend = vi.fn();
+    const list = [moi, cu]; // đúng thứ tự API
+    renderModal(list, moi, { mode: "edit", onSaveAndSend });
+
+    expect(screen.getByDisplayValue("Thanh toán đợt 2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
+    const hopThoai = screen.getByRole("alertdialog");
+    await userEvent.click(within(hopThoai).getByRole("button", { name: "Lưu & gửi" }));
+
+    expect(onSaveAndSend).toHaveBeenCalledTimes(1);
+    expect((onSaveAndSend.mock.calls[0][1] as { notes: string }).notes).toContain("Hóa đơn: Thanh toán đợt 2");
+  });
+});
+
+/**
+ * Số tiền trong lời nhắn phải khớp ô "Tổng cần thanh toán" bên trái.
+ *
+ * Lỗi thật: ô số tiền 521.900.000 nhưng văn bản gõ 511.900.000 — thư tới khách mang hai tổng khác
+ * nhau, khách chuyển theo chữ là hóa đơn thành "thanh toán một phần". Giá là của HỢP ĐỒNG, nên nay:
+ * ô số tiền và VAT bị KHÓA; câu mẫu ghi SỐ THẬT; gõ thêm một số tiền lạ vào lời nhắn bị TỪ CHỐI;
+ * bản nháp cũ còn lệch thì báo ĐỎ và chặn cả Lưu lẫn Lưu & gửi (backend cũng chặn).
+ */
+describe("lời nhắn mẫu ghi số thật của hóa đơn", () => {
+  it("bản nháp mới mở: lời nhắn ghi đúng Tổng cần thanh toán, không có chỗ giữ chỗ", () => {
+    const list = [invoice({ id: "inv-1", status: "draft" })];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    const loiNhan = screen.getByDisplayValue(/Kính gửi Hỏa Quốc huynh/) as HTMLTextAreaElement;
+    expect(loiNhan.value).toContain("Tổng số tiền cần thanh toán là 37.199.000");
+    expect(loiNhan.value).not.toContain("{{");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("hóa đơn ĐÃ gửi hiện đúng chữ khách nhận (bản cũ còn chỗ giữ chỗ thì điền số thật)", () => {
+    const list = [
+      invoice({
+        id: "inv-1",
+        status: "sent",
+        total: 521_900_000,
+        notes: "Hóa đơn: Đợt 1\n\nCần trả {{tong_tien}} nhé.",
+      }),
+    ];
+    renderModal(list, list[0]);
+
+    const loiNhan = screen.getByDisplayValue(/Cần trả/) as HTMLTextAreaElement;
+    expect(loiNhan.value).toContain("521.900.000");
+    expect(loiNhan.value).not.toContain("{{");
+  });
+});
+
+describe("giá bị khóa theo hợp đồng", () => {
+  const nhap = () => invoice({ id: "inv-1", status: "draft" });
+
+  it("bản nháp đang mở: ô Số tiền BỊ KHÓA kèm một dòng nói vì sao, và KHÔNG còn ô Thuế/VAT", () => {
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    expect(screen.getByDisplayValue("37199000")).toBeDisabled();
+    expect(screen.getByText(/lấy từ hợp đồng nên không sửa được/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Thuế\/VAT/)).toBeNull();
+    expect(screen.queryByPlaceholderText("0")).toBeNull();
+  });
+
+  it("gõ thử vào ô Số tiền thì không đổi gì, và gửi đi vẫn đúng giá hợp đồng", async () => {
+    const onSaveAndSend = vi.fn();
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend });
+
+    const soTien = screen.getByDisplayValue("37199000") as HTMLInputElement;
+    await userEvent.type(soTien, "9");
+
+    expect(soTien.value).toBe("37199000");
+    await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Lưu & gửi" }));
+    const payload = onSaveAndSend.mock.calls[0][1] as { subtotal: number; tax_rate: number };
+    expect(payload.subtotal).toBe(37_199_000);
+    expect(payload.tax_rate).toBe(0);
+  });
+
+  it("hóa đơn cũ còn mang VAT: không có ô nhập thuế, Tóm tắt vẫn cộng đủ và lưu giữ nguyên thuế", async () => {
+    const onSaveAndSend = vi.fn();
+    const list = [
+      invoice({ id: "inv-1", status: "draft", subtotal: 100_000_000, total: 108_000_000, tax_rate: 0.08 }),
+    ];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend });
+
+    expect(screen.queryByText(/Thuế\/VAT/)).toBeNull();
+    const tomTat = screen.getByText("Tóm tắt").parentElement as HTMLElement;
+    expect(tomTat).toHaveTextContent("Tạm tính");
+    expect(tomTat).toHaveTextContent("8.000.000");
+    expect(tomTat).toHaveTextContent("108.000.000");
+
+    await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Lưu & gửi" }));
+    expect((onSaveAndSend.mock.calls[0][1] as { tax_rate: number }).tax_rate).toBeCloseTo(0.08);
+  });
+
+  it("hóa đơn không thuế: Tóm tắt chỉ có đúng một dòng Tổng cần thanh toán", () => {
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    const tomTat = screen.getByText("Tóm tắt").parentElement as HTMLElement;
+    expect(tomTat).toHaveTextContent("Tổng cần thanh toán");
+    expect(tomTat).toHaveTextContent("37.199.000");
+    expect(tomTat).not.toHaveTextContent("Tạm tính");
+    expect(tomTat).not.toHaveTextContent("Thuế");
+  });
+
+  it("chưa có hóa đơn nào (tạo mới) thì chưa có hợp đồng để bám: ô Số tiền gõ được, không có dòng khóa", () => {
+    renderModal([], null, { mode: "create" });
+
+    expect(screen.getByDisplayValue("37199000")).not.toBeDisabled();
+    expect(screen.queryByText(/lấy từ hợp đồng/i)).toBeNull();
+    expect(screen.queryByText(/Thuế\/VAT/)).toBeNull();
+  });
+
+  it("hóa đơn ĐÃ gửi chỉ xem: không có dòng khóa giá (cả cửa sổ đã là chỉ đọc)", () => {
+    const list = [invoice({ id: "inv-1", status: "sent" })];
+    renderModal(list, list[0]);
+
+    expect(screen.queryByText(/lấy từ hợp đồng nên không sửa được/i)).toBeNull();
+  });
+
+  it("gõ thêm một số tiền lạ vào lời nhắn bị TỪ CHỐI: chữ giữ nguyên, báo lý do", () => {
+    vi.mocked(toast.error).mockClear();
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+    const loiNhan = screen.getByDisplayValue(/Kính gửi Hỏa Quốc huynh/) as HTMLTextAreaElement;
+    const truoc = loiNhan.value;
+
+    fireEvent.change(loiNhan, { target: { value: `${truoc}\nBớt còn 500k nhé.` } });
+
+    expect(loiNhan.value).toBe(truoc);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/500\.000.*37\.199\.000/));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("chữ khác (không phải tiền) gõ bình thường", () => {
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+    const loiNhan = screen.getByDisplayValue(/Kính gửi Hỏa Quốc huynh/) as HTMLTextAreaElement;
+
+    fireEvent.change(loiNhan, { target: { value: `${loiNhan.value}\nGọi 0352015349 trước 16/10/2026 nhé.` } });
+
+    expect(loiNhan.value).toContain("Gọi 0352015349");
+  });
+
+  it("dán lại ĐÚNG Tổng cần thanh toán thì được", () => {
+    const list = [nhap()];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+    const loiNhan = screen.getByDisplayValue(/Kính gửi Hỏa Quốc huynh/) as HTMLTextAreaElement;
+
+    fireEvent.change(loiNhan, { target: { value: `${loiNhan.value}\nChuyển 37.199.000 ₫ nhé.` } });
+
+    expect(loiNhan.value).toContain("Chuyển 37.199.000 ₫ nhé.");
+  });
+
+  it("bản nháp CŨ còn lệch: vẫn gõ tiếp phần khác được — chỉ số lạ MỚI bị từ chối", () => {
+    vi.mocked(toast.error).mockClear();
+    const list = [invoice({ id: "inv-1", status: "draft", notes: "Hóa đơn: Thanh toán đợt 1\n\nTổng cộng 511.900.000 ₫." })];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+    const loiNhan = screen.getByDisplayValue(/Tổng cộng 511\.900\.000/) as HTMLTextAreaElement;
+
+    fireEvent.change(loiNhan, { target: { value: `${loiNhan.value} Cảm ơn anh.` } });
+
+    expect(loiNhan.value).toContain("Cảm ơn anh.");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toBeInTheDocument(); // vẫn báo đỏ, vẫn chưa lưu/gửi được
+  });
+});
+
+describe("bản nháp CŨ còn lời nhắn lệch giá: báo đỏ, chặn lưu, chặn gửi", () => {
+  const nhap = (notes: string) => invoice({ id: "inv-1", status: "draft", notes });
+  const lech = "Hóa đơn: Thanh toán đợt 1\n\nTổng cộng 511.900.000 ₫.";
+
+  it("lệch thì hiện khung ĐỎ nêu cả số gõ tay lẫn Tổng cần thanh toán", () => {
+    const list = [nhap(lech)];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    const canhBao = screen.getByRole("alert");
+    expect(canhBao).toHaveTextContent("Giá trong lời nhắn đang lệch");
+    expect(canhBao).toHaveTextContent("511.900.000");
+    expect(canhBao).toHaveTextContent("37.199.000");
+  });
+
+  it("'Lưu nháp' khi đang lệch: KHÔNG lưu, báo số lệch và Tổng cần thanh toán", () => {
+    vi.mocked(toast.error).mockClear();
+    const onUpdate = vi.fn();
+    const list = [nhap(lech)];
+    render(
+      <InvoiceComposerModal
+        mode="edit"
+        deal={deal}
+        suggestedInvoiceIndex={list.length + 1}
+        existingInvoices={list}
+        client={{ name: "Hỏa Quốc huynh", email: "a@b.c", phone: "0352015349" }}
+        invoice={list[0]}
+        isLoading={false}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
+
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/lệch.*511\.900\.000.*37\.199\.000/));
+  });
+
+  it("'Lưu & gửi cho khách' khi đang lệch: nhắc giá lệch và CHƯA gửi", async () => {
+    vi.mocked(toast.error).mockClear();
+    const onSaveAndSend = vi.fn();
+    const list = [nhap(lech)];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend });
+
+    await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
+
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/lệch.*511\.900\.000/));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onSaveAndSend).not.toHaveBeenCalled();
+  });
+
+  it("gõ đúng số của hóa đơn thì không báo gì và gửi được", async () => {
+    const list = [nhap("Hóa đơn: Thanh toán đợt 1\n\nTổng cộng 37.199.000 ₫, cảm ơn anh.")];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /lưu & gửi cho khách/i }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("xóa số lạ khỏi chữ thì khung đỏ biến mất và lưu được", () => {
+    const onUpdate = vi.fn();
+    const list = [nhap(lech)];
+    render(
+      <InvoiceComposerModal
+        mode="edit"
+        deal={deal}
+        suggestedInvoiceIndex={list.length + 1}
+        existingInvoices={list}
+        client={{ name: "Hỏa Quốc huynh", email: "a@b.c", phone: "0352015349" }}
+        invoice={list[0]}
+        isLoading={false}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    const loiNhan = screen.getByDisplayValue(/Tổng cộng 511\.900\.000/) as HTMLTextAreaElement;
+    fireEvent.change(loiNhan, { target: { value: "Cảm ơn anh." } });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("số trần (điện thoại, ngày, mã đợt) không bị coi là số tiền", () => {
+    const list = [nhap("Hóa đơn: Thanh toán đợt 2\n\nGọi 0352015349 trước 16/10/2026 nhé.")];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("bản nháp CŨ còn câu in cứng số đã lệch (99.999.000 khác 37.199.000) thì bị báo đỏ", () => {
+    const list = [nhap("Hóa đơn: Thanh toán đợt 1\n\nTổng số tiền cần thanh toán là 99.999.000 ₫.")];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("99.999.000");
+  });
+
+  it("hóa đơn ĐÃ gửi thì không báo gì (chỉ xem)", () => {
+    const list = [invoice({ id: "inv-1", status: "sent", notes: lech })];
+    renderModal(list, list[0]);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("chân cửa sổ soạn hóa đơn", () => {
+  it("chỉ còn MỘT nút Đóng (dấu X góc trên bên phải), không lặp thêm nút 'Đóng' ở chân", () => {
+    const list = [invoice({ id: "inv-1", status: "draft" })];
+    renderModal(list, list[0], { mode: "edit", onSaveAndSend: vi.fn() });
+
+    expect(screen.getAllByRole("button", { name: "Đóng" })).toHaveLength(1);
+    // Các nút còn lại ở chân vẫn đủ.
+    expect(screen.getByRole("button", { name: "Xóa" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lưu" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /lưu & gửi cho khách/i })).toBeInTheDocument();
+  });
+
+  it("nút X ở góc trên vẫn đóng được cửa sổ", async () => {
+    const onClose = vi.fn();
+    const list = [invoice({ id: "inv-1", status: "draft" })];
+    render(
+      <InvoiceComposerModal
+        mode="edit"
+        deal={deal}
+        suggestedInvoiceIndex={2}
+        existingInvoices={list}
+        client={{ name: "Hỏa Quốc huynh", email: "a@b.c", phone: "0352015349" }}
+        invoice={list[0]}
+        isLoading={false}
+        onClose={onClose}
+        onCreate={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Đóng" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

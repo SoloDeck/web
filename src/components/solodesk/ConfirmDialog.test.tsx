@@ -69,3 +69,64 @@ describe("<ConfirmDialog /> onCancel", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
+
+describe("<ConfirmDialog /> nút phụ", () => {
+  it("không truyền secondaryLabel/onSecondary thì không hiện nút thứ ba", () => {
+    render(
+      <ConfirmDialog open onOpenChange={() => {}} title="Hỏi" cancelLabel="Để sau" onConfirm={() => {}} />
+    );
+    expect(screen.queryByRole("button", { name: /chỉ ghi nhận/ })).not.toBeInTheDocument();
+  });
+
+  it("bấm nút phụ thì chỉ gọi onSecondary — không onConfirm, không tự đóng", async () => {
+    const user = userEvent.setup();
+    const onSecondary = vi.fn();
+    const onConfirm = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={onOpenChange}
+        title="Gửi?"
+        confirmLabel="Gửi"
+        secondaryLabel="Tôi đã gửi cách khác — chỉ ghi nhận"
+        onSecondary={onSecondary}
+        onConfirm={onConfirm}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tôi đã gửi cách khác — chỉ ghi nhận" }));
+
+    expect(onSecondary).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("<ConfirmDialog /> nội dung", () => {
+  it("nhận cả JSX để nhấn mạnh một đoạn (ví dụ in đậm số tiền)", () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        title="Gửi?"
+        description={
+          <>
+            Giá <strong>5.000.000 ₫</strong> nhé.
+          </>
+        }
+        onConfirm={() => {}}
+      />
+    );
+
+    expect(screen.getByText("5.000.000 ₫").tagName).toBe("STRONG");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Giá 5.000.000 ₫ nhé.");
+  });
+
+  it("vẫn nhận chuỗi thường như trước", () => {
+    render(
+      <ConfirmDialog open onOpenChange={() => {}} title="Xoá?" description="Không hoàn tác được." onConfirm={() => {}} />
+    );
+    expect(screen.getByText("Không hoàn tác được.")).toBeInTheDocument();
+  });
+});

@@ -118,7 +118,7 @@ describe("needsInvoiceReminder", () => {
   /**
    * Mốc đã tick xong mà khách chưa nhận được hóa đơn nào.
    *
-   * Cảnh này rơi ra từ chính lối thoát ở hộp thoại tick: bấm tick rồi chọn "Để sau". Không
+   * Cảnh này rơi ra từ chính lối thoát ở hộp thoại tick: bấm tick rồi chọn "Ghi nhận". Không
    * nhắc thì mốc đó nằm im giữa những mốc đã xong, trông y hệt các mốc đã thu tiền —
    * freelancer làm xong việc rồi quên đòi tiền.  #Huynh
    */

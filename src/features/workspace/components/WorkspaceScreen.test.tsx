@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 import type { Deal } from "@/features/deals/types";
+import { countArchivedDeals, countLostDeals } from "@/services/dealsService";
 
 /**
  * Màn hình chính hỏng thì phải NÓI RA.
@@ -27,7 +28,10 @@ vi.mock("@/features/deals/hooks/useDeals", () => ({
   dealKeys: { all: ["deals"] },
   useDeals: () => dealsState,
 }));
-vi.mock("@/services/dealsService", () => ({ countArchivedDeals: vi.fn().mockResolvedValue(0) }));
+vi.mock("@/services/dealsService", () => ({
+  countArchivedDeals: vi.fn().mockResolvedValue(0),
+  countLostDeals: vi.fn().mockResolvedValue(0),
+}));
 vi.mock("@/features/profile/hooks/useProfile", () => ({
   useProfile: () => ({ profile: {}, setProfile: vi.fn() }),
 }));
@@ -44,7 +48,12 @@ vi.mock("@/features/ai/hooks/useAIActivityStore", () => ({
 // Các màn con nặng — không liên quan tới thứ đang kiểm.
 vi.mock("@/components/layout/Sidebar", () => ({ AppSidebar: () => null }));
 vi.mock("@/features/deals/components/KanbanBoard", () => ({
-  KanbanBoard: () => <div>BẢNG KANBAN</div>,
+  KanbanBoard: ({ archivedCount }: { archivedCount?: number }) => (
+    <div>
+      BẢNG KANBAN
+      <span data-testid="so-du-an-trong-kho">{archivedCount}</span>
+    </div>
+  ),
 }));
 vi.mock("@/features/deals/components/ArchivedDealsDrawer", () => ({
   ArchivedDealsDrawer: () => null,
@@ -73,6 +82,8 @@ function renderScreen() {
 
 beforeEach(() => {
   dealsState = { deals, isLoading: false, isError: false };
+  vi.mocked(countArchivedDeals).mockResolvedValue(0);
+  vi.mocked(countLostDeals).mockResolvedValue(0);
 });
 
 describe("<WorkspaceScreen /> — tải danh sách dự án hỏng", () => {
@@ -102,5 +113,33 @@ describe("<WorkspaceScreen /> — tải danh sách dự án hỏng", () => {
 
     expect(screen.getByText("BẢNG KANBAN")).toBeInTheDocument();
     expect(screen.queryByText(/Không tải được danh sách dự án/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("<WorkspaceScreen /> — lối vào kho lưu trữ", () => {
+  // Chân cột "Hoàn Thành" chỉ treo lối vào kho khi con số này > 0. Kho có hai mục, nên nếu chỉ đếm
+  // mục "Đã hoàn thành" thì freelancer chỉ có dự án không thành công sẽ không có đường nào vào.
+  it("số dự án trong kho cộng cả mục Đã hoàn thành lẫn mục Không thành công", async () => {
+    vi.mocked(countArchivedDeals).mockResolvedValue(12);
+    vi.mocked(countLostDeals).mockResolvedValue(3);
+    renderScreen();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("so-du-an-trong-kho")).toHaveTextContent("15")
+    );
+  });
+
+  it("chỉ có dự án không thành công thì vẫn có số để hiện lối vào", async () => {
+    vi.mocked(countArchivedDeals).mockResolvedValue(0);
+    vi.mocked(countLostDeals).mockResolvedValue(4);
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("so-du-an-trong-kho")).toHaveTextContent("4"));
+  });
+
+  it("kho rỗng thì số là 0 — chân cột không treo lối vào", async () => {
+    renderScreen();
+
+    expect(screen.getByTestId("so-du-an-trong-kho")).toHaveTextContent("0");
   });
 });

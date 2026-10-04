@@ -15,6 +15,9 @@ import { formatVND } from "@/utils/format";
 // Thứ tự vòng đời, bỏ `lost` ra khỏi thân phễu (xử lý riêng).
 const FUNNEL_ORDER: Stage[] = STAGES.map((s) => s.id).filter((id) => id !== "lost");
 
+/** Cột cuối của phễu: deal xong rồi thì không còn "đang chạy". */
+const COMPLETED_STAGE: Stage = "completed_and_billed";
+
 export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
   const byStage = new Map(data.map((row) => [row.stage, row]));
   const rows = FUNNEL_ORDER.map((stage) => ({
@@ -27,7 +30,12 @@ export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
 
   // Bề rộng thanh so theo giai đoạn ĐÔNG deal nhất — để chênh lệch nhìn rõ.
   const maxCount = rows.reduce((m, r) => Math.max(m, r.count), 0);
-  const totalActive = rows.reduce((s, r) => s + r.count, 0);
+  // "Đang chạy" = chưa hoàn thành (`lost` đã nằm ngoài thân phễu). Cùng định nghĩa với
+  // `active_deals` của backend. Trước đây cộng LUÔN cột "Hoàn thành" vào rồi vẫn gọi là
+  // "đang chạy" nên phễu ghi 31 trong khi chỉ có 25 deal đang chạy.
+  const completed = rows.find((r) => r.stage === COMPLETED_STAGE)?.count ?? 0;
+  const running = rows.reduce((s, r) => (r.stage === COMPLETED_STAGE ? s : s + r.count), 0);
+  const summary = `${running} deal đang chạy${completed > 0 ? ` · ${completed} đã hoàn thành` : ""}`;
 
   return (
     <div className="rounded-xl border border-border p-4">
@@ -35,10 +43,10 @@ export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
         <div className="flex items-center gap-2 font-semibold">
           <Filter className="h-4 w-4 text-primary" /> Phễu deal theo giai đoạn
         </div>
-        <div className="text-xs text-muted-foreground">{totalActive} deal đang chạy</div>
+        <div className="text-xs text-muted-foreground">{summary}</div>
       </div>
 
-      {totalActive === 0 ? (
+      {running + completed === 0 ? (
         <div className="grid h-20 place-items-center text-sm text-muted-foreground">
           Chưa có deal nào trong pipeline.
         </div>
@@ -76,7 +84,7 @@ export function PipelineFunnel({ data }: { data: PipelineStageStat[] }) {
 
       {lost && lost.deal_count > 0 && (
         <div className="mt-3 border-t border-dashed border-border pt-2 text-[11px] text-muted-foreground">
-          Không chốt được: <span className="tabular-nums">{lost.deal_count} deal</span>
+          Không thành công: <span className="tabular-nums">{lost.deal_count} deal</span>
         </div>
       )}
     </div>

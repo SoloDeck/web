@@ -28,10 +28,10 @@ const TYPE_OPTIONS: { value: ClientType; label: string }[] = [
   { value: "company", label: "Công ty" },
 ];
 
+// Chỉ hai trạng thái, khớp bộ lọc ở Hồ sơ khách hàng. Lưu trữ khách thì các dự án đang chạy của
+// khách tự vào Kho lưu trữ (backend làm), nên chọn "Lưu trữ" ở đây có hậu quả giống bấm nút lưu trữ.
 const STATUS_OPTIONS: { value: ClientStatus; label: string }[] = [
   { value: "prospect", label: "Tiềm năng" },
-  { value: "active", label: "Đang hợp tác" },
-  { value: "inactive", label: "Ngưng hợp tác" },
   { value: "archived", label: "Lưu trữ" },
 ];
 
@@ -64,7 +64,8 @@ function toForm(client: ClientRecord): FormState {
   return {
     name: client.name ?? "",
     type: client.type,
-    status: client.status,
+    // Giá trị cũ "Đang hợp tác" / "Ngưng hợp tác" không còn trong danh sách chọn → coi là "Tiềm năng".
+    status: client.status === "archived" ? "archived" : "prospect",
     email: client.email ?? "",
     phone: client.phone ?? "",
     website: client.website ?? "",
@@ -124,7 +125,12 @@ export function ClientEditDialog({
     event.preventDefault();
     if (!form.name.trim()) return;
     updateClient(
-      { id: client.id, payload: toPayload(form) },
+      {
+        id: client.id,
+        payload: toPayload(form),
+        // Chỉ khi CHUYỂN sang lưu trữ mới kéo theo dự án; sửa ghi chú của khách đã lưu trữ thì không.
+        archiving: form.status === "archived" && client.status !== "archived",
+      },
       { onSuccess: onClose }
     );
   }
@@ -191,6 +197,11 @@ export function ClientEditDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {form.status === "archived" && client.status !== "archived" && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Các dự án đang chạy của khách hàng sẽ tự động đưa vào Kho lưu trữ.
+                </p>
+              )}
             </div>
           </div>
 

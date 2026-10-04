@@ -22,12 +22,16 @@ import {
   Trash2,
   X,
   Eye,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppSidebar } from "@/components/layout/Sidebar";
 import { ConfirmDialog } from "@/components/solodesk/ConfirmDialog";
+import { DateTextField } from "@/components/solodesk/DateTextField";
 import { NoticeDialog } from "@/components/solodesk/NoticeDialog";
 import { ConfirmSendContractDialog } from "@/features/deals/components/ConfirmSendContractDialog";
+import { ConfirmSendInvoiceDialog } from "@/features/deals/components/ConfirmSendInvoiceDialog";
+import { PaymentTaskPromptDialog } from "@/features/deals/components/PaymentTaskPromptDialog";
 import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -37,6 +41,7 @@ import { useCanUseAi } from "@/features/subscriptions/hooks/useSubscriptions";
 import { fillContractFromTemplate } from "@/services/contractsService";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import { proposalToHtml } from "@/features/deals/proposalHtml";
+import { matchesDocumentSearch } from "@/features/deals/documentSearch";
 import { parseTaxRatePercent } from "@/features/deals/taxRate";
 import type { DealDetailTab } from "@/features/deals/dealSearch";
 import { pdfDownloadErrorMessage } from "@/features/deals/pdfDownloadError";
@@ -49,18 +54,28 @@ import {
   paymentMilestoneLabel,
   shouldTickAfterInvoiceSent,
 } from "@/features/deals/paymentTasks";
-import { missingUpfrontPayments, shouldOfferStartProject } from "@/features/deals/taskActionGuards";
+import {
+  isTaskListLocked,
+  missingUpfrontPayments,
+  shouldOfferStartProject,
+} from "@/features/deals/taskActionGuards";
 import {
   buildInvoiceDraft,
   composeInvoiceNotes,
   buildDefaultInvoiceNotes,
+  fillInvoiceAmount,
   getInvoiceDisplayTitle,
   invoiceOrdinal,
+  mismatchedAmounts,
+  nextInvoiceNumber,
+  retargetAmountSentence,
   type InvoiceComposerClient,
   type InvoiceDraftState,
   type InvoiceTone,
 } from "@/features/deals/invoiceComposer";
-import { dealKeys, useDeal, useDealHistory, useDealIntakes, useDeleteDeal, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
+import { DealFailureDialog } from "@/features/deals/components/DealFailureDialog";
+import { canMarkDealLost } from "@/features/deals/dealFailure";
+import { dealKeys, useDeal, useDealHistory, useDealIntakes, useMarkDealLost, useTransitionDealStage, useUpdateDeal } from "@/features/deals/hooks/useDeals";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import { DealReminderPanel } from "@/features/reminders/components/DealReminderPanel";
 import { useDealReminders } from "@/features/reminders/hooks/useReminders";
@@ -91,6 +106,7 @@ import {
   useCreateContract,
   useGenerateContractContent,
   useSendContract,
+  useRecordContractSent,
   useRecordClientSignature,
 } from "@/features/deals/hooks/useContracts";
 import { STAGES, STAGE_BY_ID, formatDealSource, type Deal, type ProjectTask } from "@/features/deals/types";
@@ -103,7 +119,11 @@ import type { ProposalContentDTO, ProposalDecisionStatus } from "@/services/prop
 import { getContractPreview, downloadContractPdf } from "@/services/contractsService";
 import { downloadProposalPdf } from "@/services/proposalsService";
 import { useContractInlineEditor } from "@/features/deals/hooks/useContractInlineEditor";
-import type { InvoicePayload, InvoiceResponse, InvoiceUpdatePayload } from "@/services/invoicesService";
+import {
+  type InvoicePayload,
+  type InvoiceResponse,
+  type InvoiceUpdatePayload,
+} from "@/services/invoicesService";
 import { addDealHistoryEntry } from "@/features/deals/dealHistoryStorage";
 import { getApiErrorCode, getApiErrorMessage, getApiErrorStatus } from "@/lib/api-error";
 import { useAIActivityStore } from "@/features/ai/hooks/useAIActivityStore";
@@ -165,7 +185,7 @@ function recommendationLabel(value?: string | null): string {
 
 const CONTRACT_STATUS_LABELS: Record<string, string> = {
   draft: "Bản nháp",
-  pending_signatures: "Chờ ký",
+  pending_signatures: "Đã gửi",
   active: "Đang hiệu lực",
   completed: "Đã hoàn thành",
   terminated: "Đã chấm dứt",
@@ -246,7 +266,7 @@ export function DealDetailPage({
   const contracts = useContractList({ deal_id: deal?.id, page_size: 10 });
   const reminders = useDealReminders(deal?.id);
   const intakeQuery = useDealIntakes(Boolean(deal?.clientId));
-  const deleteDeal = useDeleteDeal();
+  const markLost = useMarkDealLost();
   const updateDeal = useUpdateDeal();
   const transitionDealStage = useTransitionDealStage();
   const proposalDecision = useTransitionProposalStatus();
@@ -261,6 +281,7 @@ export function DealDetailPage({
   });
   const recordSignature = useRecordClientSignature();
   const sendContract = useSendContract();
+  const recordContractSent = useRecordContractSent();
   const contractTemplates = useTermTemplates("contract");
   const canUseAi = useCanUseAi();
 
@@ -400,6 +421,11 @@ export function DealDetailPage({
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
   // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
   const draftContract = contractItems.find((contract) => contract.status === "draft");
+  // Hợp đồng ĐÃ GỬI, đang chờ khách ký (`pending_signatures`). Lúc này không được tạo/viết lại
+  // hợp đồng nữa — cũng như báo giá đã gửi thì khoá nút AI — nếu không freelancer sẽ đẻ ra một
+  // hợp đồng thứ hai trong khi khách đang cầm bản đầu. Backend cũng chặn: mỗi deal chỉ được một
+  // hợp đồng chờ ký / đang hiệu lực.  #Huynh
+  const hasPendingContract = contractItems.some((contract) => contract.status === "pending_signatures");
   // Chỉ tin trạng thái THẬT từ backend. Trước đây còn cộng thêm một Set trong useState —
   // freelancer bấm "Khách đã ký" thì nút triển khai mở ra, nhưng F5 là mất sạch vì nó
   // chưa bao giờ được gửi lên server. Giao diện nói dối chính người dùng.  #Huynh
@@ -525,15 +551,19 @@ export function DealDetailPage({
     setRemoveDialogOpen(true);
   }
 
-  function confirmRemoveDeal() {
+  function confirmRemoveDeal(reason: string) {
     if (!deal) return;
-    // DELETE /deals/{id} là soft-delete bên backend, UI gọi là "Loại bỏ dự án" theo đúng nghiệp vụ.
-    deleteDeal.mutate(deal.id, {
-      onSuccess: () => {
-        setRemoveDialogOpen(false);
-        navigate({ to: "/" });
-      },
-    });
+    // "Loại bỏ dự án" = đánh dấu KHÔNG THÀNH CÔNG kèm lý do (giai đoạn `lost`), KHÔNG xóa: deal vào Kho
+    // lưu trữ → mục Không thành công và được tính vào tỷ lệ thắng. Muốn xóa hẳn thì vào đúng mục đó.
+    markLost.mutate(
+      { id: deal.id, reason },
+      {
+        onSuccess: () => {
+          setRemoveDialogOpen(false);
+          navigate({ to: "/" });
+        },
+      }
+    );
   }
 
   // Bấm "Tạo hợp đồng": LUÔN mở hộp chọn (AI tự viết / mẫu thư viện) trước khi sinh —
@@ -706,7 +736,7 @@ export function DealDetailPage({
     if (unpaid.length > 0) {
       toast.error(
         `Còn ${unpaid.length}/${paymentTasks.length} khoản thu tiền chưa hoàn tất. ` +
-          `Hãy tick xong chúng trong tab Công việc.`
+          `Hãy kiểm tra lại tab "Công việc".`
       );
       setTab("tasks");
       return;
@@ -803,7 +833,6 @@ export function DealDetailPage({
         onSuccess: () => {
           sendInvoiceMutation.mutate(invoiceId, {
             onSuccess: (sent) => {
-              toast.success(`Đã gửi hóa đơn ${sent.invoice_number} cho khách.`);
               addDealHistoryEntry(deal.id, {
                 date: new Date().toISOString(),
                 text: `Đã gửi hóa đơn ${sent.invoice_number}.`,
@@ -881,7 +910,6 @@ export function DealDetailPage({
     if (!deal) return;
     sendInvoiceMutation.mutate(invoiceId, {
       onSuccess: (invoice) => {
-        toast.success("Đã chuyển hóa đơn sang trạng thái đã gửi.");
         addDealHistoryEntry(deal.id, {
           date: new Date().toISOString(),
           text: `Đã gửi hóa đơn ${invoice.invoice_number}.`,
@@ -964,10 +992,14 @@ export function DealDetailPage({
     });
   }
 
-  function handleSendContract(contractId: string) {
-    sendContract.mutate(contractId, {
+  function handleSendContract(contractId: string, mode: "email" | "record" = "email") {
+    (mode === "record" ? recordContractSent : sendContract).mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
+        toast.success(
+          mode === "record"
+            ? "Đã ghi nhận hợp đồng là đã gửi (không gửi email)."
+            : "Đã gửi hợp đồng kèm file PDF tới email khách ký."
+        );
         if (deal) addDealHistoryEntry(deal.id, { date: new Date().toISOString(), text: "Đã gửi hợp đồng cho khách ký.", channel: "email" });
       },
       // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
@@ -1228,7 +1260,8 @@ export function DealDetailPage({
     toggleTaskMutation.mutate({ taskId: task.id, is_done: true });
   }
 
-  /** "Để sau" — vẫn tick xong task. Người ta bấm tick là để tick. */
+  /** Nút bên trái của hộp thoại tick ("Ghi nhận" / "Để sau") — vẫn tick xong task. Người ta bấm
+   *  tick là để tick. */
   function finishTogglingPaymentTask() {
     if (!paymentTaskPrompt) return;
     toggleTaskMutation.mutate({ taskId: paymentTaskPrompt.id, is_done: true });
@@ -1318,12 +1351,16 @@ export function DealDetailPage({
 
             <div className="flex items-center gap-2">
               <StageBadge deal={deal} />
-              <button
-                onClick={handleArchive}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4" /> Loại bỏ dự án
-              </button>
+              {/* Chỉ deal CHƯA đóng mới loại bỏ được: hoàn thành thì không "thất bại" nữa, đã không
+                  thành công rồi thì chỉ còn nút xóa vĩnh viễn trong Kho lưu trữ. */}
+              {canMarkDealLost(deal.stage) && (
+                <button
+                  onClick={handleArchive}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" /> Loại bỏ
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -1487,8 +1524,14 @@ export function DealDetailPage({
                         vì vẽ một thanh 0% trông như dự án mới bắt đầu. */}
                     <div className="mt-5">
                       {isLost ? (
-                        <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                          Dự án đã bị loại bỏ — không còn nằm trong quy trình.
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+                          <div className="font-semibold text-destructive">Dự án không thành công</div>
+                          {deal?.lostReason && (
+                            <p className="mt-1 text-sm text-foreground">Lý do: {deal.lostReason}</p>
+                          )}
+                          <p className="mt-1">
+                            Dự án nằm trong Kho lưu trữ (mục Không thành công), không còn trong quy trình.
+                          </p>
                         </div>
                       ) : (
                         <>
@@ -1523,6 +1566,8 @@ export function DealDetailPage({
                       onUpdateTask={handleUpdateTask}
                       onDeleteTask={handleDeleteTask}
                       onToggleTask={handleToggleTask}
+                      /* Deal đã "Hoàn thành": danh sách việc chỉ để xem — khóa thêm, sửa, xóa, tick. */
+                      readOnly={isTaskListLocked(deal.stage)}
                       /* `fill` để khung kéo dài hết chiều cao tab. Bản mặc định chốt cứng
                          560px nên trên màn hình cao, thẻ dừng lơ lửng giữa chừng mà bên
                          trong đã có thanh cuộn — nhìn như bị cắt cụt.
@@ -1637,6 +1682,7 @@ export function DealDetailPage({
                 hasAcceptedProposal={Boolean(acceptedProposal)}
                 hasContract={contractItems.length > 0}
                 hasDraftContract={Boolean(draftContract)}
+                hasPendingContract={hasPendingContract}
                 hasActiveContract={hasDeploymentReadyContract}
               />
 
@@ -1721,7 +1767,7 @@ export function DealDetailPage({
         <InvoiceComposerModal
           mode={invoiceModalMode}
           deal={deal}
-          suggestedInvoiceIndex={(invoices.data?.length ?? 0) + 1}
+          suggestedInvoiceIndex={nextInvoiceNumber(invoices.data ?? [])}
           existingInvoices={invoices.data ?? []}
           client={{
             name: client?.name ?? deal.client,
@@ -1754,19 +1800,11 @@ export function DealDetailPage({
           }}
         />
       )}
-      <ConfirmDialog
+      <DealFailureDialog
         open={removeDialogOpen}
         onOpenChange={setRemoveDialogOpen}
-        title="Loại bỏ dự án?"
-        description={
-          deal
-            ? `Dự án "${deal.projectType}" sẽ được loại khỏi quy trình và không còn hiển thị trong bảng dự án.`
-            : undefined
-        }
-        confirmLabel="Loại bỏ dự án"
-        cancelLabel="Giữ lại"
-        tone="danger"
-        isLoading={deleteDeal.isPending}
+        dealTitle={deal?.projectType ?? ""}
+        isLoading={markLost.isPending}
         onConfirm={confirmRemoveDeal}
       />
       {/* Hai mốc "khách đã đồng ý" — đều là GHI NHẬN việc xảy ra ngoài hệ thống (Zalo, gọi
@@ -1780,7 +1818,7 @@ export function DealDetailPage({
         title="Khách đã đồng ý báo giá này?"
         description={
           deal
-            ? `Chỉ bấm khi khách "${deal.client}" đã thật sự đồng ý ở ngoài (Zalo, email, gọi điện). Dự án sẽ chuyển sang Đang Đàm Phán và không lùi lại được.`
+            ? `Chỉ bấm khi khách "${deal.client}" đã thật sự đồng ý. Dự án sẽ chuyển sang giai đoạn tiếp theo và không lùi lại được.`
             : undefined
         }
         confirmLabel="Đúng, khách đã đồng ý"
@@ -1798,7 +1836,7 @@ export function DealDetailPage({
           if (!open) setContractPendingSign(null);
         }}
         title="Khách đã ký hợp đồng?"
-        description="Chỉ bấm khi đã cầm được bản ký của khách (giấy, bản scan, hoặc ảnh chụp). Hợp đồng sẽ chuyển sang có hiệu lực và hệ thống lập luôn các mốc thu tiền — bỏ ra thì phải dọn tay."
+        description="Chỉ bấm khi đã cầm được bản ký của khách (giấy, bản scan, hoặc ảnh chụp). Hợp đồng sẽ chuyển sang có hiệu lực và hệ thống lập luôn các mốc thu tiền dựa trên hợp đồng đã gửi."
         confirmLabel="Đúng, khách đã ký"
         cancelLabel="Chưa, để sau"
         isLoading={recordSignature.isPending}
@@ -1836,80 +1874,13 @@ export function DealDetailPage({
         isLoading={completePending}
         onConfirm={handleConfirmCompleteProject}
       />
-      {/* Tick một mốc thu tiền = tiền đã về. Hỏi ngay để chứng từ đi theo, thay vì bắt người
-          dùng nhớ sang tab Tài liệu làm nốt — mà thường là không ai nhớ.
-
-          "Để sau" vẫn tick xong task — người ta bấm tick là để tick, đừng bắt trả lời câu
-          hỏi khác mới cho làm việc mình định làm.
-
-          Từng có nút "Huỷ" thứ ba (bỏ luôn việc tick), nay bỏ đi: dấu ✕ ở góc cửa sổ vốn đã
-          làm đúng việc đó rồi (onOpenChange -> setPaymentTaskPrompt(null)), nên nó chỉ là
-          một nút nói lại điều người dùng đã biết cách làm.  #Huynh */}
-      <Dialog
-        open={Boolean(paymentTaskPrompt)}
-        onOpenChange={(open) => {
-          if (!open) setPaymentTaskPrompt(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          {paymentTaskPrompt &&
-            (() => {
-              const inv = paymentTaskPrompt.invoice;
-              const conLai = inv ? inv.total - inv.amountPaid : 0;
-              const chuaCoHoaDon = !inv;
-              return (
-                <>
-                  <DialogHeader>
-                    <DialogTitle>
-                      {chuaCoHoaDon ? "Gửi hóa đơn cho khách luôn?" : "Ghi nhận đã thanh toán?"}
-                    </DialogTitle>
-                  </DialogHeader>
-                  <p className="text-sm text-muted-foreground">
-                    Mốc <b className="text-foreground">{paymentMilestoneLabel(paymentTaskPrompt)}</b>
-                    {chuaCoHoaDon ? (
-                      <>
-                        {" "}
-                        {/* KHÔNG hứa mã QR ở đây: thư chỉ đính QR khi freelancer đã khai
-                          thông tin ngân hàng trong hồ sơ, mà phần lớn thì chưa. Hứa một thứ
-                          khách không thấy trong thư là tự tạo ra câu hỏi "QR đâu?".  #Huynh */}
-                        — SoloDesk sẽ tạo hóa đơn theo đúng số tiền của mốc này trong báo giá đã
-                        chốt, rồi <b className="text-foreground">gửi email cho khách</b>.
-                      </>
-                    ) : (
-                      <>
-                        {" "}
-                        — hóa đơn <b className="text-foreground">{inv?.invoiceNumber}</b> còn{" "}
-                        <b className="text-foreground">{formatVND(conLai)}</b>. Xác nhận là khách đã
-                        chuyển đủ số này.
-                      </>
-                    )}
-                  </p>
-                  <DialogFooter className="gap-2">
-                    <button
-                      type="button"
-                      onClick={finishTogglingPaymentTask}
-                      className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
-                    >
-                      Để sau
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const task = paymentTaskPrompt;
-                        finishTogglingPaymentTask();
-                        if (chuaCoHoaDon) createInvoiceDraftForReview(task);
-                        else recordFullPayment(task);
-                      }}
-                      className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-                    >
-                      {chuaCoHoaDon ? "Tạo & gửi hóa đơn" : "Ghi nhận đã thanh toán"}
-                    </button>
-                  </DialogFooter>
-                </>
-              );
-            })()}
-        </DialogContent>
-      </Dialog>
+      <PaymentTaskPromptDialog
+        task={paymentTaskPrompt}
+        onDismiss={() => setPaymentTaskPrompt(null)}
+        onFinishTick={finishTogglingPaymentTask}
+        onSendInvoice={createInvoiceDraftForReview}
+        onRecordPayment={recordFullPayment}
+      />
       {/* Xuất hóa đơn cho một khoản "thu khi xong" mà công việc chưa tick xong.
           HỎI chứ không CHẶN — freelancer làm xong hôm nay rồi xuất hóa đơn luôn, tick task
           sau, là chuyện rất thường; chặn cứng biến thao tác đúng thành lỗi.
@@ -1996,11 +1967,16 @@ export function DealDetailPage({
           if (!open) setContractPendingSendId(null);
         }}
         clientEmail={deal?.clientEmail ?? client?.email}
-        isLoading={sendContract.isPending}
+        isLoading={sendContract.isPending || recordContractSent.isPending}
         onConfirm={() => {
           const contractId = contractPendingSendId;
           setContractPendingSendId(null);
           if (contractId) handleSendContract(contractId);
+        }}
+        onRecordOnly={() => {
+          const contractId = contractPendingSendId;
+          setContractPendingSendId(null);
+          if (contractId) handleSendContract(contractId, "record");
         }}
       />
       <ConfirmDialog
@@ -2345,6 +2321,7 @@ export function ActionsPanel({
   hasAcceptedProposal,
   hasContract,
   hasDraftContract,
+  hasPendingContract = false,
   hasActiveContract,
 }: {
   deal: Deal;
@@ -2358,6 +2335,8 @@ export function ActionsPanel({
   hasAcceptedProposal: boolean;
   hasContract: boolean;
   hasDraftContract: boolean;
+  /** Hợp đồng đã gửi, đang chờ khách ký: khoá nút tạo/viết lại hợp đồng bằng AI. */
+  hasPendingContract?: boolean;
   hasActiveContract: boolean;
 }) {
   const stage = deal.stage;
@@ -2469,29 +2448,25 @@ export function ActionsPanel({
               {stageTransitionLoading ? "Đang xử lý..." : "Bắt đầu triển khai"}
             </button>
           ) : (
-            <>
-              <button
-                onClick={onContract}
-                disabled={contractLoading || !hasAcceptedProposal}
-                title={!hasAcceptedProposal ? "Cần báo giá đã được chấp nhận trước" : "Tạo hợp đồng bằng AI"}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-                {contractLoading
-                  ? "Đang tạo hợp đồng..."
-                  : hasDraftContract
-                    ? "Tạo Lại Hợp Đồng AI"
-                    : "Tạo Hợp Đồng AI"}
-              </button>
-              {hasDraftContract && (
-                <p className="-mt-1 text-center text-xs text-muted-foreground">
-                  Sẽ viết lại nội dung bản nháp hiện có, không tạo hợp đồng mới.
-                </p>
-              )}
-            </>
-          )}
-          {!hasContract && (
-            <p className="text-center text-xs text-muted-foreground">Cần tạo hợp đồng và gửi cho khách ký trước khi mở project triển khai.</p>
+            <button
+              onClick={onContract}
+              disabled={contractLoading || !hasAcceptedProposal || hasPendingContract}
+              title={
+                hasPendingContract
+                  ? "Hợp đồng đã gửi, đang chờ khách ký"
+                  : !hasAcceptedProposal
+                    ? "Cần báo giá đã được chấp nhận trước"
+                    : "Tạo hợp đồng bằng AI"
+              }
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {contractLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+              {contractLoading
+                ? "Đang tạo hợp đồng..."
+                : hasDraftContract
+                  ? "Tạo Lại Hợp Đồng AI"
+                  : "Tạo Hợp Đồng AI"}
+            </button>
           )}
           {hasContract && !hasActiveContract && (
             <p className="text-center text-xs text-muted-foreground">Hợp đồng đang chờ ký. Vào tab Tài liệu, bấm "Ghi nhận: khách đã ký" sau khi hai bên đã ký ngoài hệ thống.</p>
@@ -2661,10 +2636,17 @@ export function InvoiceComposerModal({
   const isDraftInvoice = !invoice || invoice.status === "draft";
   const canEdit = mode !== "view" && isDraftInvoice;
   /**
+   * Hóa đơn ĐÃ CÓ (xuất theo một mốc của hợp đồng) mang giá của HỢP ĐỒNG: ô số tiền bị khóa (và
+   * không còn ô thuế/VAT), backend cũng từ chối đổi. Gõ lại một con số khác là hóa đơn lệch hợp đồng — hợp đồng có cũng như
+   * không. Muốn đổi giá thì phải thỏa thuận lại hợp đồng. Chỉ hóa đơn MỚI (chưa có trong hệ thống)
+   * mới gõ giá được.  #Huynh
+   */
+  const priceLocked = Boolean(invoice);
+  /**
    * Bản nháp mang hạn thanh toán đã trôi vào quá khứ (hệ thống sinh nó với hạn +7 ngày, vài
    * tuần sau freelancer mới mở ra gửi).
    *
-   * Trước đây `validateInvoiceDraft` chặn cả "Lưu nháp" lẫn "Lưu & gửi cho khách" vì hạn nằm
+   * Trước đây `validateInvoiceDraft` chặn cả "Lưu" lẫn "Lưu & gửi cho khách" vì hạn nằm
    * trong quá khứ, nên hoá đơn ĐÓNG BĂNG: không sửa được, không gửi được, tiền không thu
    * được — cho tới khi người dùng tự mò ra ô ngày giữa form mà gõ lại. Giờ đề xuất sẵn hạn
    * mới; luật chặn vẫn giữ nguyên cho ngày người dùng TỰ gõ.  #Huynh
@@ -2680,12 +2662,23 @@ export function InvoiceComposerModal({
   /** Đã bấm "Lưu & gửi cho khách", đang chờ xác nhận lần cuối. */
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const subtotal = parseMoneyInput(draft.amount);
-  // `null` = ô VAT gõ chưa hợp lệ. Tạm tính như 0% để phần tổng không nhảy lung tung khi
-  // đang gõ dở; `validateInvoiceDraft` chặn không cho lưu.
+  // Không còn ô nhập thuế/VAT: tỉ lệ thuế đi theo hóa đơn (hóa đơn sinh từ mốc hợp đồng là 0%) và
+  // người dùng không đổi được.
   const parsedTaxRate = parseTaxRatePercent(draft.taxRate);
   const taxRate = parsedTaxRate ?? 0;
   const taxAmount = Math.round(subtotal * taxRate);
   const total = subtotal + taxAmount;
+  // Số tiền freelancer GÕ TAY trong lời nhắn mà không khớp hóa đơn (tạm tính / thuế / tổng). Tính lại
+  // sau mỗi lần gõ nên cảnh báo hiện ngay; còn nút "Lưu & gửi" thì bị chặn cho tới khi khớp — backend
+  // cũng chặn y như vậy, nên gửi từ hàng ở tab Tài liệu cũng không lọt.  #Huynh
+  const typedMismatch = canEdit
+    ? mismatchedAmounts(composeInvoiceNotes(draft.title, draft.notes), [subtotal, taxAmount, total])
+    : [];
+  /** "Giá trong lời nhắn đang lệch: ghi X nhưng Tổng cần thanh toán là Y." — dùng chung cho khung đỏ và các thông báo. */
+  const mismatchSentence =
+    typedMismatch.length > 0
+      ? `giá trong lời nhắn đang lệch: ghi ${typedMismatch.map(formatVND).join(", ")} nhưng Tổng cần thanh toán là ${formatVND(total)}.`
+      : "";
   const title =
     mode === "create"
       ? "Tạo hóa đơn nháp"
@@ -2700,28 +2693,66 @@ export function InvoiceComposerModal({
     setDueDateText(formatDateForVietnameseInput(dueDate));
   }, [client.email, client.name, client.phone, deal.id, deal.projectType, deal.value, invoice, draftOrdinal, dueDateWasPast]);
 
+  /** Tổng cần thanh toán của một bộ (số tiền, thuế) — cùng cách tính với khung "Tóm tắt". */
+  function totalOf(amountText: string, taxText: string): number {
+    const base = parseMoneyInput(amountText);
+    return base + Math.round(base * (parseTaxRatePercent(taxText) ?? 0));
+  }
+
   function updateDraft(field: keyof InvoiceDraftState, value: string) {
-    setDraft((current) => ({ ...current, [field]: value }));
+    setDraft((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "amount") {
+        // Câu mẫu "Tổng số tiền cần thanh toán là …" đi theo tổng mới, khỏi bắt người dùng gõ lại
+        // số. Nếu họ đã tự sửa con số trong câu đó thì để nguyên — và nó sẽ bị báo đỏ vì lệch.
+        next.notes = retargetAmountSentence(
+          next.notes,
+          totalOf(current.amount, current.taxRate),
+          totalOf(next.amount, next.taxRate)
+        );
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Gõ vào lời nhắn: KHÔNG cho ghi thêm số tiền khác hóa đơn. Giá là của hợp đồng nên cả trong chữ
+   * cũng không gõ khác được — thay đổi nào làm xuất hiện một số tiền lạ thì bị từ chối (chữ giữ
+   * nguyên). Chỗ lệch có sẵn từ trước (bản nháp cũ) thì không tính, để vẫn sửa được phần còn lại;
+   * nó chỉ bị báo đỏ và chặn lưu/gửi cho tới khi sửa.  #Huynh
+   */
+  function changeNotes(next: string) {
+    const allowed = [subtotal, taxAmount, total];
+    const before = mismatchedAmounts(composeInvoiceNotes(draft.title, draft.notes), allowed);
+    const introduced = mismatchedAmounts(composeInvoiceNotes(draft.title, next), allowed).filter(
+      (amount) => !before.includes(amount)
+    );
+    if (introduced.length > 0) {
+      toast.error(
+        `Không ghi được số tiền ${introduced.map(formatVND).join(", ")}: giá lấy từ hợp đồng, Tổng cần thanh toán là ${formatVND(total)}.`
+      );
+      return;
+    }
+    updateDraft("notes", next);
   }
 
   function changeTone(nextTone: InvoiceTone) {
     setTone(nextTone);
     if (!canEdit) return;
-    const amount = parseMoneyInput(draft.amount) || deal.value;
     setDraft((current) => ({
       ...current,
-      notes: buildDefaultInvoiceNotes(deal, client, amount, nextTone),
+      notes: buildDefaultInvoiceNotes(deal, client, total || deal.value, nextTone),
     }));
   }
 
   function hasDuplicateInvoiceTitle(): boolean {
     const currentTitle = draft.title.trim().toLowerCase();
     if (!currentTitle) return false;
-    return existingInvoices.some((item, index) => {
+    return existingInvoices.some((item) => {
       if (invoice && item.id === invoice.id) return false;
-      // Vị trí THẬT, không phải 0: để index cứng thì mọi hóa đơn chưa đặt tên đều đọc ra
-      // "Thanh toán đợt 1", và đặt tên đúng số thứ tự của mình lại bị báo trùng.  #Huynh
-      return getInvoiceDisplayTitle(item, index).trim().toLowerCase() === currentTitle;
+      // Tên tính trên CẢ danh sách (theo thời gian), không theo vị trí trong mảng: để vị trí
+      // cứng thì mọi hóa đơn chưa đặt tên đều đọc ra "Thanh toán đợt 1" và bị báo trùng.  #Huynh
+      return getInvoiceDisplayTitle(item, existingInvoices).trim().toLowerCase() === currentTitle;
     });
   }
 
@@ -2747,10 +2778,6 @@ export function InvoiceComposerModal({
     setDueDateText(formatDate(parsedDueDate));
     if (subtotal <= 0) {
       toast.error("Tổng tiền hóa đơn phải lớn hơn 0đ.");
-      return false;
-    }
-    if (parsedTaxRate === null) {
-      toast.error("Thuế/VAT cần là một số từ 0 đến 100, ví dụ 8 hoặc 8,5.");
       return false;
     }
     return true;
@@ -2791,14 +2818,33 @@ export function InvoiceComposerModal({
 
   function handleCreate() {
     if (!validateInvoiceDraft()) return;
+    // Giá là của hợp đồng: lời nhắn ghi số tiền lệch thì KHÔNG tạo (backend cũng từ chối).
+    if (mismatchSentence) {
+      toast.error(`Chưa tạo được: ${mismatchSentence} Hãy sửa cho khớp.`);
+      return;
+    }
     setCreateConfirmOpen(true);
   }
 
   function handleUpdate() {
     if (!invoice) return;
     if (!validateInvoiceDraft()) return;
+    // Giá là của hợp đồng: lời nhắn ghi số tiền lệch thì KHÔNG lưu (backend cũng từ chối).
+    if (mismatchSentence) {
+      toast.error(`Chưa lưu được: ${mismatchSentence} Hãy sửa cho khớp.`);
+      return;
+    }
     onUpdate(invoice.id, buildUpdatePayload());
   }
+
+  // Lịch chọn hạn thanh toán: đánh dấu ngày đang nhập (nếu hợp lệ) và làm mờ các ngày đã qua —
+  // hạn nằm trong quá khứ vốn bị chặn lúc lưu, nên không cho bấm vào từ đầu.
+  const dueDateIso = parseVietnameseDateInput(dueDateText);
+  const dueDateParsed = dueDateIso ? new Date(`${dueDateIso}T00:00:00`) : null;
+  const dueDateAsDate =
+    dueDateParsed && !Number.isNaN(dueDateParsed.getTime()) ? dueDateParsed : undefined;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
@@ -2838,27 +2884,29 @@ export function InvoiceComposerModal({
                   placeholder="Ví dụ: Đợt 1 - Tạm ứng 50%"
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
                 />
-                <span className="block text-xs font-normal text-muted-foreground">
-                  Dùng tên dễ hiểu cho Freelancer; mã hóa đơn backend vẫn được giữ riêng để đối soát.
-                </span>
               </label>
               <label className="space-y-1.5 text-sm font-medium">
-                Hạng mục thanh toán
+                Số tiền
                 <input
-                  value={draft.description}
-                  disabled={!canEdit}
-                  onChange={(event) => updateDraft("description", event.target.value)}
+                  value={draft.amount}
+                  disabled={!canEdit || priceLocked}
+                  onChange={(event) => updateDraft("amount", event.target.value)}
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
                 />
               </label>
-              <label className="space-y-1.5 text-sm font-medium">
-                Hạn thanh toán
-                <input
+              <div className="space-y-1.5 text-sm font-medium">
+                <label htmlFor="invoice-due-date" className="block">
+                  Hạn thanh toán
+                </label>
+                {/* Gõ tay (ngày/tháng/năm) hoặc bấm biểu tượng lịch để chọn. */}
+                <DateTextField
+                  id="invoice-due-date"
                   value={dueDateText}
                   disabled={!canEdit}
-                  placeholder="dd/mm/yyyy"
-                  onChange={(event) => {
-                    const value = event.target.value;
+                  selected={dueDateAsDate}
+                  minDate={todayStart}
+                  calendarLabel="Mở lịch chọn hạn thanh toán"
+                  onValueChange={(value) => {
                     setDueDateText(value);
                     const parsed = parseVietnameseDateInput(value);
                     if (parsed) updateDraft("dueDate", parsed);
@@ -2867,34 +2915,24 @@ export function InvoiceComposerModal({
                     const parsed = parseVietnameseDateInput(dueDateText);
                     if (parsed) setDueDateText(formatDate(parsed));
                   }}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
+                  onPick={(picked) => {
+                    const iso = toApiDateValue(picked);
+                    updateDraft("dueDate", iso);
+                    setDueDateText(formatDate(iso));
+                  }}
                 />
                 {dueDateWasPast && (
                   <span className="block text-xs font-normal text-muted-foreground">
                     Hạn cũ đã qua, SoloDesk đề xuất hạn mới. Bạn sửa lại được nếu muốn.
                   </span>
                 )}
-              </label>
-              <label className="space-y-1.5 text-sm font-medium">
-                Số tiền trước thuế
-                <input
-                  value={draft.amount}
-                  disabled={!canEdit}
-                  onChange={(event) => updateDraft("amount", event.target.value)}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
-                />
-              </label>
-              <label className="space-y-1.5 text-sm font-medium">
-                Thuế/VAT nếu có (%)
-                <input
-                  value={draft.taxRate}
-                  disabled={!canEdit}
-                  inputMode="decimal"
-                  placeholder="0"
-                  onChange={(event) => updateDraft("taxRate", event.target.value)}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-70"
-                />
-              </label>
+              </div>
+              {canEdit && priceLocked && (
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground md:col-span-2">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                  Số tiền lấy từ hợp đồng nên không sửa được ở bước này.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
@@ -2931,15 +2969,21 @@ export function InvoiceComposerModal({
             <div className="rounded-xl border border-border bg-background p-4">
               <div className="text-xs font-semibold uppercase text-muted-foreground">Tóm tắt</div>
               <div className="mt-4 space-y-3 text-sm">
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Tạm tính</span>
-                  <span className="font-semibold">{formatVND(subtotal)}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Thuế</span>
-                  <span className="font-semibold">{formatVND(taxAmount)}</span>
-                </div>
-                <div className="border-t border-border pt-3">
+                {/* Hóa đơn không còn ô thuế/VAT nên thường chỉ có MỘT dòng tổng. Hóa đơn cũ còn mang thuế
+                    thì vẫn hiện đủ tạm tính / thuế để cộng ra đúng tổng.  #Huynh */}
+                {taxAmount > 0 && (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Tạm tính</span>
+                      <span className="font-semibold">{formatVND(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Thuế</span>
+                      <span className="font-semibold">{formatVND(taxAmount)}</span>
+                    </div>
+                  </>
+                )}
+                <div className={cn(taxAmount > 0 && "border-t border-border pt-3")}>
                   <div className="flex justify-between gap-3 text-base">
                     <span className="font-semibold">Tổng cần thanh toán</span>
                     <span className="font-bold text-primary">{formatVND(total)}</span>
@@ -2983,11 +3027,33 @@ export function InvoiceComposerModal({
               </div>
             ) : (
               <textarea
-                value={draft.notes}
+                // Hóa đơn ĐÃ gửi: hiện đúng chữ khách nhận (bản cũ còn chỗ giữ chỗ thì điền số thật).
+                value={canEdit ? draft.notes : fillInvoiceAmount(draft.notes, Number(invoice?.total ?? total))}
                 disabled={!canEdit}
-                onChange={(event) => updateDraft("notes", event.target.value)}
+                onChange={(event) => changeNotes(event.target.value)}
                 className="min-h-[440px] flex-1 resize-none rounded-lg border border-border bg-card px-4 py-3 text-sm leading-7 outline-none focus:border-primary disabled:opacity-70"
               />
+            )}
+            {/* Số tiền trong lời nhắn phải khớp ô "Tổng cần thanh toán" bên trái, và là giá của hợp đồng nên
+                KHÔNG gõ khác được (xem `changeNotes`). Bản nháp cũ còn lệch thì báo ĐỎ ngay, và cả Lưu lẫn
+                Lưu & gửi đều bị chặn cho tới khi khớp (backend cũng chặn).  #Huynh */}
+            {canEdit && typedMismatch.length > 0 && (
+              <p
+                role="alert"
+                className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+              >
+                Giá trong lời nhắn đang lệch: ghi{" "}
+                <strong className="font-semibold">{typedMismatch.map(formatVND).join(", ")}</strong> nhưng Tổng cần
+                thanh toán là <strong className="font-semibold">{formatVND(total)}</strong>. Hãy sửa cho khớp — hóa
+                đơn chưa lưu hay gửi được cho tới khi khớp.
+              </p>
+            )}
+            {canEdit && typedMismatch.length === 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {priceLocked
+                  ? "Số tiền trong lời nhắn lấy từ hợp đồng nên không gõ số tiền khác được."
+                  : "Số tiền trong câu \"Tổng số tiền cần thanh toán\" tự đổi theo ô số tiền. Nếu bạn tự gõ số khác, hệ thống sẽ báo đỏ khi lệch với Tổng cần thanh toán."}
+              </p>
             )}
           </section>
         </div>
@@ -3004,12 +3070,11 @@ export function InvoiceComposerModal({
                 onClick={() => setDeleteConfirmOpen(true)}
                 className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Trash2 className="h-4 w-4" /> Xóa nháp
+                <Trash2 className="h-4 w-4" /> Xóa
               </button>
             )}
-            <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary">
-              Đóng
-            </button>
+            {/* Không có nút "Đóng" ở chân: đã có nút X ở góc trên bên phải, hai chỗ cùng làm một việc
+                chỉ làm hàng nút dài ra.  #Huynh */}
             {/* Cùng điều kiện với nút "Ghi nhận thanh toán" ở danh sách hoá đơn (tab Tài liệu). */}
             {onRecordPayment &&
               invoice &&
@@ -3041,7 +3106,7 @@ export function InvoiceComposerModal({
                 onClick={handleUpdate}
                 className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Save className="h-4 w-4" /> Lưu nháp
+                <Save className="h-4 w-4" /> Lưu
               </button>
             )}
             {/* Nút CHÍNH của cửa sổ này: xem lại xong thì gửi. Trước đây bấm "Tạo & gửi hóa
@@ -3053,6 +3118,10 @@ export function InvoiceComposerModal({
                 disabled={isLoading || subtotal <= 0}
                 onClick={() => {
                   if (!validateInvoiceDraft()) return;
+                  if (mismatchSentence) {
+                    toast.error(`Chưa gửi được: ${mismatchSentence} Hãy xem xét lại cho khớp.`);
+                    return;
+                  }
                   setSendConfirmOpen(true);
                 }}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
@@ -3086,16 +3155,13 @@ export function InvoiceComposerModal({
           hàng thật. Nhắc lại con số và người nhận trước khi bấm — cùng khuôn với hộp thoại
           gửi báo giá.  #Huynh */}
       {invoice && onSaveAndSend && (
-        <ConfirmDialog
+        <ConfirmSendInvoiceDialog
           open={sendConfirmOpen}
           onOpenChange={setSendConfirmOpen}
-          title={`Gửi hóa đơn ${invoice.invoice_number} — ${formatVND(total)} cho ${client.name}?`}
-          description={
-            `Email kèm hóa đơn sẽ gửi tới ${client.email || "email đã lưu của khách"} ngay bây giờ. ` +
-            "Gửi rồi không thu hồi được; nếu sai thì phải hủy hóa đơn và lập lại bản mới."
-          }
-          confirmLabel={`Gửi ${formatVND(total)}`}
-          cancelLabel="Để tôi xem lại"
+          invoiceNumber={invoice.invoice_number}
+          total={total}
+          clientName={client.name}
+          clientEmail={client.email}
           isLoading={isLoading}
           onConfirm={() => {
             setSendConfirmOpen(false);
@@ -3291,7 +3357,7 @@ export function DocumentsTab({
 
   const contractStatusLabel: Record<string, StatusBadge> = {
     draft: { label: "Bản nháp", cls: NEUTRAL_BADGE },
-    pending_signatures: { label: "Chờ ký", cls: WAITING_BADGE },
+    pending_signatures: { label: "Đã gửi", cls: WAITING_BADGE },
     active: { label: "Đang hiệu lực", cls: GOOD_BADGE },
     completed: { label: "Hoàn thành", cls: GOOD_BADGE },
     terminated: { label: "Đã chấm dứt", cls: BAD_BADGE },
@@ -3316,6 +3382,63 @@ export function DocumentsTab({
     proposals.find((p) => p.status === "sent") ??
     proposals[0];
   const currentProposals = current ? [current] : [];
+
+  // Ô tìm trong tab. Khớp trên CHÍNH những chữ hiện ra ở hàng (tên, mã INV, nhãn trạng thái,
+  // ngày, số tiền), không dấu cũng tìm được, nhiều chữ thì chữ nào cũng phải có mặt.  #Huynh
+  const [query, setQuery] = useState("");
+  const matches = (...fields: Array<string | number | null | undefined>) =>
+    matchesDocumentSearch(query, fields);
+  const visibleInvoices = invoices.filter((invoice) =>
+    matches(
+      // Tên tính trên CẢ danh sách (không phải danh sách đã lọc) để một hóa đơn không đổi tên
+      // chỉ vì người dùng đang tìm.
+      getInvoiceDisplayTitle(invoice, invoices),
+      invoice.invoice_number,
+      "hóa đơn",
+      invoiceStatusLabel[invoice.status]?.label ?? invoice.status,
+      formatDate(invoice.due_date),
+      formatVND(Number(invoice.total ?? 0))
+    )
+  );
+  const visibleAttachments = attachments.filter((item) =>
+    matches(item.filename, "file tài liệu", formatDate(item.created_at))
+  );
+  const visibleProposals = currentProposals.filter((item) =>
+    matches(
+      `Báo giá lần ${item.version_number}`,
+      proposalStatusLabel[item.status]?.label ?? item.status,
+      formatDate(item.created_at)
+    )
+  );
+  const visibleContracts = contracts.filter((item) =>
+    matches(
+      `Hợp đồng lần ${item.version_number}`,
+      contractStatusLabel[item.status]?.label ?? item.status,
+      formatDate(item.created_at)
+    )
+  );
+  const visibleQualifications = savedQualificationItems.filter((item) =>
+    matches(
+      "Kết quả đánh giá AI",
+      `${item.score}/100`,
+      LEVEL_UI[item.level].label,
+      formatDate(item.saved_at as string),
+      formatDate(item.generated_at)
+    )
+  );
+  const totalDocuments =
+    attachments.length +
+    currentProposals.length +
+    contracts.length +
+    invoices.length +
+    savedQualificationItems.length;
+  const visibleDocuments =
+    visibleInvoices.length +
+    visibleAttachments.length +
+    visibleProposals.length +
+    visibleContracts.length +
+    visibleQualifications.length;
+  const searching = query.trim() !== "";
 
   return (
     <>
@@ -3348,7 +3471,41 @@ export function DocumentsTab({
         </div>
       </div>
 
-      {invoices.map((invoice, index) => {
+      {/* Thanh tìm kiếm: tab này gom file, báo giá, hợp đồng, hóa đơn — vài đợt thu tiền là
+          danh sách dài ra, tìm bằng mắt chậm. Chỉ hiện khi có tài liệu để tìm.  #Huynh */}
+      {totalDocuments > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <input
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setQuery("");
+            }}
+            placeholder="Tìm tài liệu: tên, mã INV, trạng thái, ngày, số tiền..."
+            aria-label="Tìm tài liệu"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+          {searching && (
+            <>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {visibleDocuments}/{totalDocuments}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Xoá nội dung ô tìm"
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {visibleInvoices.map((invoice) => {
         const total = Number(invoice.total ?? 0);
         const paid = Number(invoice.amount_paid ?? 0);
         const remaining = Math.max(total - paid, 0);
@@ -3357,7 +3514,7 @@ export function DocumentsTab({
         const canSendInvoice = invoice.status === "draft";
         const canRecordPayment = remaining > 0 && !["draft", "void", "cancelled"].includes(invoice.status);
         const canVoidInvoice = !["draft", "paid", "void", "cancelled"].includes(invoice.status) && paid <= 0;
-        const displayTitle = getInvoiceDisplayTitle(invoice, index);
+        const displayTitle = getInvoiceDisplayTitle(invoice, invoices);
 
         return (
           <div key={`invoice-${invoice.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
@@ -3442,7 +3599,7 @@ export function DocumentsTab({
         );
       })}
 
-      {attachments.map((item) => (
+      {visibleAttachments.map((item) => (
         <div key={`attachment-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -3510,13 +3667,13 @@ export function DocumentsTab({
           "Đang dùng" = đã chấp nhận > đã gửi > bản nháp mới nhất. KHÔNG phải "bản mới
           nhất": gửi cho khách xong mà bấm "Tạo lại" thì thứ khách đang CẦM vẫn là bản đã
           gửi, không phải bản nháp vừa đẻ ra.  #Huynh */}
-      {currentProposals.map((item) => (
+      {visibleProposals.map((item) => (
         <div key={`proposal-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
             <div className="text-sm font-semibold">Báo giá lần {item.version_number}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {item.content?.title || "Báo giá cho yêu cầu hiện tại"} · {formatDate(item.created_at)}
-            </div>
+            {/* Chỉ ghi NGÀY. Dòng "Báo giá abc" lặp lại tên dự án ngay trên đầu trang và chẳng
+                giúp phân biệt gì (mọi báo giá của deal đều mang cùng tên).  #Huynh */}
+            <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
             {/* Mốc thanh toán — khi chốt báo giá, mỗi mốc thành 1 task "Thu tiền:" ở tab
                 Công việc để freelancer theo dõi thu tiền theo đợt.  #Huynh */}
             {item.content?.payment_milestones && item.content.payment_milestones.length > 0 && (
@@ -3552,44 +3709,35 @@ export function DocumentsTab({
             >
               {proposalStatusLabel[item.status]?.label ?? item.status}
             </span>
-            {/* BẢN NHÁP KHÔNG CÓ NÚT "XEM NỘI DUNG" RIÊNG.
-                Trước đây draft có hai cửa cho một việc: "Xem nội dung" mở bản CHỈ ĐỌC, "Soạn
-                & gửi" mở modal sửa được. Bấm nhầm cửa thứ nhất là ngồi nhìn tờ báo giá mà
-                không sửa được chữ nào — trong khi modal soạn thảo hiện ĐÚNG tờ đó (cùng
-                `getProposalPreview` do server dựng), lại còn sửa được giá/mốc và gửi.  #Huynh */}
-            {item.status !== "draft" && (
-              <button
-                type="button"
-                onClick={() => onViewProposal(item.id)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
-              >
-                <Eye className="h-3.5 w-3.5" /> Xem
-              </button>
-            )}
+            {/* MỘT nút "Xem" cho mọi trạng thái, luôn đứng ĐẦU hàng — thứ tự Xem · Tải PDF · (thùng
+                rác) giống hàng file phía trên, để mắt người dùng không phải tìm nút ở chỗ khác nhau
+                tuỳ báo giá.
+                BẢN NHÁP KHÔNG CÓ cửa "chỉ đọc" riêng: bấm "Xem" mở thẳng modal SOẠN THẢO. Trước đây
+                draft có hai cửa cho một việc — "Xem nội dung" mở bản CHỈ ĐỌC, "Soạn & gửi" mở modal
+                sửa được — nên bấm nhầm cửa thứ nhất là ngồi nhìn tờ báo giá mà không sửa được chữ
+                nào, trong khi modal soạn thảo hiện ĐÚNG tờ đó (cùng `getProposalPreview` do server
+                dựng), lại còn sửa được giá/mốc và gửi. Backend chặn gửi khi chưa chốt giá và khi tổng
+                mốc thanh toán ≠ 100%, nên bước gửi buộc phải qua modal đó.  #Huynh */}
+            <button
+              type="button"
+              onClick={() => (item.status === "draft" ? onEditProposal(item.id) : onViewProposal(item.id))}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+            >
+              <Eye className="h-3.5 w-3.5" /> Xem
+            </button>
             <DownloadPdfButton
               fetchPdf={() => downloadProposalPdf(item.id)}
               filename={`bao-gia-lan-${item.version_number}.pdf`}
             />
             {item.status === "draft" && (
-              <>
-                {/* Một cửa duy nhất cho bản nháp: xem, sửa giá/mốc/nội dung, rồi gửi — tất cả
-                    trong modal soạn thảo (backend chặn gửi khi chưa chốt giá và khi tổng mốc
-                    thanh toán ≠ 100%, nên bước gửi buộc phải qua đó).  #Huynh */}
-                <button
-                  type="button"
-                  onClick={() => onEditProposal(item.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> Mở &amp; chỉnh sửa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDeleteProposal(item.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-destructive"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Xoá
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => onDeleteProposal(item.id)}
+                className="rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                aria-label="Xoá báo giá"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             )}
             {item.status === "sent" && (
               <>
@@ -3615,7 +3763,7 @@ export function DocumentsTab({
         </div>
       ))}
 
-      {contracts.map((item) => (
+      {visibleContracts.map((item) => (
         <div key={`contract-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
           <div className="min-w-0">
             <div className="text-sm font-semibold">Hợp đồng lần {item.version_number}</div>
@@ -3669,7 +3817,7 @@ export function DocumentsTab({
           giá", lọc bằng `saved_at`. Mọi lần chấm (kể cả chấm thử rồi bỏ) vẫn nằm nguyên ở
           tab Lịch sử; nếu kể hết ở đây thì chấm nghịch mấy lần là đẻ ra mấy "tài liệu", và
           tài liệu mất nghĩa.  #Huynh */}
-      {savedQualificationItems.map((item) => (
+      {visibleQualifications.map((item) => (
         <div
           key={`qualification-${item.id}`}
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
@@ -3715,24 +3863,32 @@ export function DocumentsTab({
           Chưa có tài liệu nào cho deal này.
         </div>
       )}
+
+      {/* Có tài liệu nhưng ô tìm không khớp hàng nào: nói rõ, kèm đường xoá tìm kiếm — đừng để
+          người dùng nhìn một khoảng trống mà tưởng tài liệu đã mất.  #Huynh */}
+      {searching && totalDocuments > 0 && visibleDocuments === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          Không có tài liệu nào khớp "{query.trim()}".{" "}
+          <button type="button" onClick={() => setQuery("")} className="font-semibold text-primary hover:underline">
+            Xoá tìm kiếm
+          </button>
+        </div>
+      )}
     </div>
 
     {/* Ba nút sát nhau cùng cỡ trên một hàng: "Sửa", "Gửi hóa đơn", "Ghi nhận thanh toán".
         Trượt tay một ô là khách hàng thật nhận email hóa đơn — có thể sai số tiền, sai hạng
         mục — mà thư đã đi thì không thu hồi được.  #Huynh */}
     {invoicePendingSend && (
-      <ConfirmDialog
+      <ConfirmSendInvoiceDialog
         open
         onOpenChange={(open) => {
           if (!open) setInvoicePendingSend(null);
         }}
-        title={`Gửi hóa đơn ${invoicePendingSend.invoice_number} — ${formatVND(Number(invoicePendingSend.total ?? 0))} cho ${clientName}?`}
-        description={
-          `Email kèm hóa đơn sẽ gửi tới ${clientEmail || "email đã lưu của khách"} ngay bây giờ. ` +
-          "Gửi rồi không thu hồi được; nếu sai thì phải hủy hóa đơn và lập lại bản mới."
-        }
-        confirmLabel={`Gửi ${formatVND(Number(invoicePendingSend.total ?? 0))}`}
-        cancelLabel="Để tôi xem lại"
+        invoiceNumber={invoicePendingSend.invoice_number}
+        total={Number(invoicePendingSend.total ?? 0)}
+        clientName={clientName}
+        clientEmail={clientEmail}
         isLoading={pendingInvoiceId === invoicePendingSend.id}
         onConfirm={() => {
           onSendInvoice(invoicePendingSend.id);
@@ -4129,6 +4285,7 @@ function ProposalViewModal({
 function ContractViewModal({ contractId, onClose }: { contractId: string; onClose: () => void }) {
   const { data: contract, isLoading } = useContract(contractId);
   const sendContract = useSendContract();
+  const recordSent = useRecordContractSent();
   const c = contract?.content;
 
   // Bản nháp thì cho sửa NGAY trong tờ giấy (bấm vào điều khoản rồi gõ, tự lưu); gửi/ký rồi
@@ -4148,7 +4305,7 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
   // Gửi hợp đồng = gửi email thật cho khách, nên hỏi lại một lần trước khi gửi.
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
-  async function handleSend() {
+  async function handleSend(mode: "email" | "record" = "email") {
     // GHI NGAY bản sửa đang chờ trước khi gửi: khung sửa chỉ ghi sau 800ms kể từ lúc gõ xong, nên
     // bấm "Gửi" liền sau khi gõ sẽ gửi PDF của bản CŨ rồi bản sửa mới đến sau ghi đè lên hợp đồng
     // đã khoá. Ghi hụt thì dừng, không gửi (toast lỗi đã hiện).  #Huynh
@@ -4157,9 +4314,13 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
     } catch {
       return;
     }
-    sendContract.mutate(contractId, {
+    (mode === "record" ? recordSent : sendContract).mutate(contractId, {
       onSuccess: () => {
-        toast.success("Đã gửi hợp đồng kèm file PDF tới email khách ký.");
+        toast.success(
+          mode === "record"
+            ? "Đã ghi nhận hợp đồng là đã gửi (không gửi email)."
+            : "Đã gửi hợp đồng kèm file PDF tới email khách ký."
+        );
         onClose();
       },
       // Hiện nguyên câu backend trả về (khách chưa có email, hộp thư hệ thống lỗi...). Hợp đồng
@@ -4295,10 +4456,14 @@ function ContractViewModal({ contractId, onClose }: { contractId: string; onClos
       <ConfirmSendContractDialog
         open={confirmSendOpen}
         onOpenChange={setConfirmSendOpen}
-        isLoading={sendContract.isPending}
+        isLoading={sendContract.isPending || recordSent.isPending}
         onConfirm={() => {
           setConfirmSendOpen(false);
           void handleSend();
+        }}
+        onRecordOnly={() => {
+          setConfirmSendOpen(false);
+          void handleSend("record");
         }}
       />
     </div>

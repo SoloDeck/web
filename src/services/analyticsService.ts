@@ -28,6 +28,16 @@ export type RevenueSummary = {
   milestone_collected: number;
   milestone_outstanding: number;
   milestones_pending: number;
+  /**
+   * Số deal đã ký hợp đồng (có mốc thu tiền), tính cả deal đã hoàn thành — cùng phạm vi với
+   * `total_contracted`. Khác `active_deals` (deal chưa hoàn thành, kể cả deal chưa ký).
+   */
+  signed_deals?: number;
+  /**
+   * Giá trị trung bình mỗi deal đã chốt = tiền các mốc thanh toán ÷ số deal đó. Không tính deal
+   * không thành công. Backend cũ chưa trả trường này.
+   */
+  average_deal_value?: number;
 };
 
 export type PipelineStageStat = {
