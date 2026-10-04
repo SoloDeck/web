@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { invoiceSentMessage } from "@/features/deals/invoiceComposer";
 import { lamMoiSoLieuTien } from "@/features/revenue/hooks/useAnalytics";
+import { reminderKeys } from "@/features/reminders/hooks/useReminders";
 import {
   createInvoice,
   deleteInvoice,
@@ -79,6 +82,11 @@ export function useSendInvoice(dealId: string | undefined) {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
       lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
+      // Gửi hóa đơn kèm đặt lời nhắc thanh toán: tab Nhắc nhở phải thấy ngay lời nhắc mới.
+      qc.invalidateQueries({ queryKey: reminderKeys.all });
+      // Báo kết quả ở ĐÂY chứ không ở từng nơi gọi: mọi đường gửi hóa đơn nói cùng một câu về lời
+      // nhắc, và thư đã đi thì vẫn báo dù người dùng đóng cửa sổ trước khi server trả lời.
+      toast.success(invoiceSentMessage(invoice.invoice_number, invoice.payment_reminder));
     },
   });
 }
@@ -91,6 +99,7 @@ export function useVoidInvoice(dealId: string | undefined) {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
       lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
+      qc.invalidateQueries({ queryKey: reminderKeys.all }); // lời nhắc đang chờ bị hủy theo
     },
   });
 }
@@ -104,6 +113,7 @@ export function useRecordInvoicePayment(dealId: string | undefined) {
       qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
       lamMoiSoLieuTien(qc);
       qc.invalidateQueries({ queryKey: invoiceKeys.payments(invoice.id) });
+      qc.invalidateQueries({ queryKey: reminderKeys.all }); // thu đủ thì lời nhắc bị hủy theo
     },
   });
 }

@@ -51,3 +51,18 @@ export function missingUpfrontPayments(
 export function shouldOfferStartProject(stage: Stage, hasSignedContract: boolean): boolean {
   return stage === "in_negotiation" && hasSignedContract;
 }
+
+/**
+ * Danh sách công việc của deal có bị KHÓA (chỉ xem) không.
+ *
+ * Khóa khi deal đã "Hoàn thành": dự án đã đóng và tính tiền xong, nên danh sách việc là hồ sơ để
+ * xem lại chứ không phải thứ để chỉnh tiếp. Thêm, sửa, xóa hay bỏ tick một việc lúc này là đổi
+ * lịch sử của một dự án đã khép lại — và bỏ tick một mốc thu tiền còn làm bảng Doanh thu lệch
+ * theo, vì backend coi task `done` = đã thu.
+ *
+ * "Hoàn thành" là điểm cuối: `VALID_TRANSITIONS` không có đường nào đi ra khỏi nó, nên đã khóa là
+ * khóa hẳn, không có cách mở lại.  #Huynh
+ */
+export function isTaskListLocked(stage: Stage | null | undefined): boolean {
+  return stage === "completed_and_billed";
+}

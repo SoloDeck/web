@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { missingUpfrontPayments, shouldOfferStartProject } from "@/features/deals/taskActionGuards";
-import type { ProjectTask } from "@/features/deals/types";
+import {
+  isTaskListLocked,
+  missingUpfrontPayments,
+  shouldOfferStartProject,
+} from "@/features/deals/taskActionGuards";
+import { STAGES, type ProjectTask } from "@/features/deals/types";
 
 /**
  * Luật "cọc trước, làm sau" ở tab Công việc.
@@ -102,5 +106,29 @@ describe("shouldOfferStartProject", () => {
     for (const stage of ["new_lead", "qualified", "proposal_sent", "lost"] as const) {
       expect(shouldOfferStartProject(stage, true)).toBe(false);
     }
+  });
+});
+
+/**
+ * Deal đã "Hoàn thành" thì danh sách công việc chỉ để xem. Chỉ MỘT giai đoạn khóa; duyệt cả bảng
+ * `STAGES` để giai đoạn nào thêm sau này mà vô tình khóa thì test đỏ ngay.
+ */
+describe("isTaskListLocked", () => {
+  it("deal đã Hoàn thành thì danh sách việc bị khóa", () => {
+    expect(isTaskListLocked("completed_and_billed")).toBe(true);
+  });
+
+  it("mọi giai đoạn còn lại thì KHÔNG khóa (kể cả deal đã mất)", () => {
+    const conLai = STAGES.map((stage) => stage.id).filter((id) => id !== "completed_and_billed");
+    expect(conLai).toContain("active");
+    expect(conLai).toContain("lost");
+    for (const stage of conLai) {
+      expect(isTaskListLocked(stage), stage).toBe(false);
+    }
+  });
+
+  it("chưa biết giai đoạn (deal đang tải) thì không khóa", () => {
+    expect(isTaskListLocked(undefined)).toBe(false);
+    expect(isTaskListLocked(null)).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
@@ -17,7 +18,8 @@ type ConfirmDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  description?: string;
+  /** Chuỗi thường, hoặc JSX khi cần nhấn mạnh một đoạn (ví dụ in đậm số tiền). */
+  description?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: ConfirmDialogTone;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
@@ -7,6 +7,7 @@ import type React from "react";
 import { ProposalModal } from "./ProposalModal";
 import { useTermTemplates } from "@/features/deals/hooks/useTermTemplates";
 import type { Deal } from "@/features/deals/types";
+import { formatVND } from "@/utils/format";
 
 const mockProposalList = vi.fn(() => ({ data: undefined, isFetched: true }) as {
   data?: { data: unknown[] };
@@ -558,7 +559,10 @@ describe("ProposalModal", () => {
     // Một hành động chính duy nhất: "Lưu & gửi cho khách hàng" → hộp thoại nhắc lại con số
     // → xác nhận. Không còn nút "Chốt giá này" riêng.  #Huynh
     await user.click(await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i }));
-    await user.click(await screen.findByRole("button", { name: /^gửi\s/i }));
+    // Nút xác nhận trong hộp thoại tên "Lưu & gửi" — gần giống nút chính "Lưu & gửi cho khách
+    // hàng" ở dưới, nên chọn TRONG hộp thoại và khớp nguyên tên.
+    const confirmDialog = await screen.findByRole("alertdialog");
+    await user.click(within(confirmDialog).getByRole("button", { name: "Lưu & gửi" }));
 
     expect(mockSendMutate).toHaveBeenCalledWith(
       "proposal-456",
@@ -568,7 +572,7 @@ describe("ProposalModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("'Tôi đã gửi cách khác' chỉ GHI NHẬN: không gửi email, rồi đóng như khi gửi thật", async () => {
+  it("'Chỉ lưu' chỉ GHI NHẬN: không gửi email, rồi đóng như khi gửi thật", async () => {
     const user = userEvent.setup();
     const { toast } = await import("sonner");
     mockSendMutate.mockClear();
@@ -589,7 +593,7 @@ describe("ProposalModal", () => {
     await bamTaoBangAI();
 
     await user.click(await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i }));
-    await user.click(await screen.findByRole("button", { name: /chỉ ghi nhận/i }));
+    await user.click(await screen.findByRole("button", { name: "Chỉ lưu" }));
 
     expect(mockRecordSentMutate).toHaveBeenCalledWith(
       "proposal-789",
@@ -598,6 +602,48 @@ describe("ProposalModal", () => {
     expect(mockSendMutate).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith("Đã ghi nhận báo giá là đã gửi (không gửi email).");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("hộp thoại xác nhận gửi có đúng ba nút theo thứ tự — 'Hủy', 'Chỉ lưu', 'Lưu & gửi' — và 'Hủy' không làm gì cả", async () => {
+    const user = userEvent.setup();
+    mockSendMutate.mockClear();
+    mockRecordSentMutate.mockClear();
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-790",
+        content: { title: "Logo", pricing: { total: 5_000_000, currency: "VND" } },
+      })
+    );
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+
+    await user.click(await screen.findByRole("button", { name: /lưu & gửi cho khách hàng/i }));
+    const dialog = await screen.findByRole("alertdialog");
+
+    // Chỉ đếm thẻ <button> thật — Base UI chèn thêm vài thẻ giữ focus không phải nút.
+    const labels = Array.from(dialog.querySelectorAll("button")).map((b) => b.textContent?.trim());
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).toBe("Hủy");
+    expect(labels[1]).toBe("Chỉ lưu");
+    expect(labels[2]).toBe("Lưu & gửi");
+    // Nội dung gọn: nói việc sẽ xảy ra, không dặn dò thêm. Hai câu "Hãy kiểm tra lại con số…" và
+    // "Nếu bạn đã tự gửi bằng kênh khác… chọn …" đã bị bỏ vì thừa; tên cũ của nút cũng không
+    // được sót lại.
+    expect(dialog).toHaveTextContent("và deal sẽ chuyển qua giai đoạn tiếp theo.");
+    expect(dialog).not.toHaveTextContent(/Hãy kiểm tra lại con số/);
+    expect(dialog).not.toHaveTextContent(/Zalo/);
+    expect(dialog).not.toHaveTextContent(/chỉ ghi nhận/i);
+    // Số tiền trong NỘI DUNG thông báo được in đậm — và đúng là con số sắp gửi.
+    const bold = Array.from(dialog.querySelectorAll("strong")).map((s) => s.textContent);
+    expect(bold).toEqual([formatVND(5_000_000)]);
+
+    await user.click(within(dialog).getByRole("button", { name: "Hủy" }));
+
+    expect(mockSendMutate).not.toHaveBeenCalled();
+    expect(mockRecordSentMutate).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("lưu nháp KHÔNG được làm rụng khoá nào của nội dung", async () => {

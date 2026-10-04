@@ -51,9 +51,9 @@ export function shouldTickAfterInvoiceSent(
 /**
  * Mốc đã tick xong nhưng khách VẪN CHƯA nhận được hóa đơn nào — đáng nhắc một dòng.
  *
- * Cảnh này rơi ra từ chính lối thoát ở `handleToggleTask`: bấm tick rồi chọn "Để sau" là mốc
- * xong mà chưa có chứng từ. Không nhắc thì nó nằm im giữa danh sách những mốc đã xong, trông
- * y hệt các mốc đã thu tiền — freelancer làm xong việc rồi quên đòi tiền.
+ * Cảnh này rơi ra từ chính lối thoát ở `handleToggleTask`: bấm tick rồi chọn "Ghi nhận" (hoặc
+ * "Để sau") là mốc xong mà chưa có chứng từ. Không nhắc thì nó nằm im giữa danh sách những mốc
+ * đã xong, trông y hệt các mốc đã thu tiền — freelancer làm xong việc rồi quên đòi tiền.
  *
  * Tính cả `draft`: hóa đơn đã tạo nhưng chưa gửi thì khách cũng chưa nhận được gì.  #Huynh
  */

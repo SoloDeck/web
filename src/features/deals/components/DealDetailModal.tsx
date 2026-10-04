@@ -3,6 +3,7 @@ import { WindowControlButton } from "@/components/solodesk/WindowControlButton";
 import { formatVND } from "@/utils/format";
 import type { Deal, ProjectTask } from "@/features/deals/types";
 import { ProjectTaskPanel } from "@/features/deals/components/ProjectTaskList";
+import { isTaskListLocked } from "@/features/deals/taskActionGuards";
 import { useDealStore } from "@/features/deals/hooks/useDealStore";
 import {
   useProjectTasks,
@@ -172,6 +173,7 @@ export function DealDetailModal({ deal, onClose }: { deal: Deal | null; onClose:
             onUpdateTask={handleUpdateTask}
             onDeleteTask={handleDeleteTask}
             onToggleTask={handleToggleTask}
+            readOnly={isTaskListLocked(selectedDeal.stage)}
             onClick={(event) => event.stopPropagation()}
           />
         ) : (

@@ -102,3 +102,31 @@ describe("<ConfirmDialog /> nút phụ", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
+
+describe("<ConfirmDialog /> nội dung", () => {
+  it("nhận cả JSX để nhấn mạnh một đoạn (ví dụ in đậm số tiền)", () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        title="Gửi?"
+        description={
+          <>
+            Giá <strong>5.000.000 ₫</strong> nhé.
+          </>
+        }
+        onConfirm={() => {}}
+      />
+    );
+
+    expect(screen.getByText("5.000.000 ₫").tagName).toBe("STRONG");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Giá 5.000.000 ₫ nhé.");
+  });
+
+  it("vẫn nhận chuỗi thường như trước", () => {
+    render(
+      <ConfirmDialog open onOpenChange={() => {}} title="Xoá?" description="Không hoàn tác được." onConfirm={() => {}} />
+    );
+    expect(screen.getByText("Không hoàn tác được.")).toBeInTheDocument();
+  });
+});

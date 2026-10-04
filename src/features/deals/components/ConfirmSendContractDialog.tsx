@@ -34,15 +34,23 @@ export function ConfirmSendContractDialog({
       onOpenChange={onOpenChange}
       title="Gửi hợp đồng cho khách ký?"
       description={
-        `Hệ thống sẽ gửi email kèm file PDF hợp đồng tới ${email || "email của khách hàng"}. ` +
-        "Thư đã gửi thì không rút lại được — hãy kiểm tra kỹ nội dung hợp đồng trước khi gửi. " +
-        "Nếu bạn đã tự gửi bằng kênh khác (Zalo, tin nhắn...), chọn \"chỉ ghi nhận\"."
+        <>
+          Hệ thống sẽ gửi email kèm file PDF hợp đồng tới{" "}
+          {/* In đậm địa chỉ nhận — chỗ mắt người dùng phải dừng để chắc thư đi đúng người, giống
+              số tiền ở hộp thoại gửi báo giá.  #Huynh */}
+          {email ? (
+            <strong className="font-semibold text-foreground">{email}</strong>
+          ) : (
+            "email của khách hàng"
+          )}
+          .
+        </>
       }
-      confirmLabel="Gửi hợp đồng"
-      cancelLabel="Để tôi xem lại"
+      confirmLabel="Lưu & gửi"
+      cancelLabel="Hủy"
       isLoading={isLoading}
       onConfirm={onConfirm}
-      secondaryLabel={onRecordOnly ? "Tôi đã gửi cách khác — chỉ ghi nhận" : undefined}
+      secondaryLabel={onRecordOnly ? "Chỉ lưu" : undefined}
       onSecondary={onRecordOnly}
     />
   );

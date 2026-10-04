@@ -40,7 +40,11 @@ export function NoticeDialog({
 }: NoticeDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={(nextOpen) => onOpenChange(nextOpen)}>
-      <AlertDialogContent>
+      {/* Rộng hơn khung mặc định (max-w-lg, 512px) một chút: cột chữ cạnh biểu tượng chỉ còn
+          ~376px nên tiêu đề dài ~400px bị rớt đúng MỘT chữ ("ngay") xuống dòng riêng. Phải viết
+          theo biến thể `data-[size=default]:sm:` y như khung gốc thì mới ghi đè được — class
+          `sm:max-w-xl` trơn có độ ưu tiên thấp hơn nên bị lờ đi.  #Huynh */}
+      <AlertDialogContent className="data-[size=default]:sm:max-w-xl">
         <AlertDialogHeader>
           <AlertDialogMedia>
             <AlertTriangle className="h-8 w-8" />

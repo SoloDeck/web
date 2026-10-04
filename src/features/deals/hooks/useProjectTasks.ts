@@ -14,6 +14,7 @@ import {
   type PaymentPayload,
 } from "@/services/invoicesService";
 import { invoiceKeys } from "@/features/deals/hooks/useInvoices";
+import { reminderKeys } from "@/features/reminders/hooks/useReminders";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -103,6 +104,8 @@ function useRefreshTaskAndInvoices(dealId: string) {
   return () => {
     qc.invalidateQueries({ queryKey: projectTaskKeys.all(dealId) });
     qc.invalidateQueries({ queryKey: invoiceKeys.deal(dealId) });
+    // Ghi nhận thu / gửi hóa đơn từ bảng việc cũng đổi lời nhắc thanh toán ở tab Nhắc nhở.
+    qc.invalidateQueries({ queryKey: reminderKeys.all });
   };
 }
 

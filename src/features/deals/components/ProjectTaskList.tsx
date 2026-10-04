@@ -49,6 +49,9 @@ import type { ProjectTask } from "@/features/deals/types";
 
 type TaskSortMode = "order" | "newest" | "oldest";
 
+/** Chú thích khi rê chuột vào một nút đang bị khóa (deal đã hoàn thành). */
+const LOCKED_TITLE = "Dự án đã hoàn thành — không thể thay đổi công việc";
+
 /**
  * Nhãn của từng kiểu sắp xếp. Truyền cho `<Select items>` để ô chọn hiện NHÃN tiếng Việt: không
  * có nó, `<SelectValue />` hiện nguyên giá trị nội bộ ("order") trên nút chọn.  #Huynh
@@ -161,6 +164,12 @@ type ProjectTaskPanelProps = {
    * của danh sách bên trong — mà phần đầu panel vẫn dính tại chỗ.  #Huynh
    */
   height?: "cap" | "fill";
+  /**
+   * Chế độ CHỈ XEM: khóa mọi thao tác làm đổi danh sách — thêm, sửa, xóa và tick. Dùng khi deal đã
+   * "Hoàn thành" (xem `isTaskListLocked`). Danh sách vẫn xem và sắp xếp được. Các nút hóa đơn của
+   * mốc thu tiền KHÔNG bị khóa: đó là việc về chứng từ chứ không phải sửa công việc.  #Huynh
+   */
+  readOnly?: boolean;
 };
 
 export function ProjectTaskPanel({
@@ -172,6 +181,7 @@ export function ProjectTaskPanel({
   onClick,
   invoiceActions,
   height = "cap",
+  readOnly = false,
 }: ProjectTaskPanelProps) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -294,7 +304,9 @@ export function ProjectTaskPanel({
               <button
                 type="button"
                 onClick={openAdd}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                disabled={readOnly}
+                title={readOnly ? LOCKED_TITLE : undefined}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" /> Thêm công việc
               </button>
@@ -324,7 +336,9 @@ export function ProjectTaskPanel({
               <button
                 type="button"
                 onClick={openAdd}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+                disabled={readOnly}
+                title={readOnly ? LOCKED_TITLE : undefined}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" /> Thêm công việc đầu tiên
               </button>
@@ -348,7 +362,8 @@ export function ProjectTaskPanel({
                     <TaskRow
                       key={task.id}
                       task={task}
-                      editing={editingId === task.id}
+                      editing={!readOnly && editingId === task.id}
+                      locked={readOnly}
                       editingTitle={editingTitle}
                       editingNote={editingNote}
                       onEditingTitleChange={setEditingTitle}
@@ -398,7 +413,8 @@ export function ProjectTaskPanel({
                             <TaskRow
                               key={task.id}
                               task={task}
-                              editing={editingId === task.id}
+                              editing={!readOnly && editingId === task.id}
+                              locked={readOnly}
                               editingTitle={editingTitle}
                               editingNote={editingNote}
                               onEditingTitleChange={setEditingTitle}
@@ -429,7 +445,7 @@ export function ProjectTaskPanel({
       </section>
 
       <Dialog
-        open={adding}
+        open={adding && !readOnly}
         onOpenChange={(open) => {
           if (!open) cancelAdd();
         }}
@@ -458,7 +474,7 @@ export function ProjectTaskPanel({
       </Dialog>
 
       <ConfirmDialog
-        open={Boolean(taskPendingDelete)}
+        open={Boolean(taskPendingDelete) && !readOnly}
         onOpenChange={(open) => {
           if (!open) setTaskPendingDelete(null);
         }}
@@ -542,6 +558,7 @@ function TaskRow({
   invoiceActions,
   showInvoiceReminder,
   onDismissInvoiceReminder,
+  locked = false,
 }: {
   task: ProjectTask;
   editing: boolean;
@@ -558,16 +575,25 @@ function TaskRow({
   /** Mốc đã tick xong mà khách chưa nhận được hóa đơn nào. */
   showInvoiceReminder?: boolean;
   onDismissInvoiceReminder?: () => void;
+  /** Chỉ xem: khóa ô tick, nút sửa và nút xóa của hàng. */
+  locked?: boolean;
 }) {
   return (
     <div className={cn("group flex items-start gap-2 px-4 py-3 hover:bg-muted/30", task.completed && "bg-muted/20")}>
-      <GripVertical className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
+      <GripVertical
+        className={cn(
+          "mt-1 h-4 w-4 shrink-0",
+          locked ? "text-transparent" : "text-muted-foreground/0 group-hover:text-muted-foreground"
+        )}
+      />
       <input
         type="checkbox"
         checked={task.completed}
         onChange={(event) => onToggle(event.target.checked)}
         aria-label={`Đánh dấu ${task.title} hoàn thành`}
-        className="mt-1 h-4 w-4 shrink-0 accent-primary"
+        disabled={locked}
+        title={locked ? LOCKED_TITLE : undefined}
+        className="mt-1 h-4 w-4 shrink-0 accent-primary disabled:cursor-not-allowed"
       />
       <div className="min-w-0 flex-1">
         {editing ? (
@@ -668,14 +694,28 @@ function TaskRow({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button type="button" onClick={onStartEdit} aria-label={`Sửa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary">
+        <button
+          type="button"
+          onClick={onStartEdit}
+          disabled={locked}
+          title={locked ? LOCKED_TITLE : undefined}
+          aria-label={`Sửa ${task.title}`}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+        >
           <Pencil className="h-4 w-4" />
         </button>
         {/* KHÔNG cho xoá khoản phải thu: xoá là nó biến khỏi guard "hoàn thành dự án" lẫn
             bảng doanh thu, và deal đóng lại được trong khi tiền chưa về. Backend cũng chặn
             (409) — ẩn nút ở đây để freelancer khỏi bấm rồi ăn lỗi.  #Huynh */}
         {!isPaymentTask(task) && (
-          <button type="button" onClick={onDelete} aria-label={`Xóa ${task.title}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={locked}
+            title={locked ? LOCKED_TITLE : undefined}
+            aria-label={`Xóa ${task.title}`}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
             <Trash2 className="h-4 w-4" />
           </button>
         )}

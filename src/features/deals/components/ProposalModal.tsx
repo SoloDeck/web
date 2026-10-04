@@ -1665,19 +1665,21 @@ export function ProposalModal({
         onOpenChange={setSendDialogOpen}
         title={`Gửi báo giá ${formatVND(priceToSend)} cho ${deal.client}?`}
         description={
-          `Bạn đang nhận dự án "${deal.projectType}" với giá ${formatVND(priceToSend)}. ` +
-          `Bản báo giá sẽ được gửi qua email cho khách (kèm file PDF) và deal chuyển sang cột "Đã gửi báo giá". ` +
-          `Hãy kiểm tra lại con số trước khi gửi — sau khi gửi thì không rút lại được. ` +
-          `Nếu bạn đã tự gửi bằng kênh khác (Zalo, tin nhắn...), chọn "chỉ ghi nhận".`
+          <>
+            {`Bạn đang nhận dự án "${deal.projectType}" với giá `}
+            {/* In đậm đúng con số sắp gửi cho khách — mắt người dùng phải dừng ở đây.  #Huynh */}
+            <strong className="font-semibold text-foreground">{formatVND(priceToSend)}</strong>
+            {`. Bản báo giá sẽ được gửi qua email cho khách (kèm file PDF) và deal sẽ chuyển qua giai đoạn tiếp theo.`}
+          </>
         }
-        confirmLabel={`Gửi ${formatVND(priceToSend)}`}
-        cancelLabel="Để tôi xem lại"
+        confirmLabel="Lưu & gửi"
+        cancelLabel="Hủy"
         isLoading={isSending}
         onConfirm={() => {
           setSendDialogOpen(false);
           handleSend();
         }}
-        secondaryLabel="Tôi đã gửi cách khác — chỉ ghi nhận"
+        secondaryLabel="Chỉ lưu"
         onSecondary={() => {
           setSendDialogOpen(false);
           handleSend("record");

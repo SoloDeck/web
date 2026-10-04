@@ -53,4 +53,17 @@ describe("<NoticeDialog />", () => {
 
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
+
+  it("khung rộng hơn mặc định — tiêu đề dài không bị rớt một chữ xuống dòng riêng", () => {
+    // jsdom không có layout nên không đo được bề ngang; kiểm cái quyết định bề ngang: class của
+    // khung. Khung gốc có `data-[size=default]:sm:max-w-lg`; class ghi đè phải CÙNG biến thể thì
+    // `cn()` mới gỡ được cái cũ (một class `sm:max-w-xl` trơn bị lờ đi vì độ ưu tiên thấp hơn).
+    render(
+      <NoticeDialog open onOpenChange={() => {}} title="Bạn chưa ghi nhận những khoản phải thu ngay" />
+    );
+
+    const khung = screen.getByRole("alertdialog");
+    expect(khung).toHaveClass("data-[size=default]:sm:max-w-xl");
+    expect(khung).not.toHaveClass("data-[size=default]:sm:max-w-lg");
+  });
 });
