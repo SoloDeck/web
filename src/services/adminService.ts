@@ -249,10 +249,29 @@ export type AdminAiCostPage = {
   totals: AdminAiCostTotals;
 };
 
-/** GET /admin/ai-costs — token + chi phí ước tính từng lần gọi AI, toàn hệ thống. */
-export async function listAiCosts(): Promise<AdminAiCostPage> {
+/** Tính năng AI mà backend nhận để lọc — khớp `Literal` của `GET /admin/ai-costs`. */
+export type AdminAiModule =
+  | "lead_qualifier"
+  | "proposal_generator"
+  | "contract_generator"
+  | "followup_generator";
+
+export type AdminAiCostFilters = {
+  ai_module?: AdminAiModule;
+  /** Khớp gần đúng, không phân biệt hoa thường, trên email HOẶC họ tên người đã gọi AI. */
+  search?: string;
+  page?: number;
+  /** Tối đa 100 — backend chặn `le=100`. */
+  page_size?: number;
+};
+
+/**
+ * GET /admin/ai-costs — token + chi phí ước tính từng lần gọi AI, lọc + phân trang PHÍA MÁY CHỦ.
+ * `totals` cộng đúng tập đang lọc, không phải toàn hệ thống.
+ */
+export async function listAiCosts(filters: AdminAiCostFilters = {}): Promise<AdminAiCostPage> {
   const { data } = await axiosClient.get<ApiResponse<AdminAiCostPage>>("/admin/ai-costs", {
-    params: { page_size: 50 },
+    params: { page_size: 20, ...filters },
   });
   return data.data;
 }
@@ -336,7 +355,24 @@ export type AdminPaymentFilters = {
   page_size?: number;
 };
 
-export type AdminPaymentPage = Paginated<AdminPayment>;
+/** Tổng của TOÀN BỘ tập đang lọc (mọi trang), không chỉ trang đang xem. */
+export type AdminPaymentTotals = {
+  /** CHUỖI (Decimal) — `Number(...)` trước khi định dạng. Chỉ cộng tiền VND. */
+  collected_amount: string | number;
+  currency: string;
+  succeeded_count: number;
+  /** Chờ thanh toán + đang xử lý. */
+  pending_count: number;
+};
+
+export type AdminPaymentPage = Paginated<AdminPayment> & { totals: AdminPaymentTotals };
+
+const NO_PAYMENT_TOTALS: AdminPaymentTotals = {
+  collected_amount: 0,
+  currency: "VND",
+  succeeded_count: 0,
+  pending_count: 0,
+};
 
 /**
  * GET /admin/payments — danh sách giao dịch mua gói, có phân trang PHÍA MÁY CHỦ.
@@ -356,6 +392,7 @@ export async function listAdminPayments(
     total: page?.total ?? 0,
     page: page?.page ?? filters.page ?? 1,
     page_size: page?.page_size ?? filters.page_size ?? 20,
+    totals: page?.totals ?? NO_PAYMENT_TOTALS,
   };
 }
 

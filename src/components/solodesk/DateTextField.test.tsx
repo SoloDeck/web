@@ -89,6 +89,70 @@ describe("<DateTextField />", () => {
     expect(lich()).toBeInTheDocument();
   });
 
+  it("các ngày sau ngày tối đa bị mờ, bấm vào không chọn được", async () => {
+    const { onPick } = setup({ maxDate: new Date(2026, 9, 20) });
+    await userEvent.click(nutLich());
+
+    expect(ngay("20")).toBeEnabled();
+    expect(ngay("21")).toBeDisabled();
+    expect(ngay("25")).toBeDisabled();
+    await userEvent.click(ngay("25"));
+
+    expect(onPick).not.toHaveBeenCalled();
+    expect(lich()).toBeInTheDocument();
+  });
+
+  it("đặt cả ngày tối thiểu lẫn tối đa thì chỉ khoảng giữa chọn được", async () => {
+    setup({ minDate: new Date(2026, 9, 10), maxDate: new Date(2026, 9, 20) });
+    await userEvent.click(nutLich());
+
+    expect(ngay("9")).toBeDisabled();
+    expect(ngay("10")).toBeEnabled();
+    expect(ngay("15")).toBeEnabled();
+    expect(ngay("20")).toBeEnabled();
+    expect(ngay("21")).toBeDisabled();
+  });
+
+  it("không đặt ngày tối thiểu/tối đa thì ngày nào cũng chọn được", async () => {
+    setup();
+    await userEvent.click(nutLich());
+
+    // Chọn "2" và "27" (không phải "1"/"28"…) vì đầu/cuối lưới lịch còn ngày của tháng kề bên.
+    expect(ngay("2")).toBeEnabled();
+    expect(ngay("27")).toBeEnabled();
+  });
+
+  it("ariaLabel đặt tên cho chính ô gõ, tách khỏi nhãn của nút lịch", () => {
+    setup({ ariaLabel: "Từ ngày", calendarLabel: "Mở lịch: Từ ngày" });
+
+    expect(screen.getByRole("textbox", { name: "Từ ngày" })).toHaveValue("17/10/2026");
+    expect(screen.getByRole("button", { name: "Mở lịch: Từ ngày" })).toBeInTheDocument();
+  });
+
+  it("inputClassName được nối thêm vào ô gõ mà không làm mất kiểu mặc định", () => {
+    setup({ inputClassName: "h-9 py-0" });
+
+    const o = screen.getByPlaceholderText("dd/mm/yyyy");
+    expect(o).toHaveClass("h-9", "py-0");
+    expect(o).toHaveClass("pr-10"); // chừa chỗ cho nút lịch
+  });
+
+  it("align='start' thì lịch căn theo mép trái", async () => {
+    setup({ align: "start" });
+    await userEvent.click(nutLich());
+
+    expect(lich()).toHaveClass("left-0");
+    expect(lich()).not.toHaveClass("right-0");
+  });
+
+  it("mặc định lịch căn theo mép phải của ô", async () => {
+    setup();
+    await userEvent.click(nutLich());
+
+    expect(lich()).toHaveClass("right-0");
+    expect(lich()).not.toHaveClass("left-0");
+  });
+
   it("bấm ra ngoài thì đóng lịch", async () => {
     setup();
     await userEvent.click(nutLich());

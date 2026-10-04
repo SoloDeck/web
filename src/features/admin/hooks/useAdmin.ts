@@ -19,6 +19,7 @@ import {
   getAdminLLMProvider,
   updateAdminLLMProvider,
   type AdminUpdateLLMProviderPayload,
+  type AdminAiCostFilters,
   type AdminPaymentFilters,
   type AdminPlanPayload,
   type AdminTemplateCreatePayload,
@@ -75,8 +76,16 @@ export function useUpdateAdminTemplate() {
   });
 }
 
-export function useAiCosts() {
-  return useQuery({ queryKey: adminKeys.aiCosts, queryFn: listAiCosts });
+/**
+ * Lịch sử gọi AI, lọc + phân trang PHÍA MÁY CHỦ. `filters` nằm trong khoá nên mỗi bộ lọc là một mục
+ * cache riêng; `placeholderData` giữ bảng cũ trên màn hình trong lúc trang mới bay về.
+ */
+export function useAiCosts(filters: AdminAiCostFilters = {}) {
+  return useQuery({
+    queryKey: [...adminKeys.aiCosts, filters] as const,
+    queryFn: () => listAiCosts(filters),
+    placeholderData: (previous) => previous,
+  });
 }
 
 /**

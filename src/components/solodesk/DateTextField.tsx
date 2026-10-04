@@ -16,10 +16,16 @@ type DateTextFieldProps = {
   onPick: (date: Date) => void;
   /** Các ngày trước ngày này bị mờ đi, không chọn được. */
   minDate?: Date;
+  /** Các ngày sau ngày này bị mờ đi, không chọn được. */
+  maxDate?: Date;
+  /** Thêm class cho ô gõ (ví dụ thấp hơn mặc định khi nằm trong một thanh bộ lọc). */
+  inputClassName?: string;
   disabled?: boolean;
   placeholder?: string;
   /** Nhãn đọc ra của nút mở lịch. */
   calendarLabel: string;
+  /** Nhãn đọc ra của chính ô gõ (khi không có nhãn chữ đi kèm). */
+  ariaLabel?: string;
   /** Lịch mở ra căn theo mép phải hay mép trái của ô. */
   align?: "start" | "end";
 };
@@ -41,9 +47,12 @@ export function DateTextField({
   selected,
   onPick,
   minDate,
+  maxDate,
+  inputClassName,
   disabled = false,
   placeholder = "dd/mm/yyyy",
   calendarLabel,
+  ariaLabel,
   align = "end",
 }: DateTextFieldProps) {
   const [open, setOpen] = useState(false);
@@ -74,12 +83,16 @@ export function DateTextField({
       <input
         id={id}
         type="text"
+        aria-label={ariaLabel}
         value={value}
         disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onValueChange(event.target.value)}
         onBlur={onBlur}
-        className="w-full rounded-lg border border-border bg-card px-3 py-2 pr-10 text-sm outline-none focus:border-primary disabled:opacity-70"
+        className={cn(
+          "w-full rounded-lg border border-border bg-card px-3 py-2 pr-10 text-sm outline-none focus:border-primary disabled:opacity-70",
+          inputClassName
+        )}
       />
       <button
         type="button"
@@ -107,7 +120,10 @@ export function DateTextField({
             selected={selected}
             defaultMonth={selected ?? minDate}
             locale={vi}
-            disabled={minDate ? { before: minDate } : undefined}
+            disabled={[
+              ...(minDate ? [{ before: minDate }] : []),
+              ...(maxDate ? [{ after: maxDate }] : []),
+            ]}
             onSelect={(picked) => {
               if (!picked) return;
               onPick(picked);
