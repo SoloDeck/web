@@ -19,15 +19,16 @@ import type { Deal } from "@/features/deals/types";
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<ClientStatus, { label: string; cls: string }> = {
+// Chỉ HAI trạng thái được hiển thị: "Tiềm năng" (khách còn làm việc — mặc định) và "Lưu trữ".
+// "Đang hoạt động" / "Không hoạt động" không có dữ liệu nào để tính ra hay chứng minh nên không hiện
+// nữa; khách còn mang hai giá trị cũ đó trong CSDL được coi như "Tiềm năng".  #Huynh
+const STATUS_CONFIG = {
   prospect: { label: "Tiềm năng", cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400" },
-  active: { label: "Đang hoạt động", cls: "bg-success/15 text-success" },
-  inactive: { label: "Không hoạt động", cls: "bg-muted text-muted-foreground" },
   archived: { label: "Lưu trữ", cls: "bg-destructive/10 text-destructive" },
-};
+} as const;
 
 function StatusBadge({ status }: { status: ClientStatus }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.inactive;
+  const cfg = STATUS_CONFIG[status === "archived" ? "archived" : "prospect"];
   return (
     <span className={`inline-flex text-[10px] font-semibold rounded-full px-2 py-0.5 ${cfg.cls}`}>
       {cfg.label}
@@ -65,7 +66,8 @@ function DeleteConfirmDialog({
           <h2 className="font-semibold text-base">Lưu trữ khách hàng</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Bạn có chắc muốn lưu trữ <span className="font-medium text-foreground">{clientName}</span>?
-            Khách hàng sẽ chuyển sang trạng thái Lưu trữ và bị ẩn khỏi danh sách.
+            Khách hàng sẽ chuyển sang trạng thái Lưu trữ. Các dự án đang chạy của khách hàng sẽ tự
+            động đưa vào Kho lưu trữ.
           </p>
         </div>
         <div className="flex justify-end gap-2">
@@ -149,7 +151,7 @@ const STAGE_LABEL: Record<string, string> = {
   in_negotiation: "Đang Đàm Phán",
   active: "Đang Triển Khai",
   completed_and_billed: "Hoàn Thành",
-  lost: "Không Chốt",
+  lost: "Không thành công",
 };
 
 function timeAgo(dateStr: string): string {
@@ -245,13 +247,16 @@ function TableRow({
           >
             <Eye className="h-3.5 w-3.5" /> Xem chi tiết
           </button>
-          <button
-            onClick={() => onDelete(client)}
-            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            title="Xóa"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {/* Khách đã lưu trữ rồi thì không còn gì để lưu trữ nữa. */}
+          {client.status !== "archived" && (
+            <button
+              onClick={() => onDelete(client)}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+              title="Xóa"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -290,13 +295,15 @@ function ClientCard({
         </div>
         {/* Quick action buttons */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onDelete(client)}
-            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            title="Xóa"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {client.status !== "archived" && (
+            <button
+              onClick={() => onDelete(client)}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+              title="Xóa"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
       <div className="space-y-1">
@@ -331,14 +338,13 @@ function ClientCard({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type Filter = "all" | "prospect" | "active" | "inactive" | "archived";
+// Ba mục lọc: "Tất cả" (kể cả khách đã lưu trữ), "Tiềm năng" (khách còn làm việc), "Lưu trữ".
+type Filter = "all" | "prospect" | "archived";
 type SortKey = "newest" | "most_deals";
 
 const FILTER_ITEMS: Record<Filter, string> = {
   all: "Trạng thái: Tất cả",
   prospect: "Tiềm năng",
-  active: "Đang hoạt động",
-  inactive: "Không hoạt động",
   archived: "Lưu trữ",
 };
 
@@ -384,7 +390,8 @@ export function ClientRecords({
         || c.name.toLowerCase().includes(lq)
         || (c.email ?? "").toLowerCase().includes(lq)
         || (c.phone ?? "").includes(q);
-      const matchesF = filter === "all" ? c.status !== "archived" : c.status === filter;
+      const archived = c.status === "archived";
+      const matchesF = filter === "all" ? true : filter === "archived" ? archived : !archived;
       return matchesQ && matchesF;
     });
   }, [allClients, q, filter]);
@@ -410,16 +417,20 @@ export function ClientRecords({
     return sorted.slice(start, start + PAGE_SIZE);
   }, [sorted, page]);
 
+  // Đầu trang chỉ nêu tổng khách và tổng deal (mỗi khách mang sẵn `deal_count` từ máy chủ).
   const stats = useMemo(() => ({
     total: allClients.length,
-    active: allClients.filter((c) => c.status === "active").length,
-    prospect: allClients.filter((c) => c.status === "prospect").length,
+    deals: allClients.reduce((sum, c) => sum + (c.deal_count ?? 0), 0),
   }), [allClients]);
 
   function handleDeleteConfirm() {
     if (!deleteTarget) return;
     archiveClient(
-      { id: deleteTarget.id, payload: { name: deleteTarget.name, status: "archived" } },
+      {
+        id: deleteTarget.id,
+        payload: { name: deleteTarget.name, status: "archived" },
+        archiving: deleteTarget.status !== "archived",
+      },
       { onSuccess: () => setDeleteTarget(null) },
     );
   }
@@ -440,9 +451,7 @@ export function ClientRecords({
         <div className="flex items-center gap-4 text-sm flex-wrap">
           <span className="font-semibold">{stats.total} khách hàng</span>
           <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">{stats.active} đang hoạt động</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">{stats.prospect} tiềm năng</span>
+          <span className="text-muted-foreground">{stats.deals} deal</span>
         </div>
 
         {/* Toolbar */}
