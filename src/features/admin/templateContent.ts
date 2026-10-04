@@ -376,6 +376,20 @@ export const CLAUSE_LIST_KEYS: ReadonlySet<string> = new Set([
   "party_b_duties",
 ]);
 
+/**
+ * Ô này là một ô CẤU TRÚC (tên đầu mục, chữ trong điều có sẵn, đầu mục tự soạn)?
+ *
+ * Những ô này KHÔNG lưu vào khoá cùng tên: tên đầu mục vào `section_titles`, chữ trong điều vào
+ * `clause_texts`, đầu mục tự soạn vào `extra_sections`. Màn soạn mẫu của admin đã biết điều đó
+ * (`ghiField`); chỗ nào khác ghi thẳng `content[field]` thì chữ sửa nằm ở khoá mà bộ dựng giấy
+ * không bao giờ đọc — hiện trên màn, rồi mất khi mở lại và không có trong bản gửi khách.  #Huynh
+ */
+export function laOCauTruc(field: string): boolean {
+  return (
+    docTitleField(field) !== null || docClauseField(field) !== null || docExtraField(field) !== null
+  );
+}
+
 /** `data-field="clause_confidentiality"` -> `"confidentiality"`. Không khớp thì `null`. */
 export function docClauseField(field: string): string | null {
   const khop = /^clause_([a-z_]+)$/.exec(field);

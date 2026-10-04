@@ -141,6 +141,76 @@ describe("attachInlineEdit", () => {
     expect(onChange).toHaveBeenCalledWith("payment_terms", "Cọc 30%, còn lại khi bàn giao.");
   });
 
+  it("bấm vào rồi bấm ra mà KHÔNG gõ gì thì không báo gì cả", () => {
+    // Mỗi lần liếc qua một điều khoản mà thành một lượt ghi xuống server là sai: chữ mặc định
+    // của điều đó còn bị ghi thành "chữ do người dùng sửa".
+    const doc = makeDoc('<p data-field="clause_dispute" data-label="Tranh chấp">Thương lượng.</p>');
+    const onChange = vi.fn();
+    attachInlineEdit(doc, onChange);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+
+    node.dispatchEvent(new Event("focus"));
+    node.dispatchEvent(new Event("blur"));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("danh sách: bấm vào rồi ra không gõ gì cũng không báo", () => {
+    const doc = makeDoc('<ul data-field="clause_party_a_duties" data-kind="list"><li>A</li><li>B</li></ul>');
+    const onChange = vi.fn();
+    attachInlineEdit(doc, onChange);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+
+    node.dispatchEvent(new Event("focus"));
+    node.dispatchEvent(new Event("blur"));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("gõ rồi sửa ngược về đúng chữ ban đầu thì VẪN báo (so với lần báo gần nhất)", () => {
+    const doc = makeDoc('<p data-field="timeline" data-label="Tiến độ">4 tuần.</p>');
+    const onChange = vi.fn();
+    attachInlineEdit(doc, onChange);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+
+    node.dispatchEvent(new Event("focus"));
+    node.textContent = "6 tuần.";
+    node.dispatchEvent(new Event("blur"));
+    node.dispatchEvent(new Event("focus"));
+    node.textContent = "4 tuần.";
+    node.dispatchEvent(new Event("blur"));
+
+    expect(onChange.mock.calls).toEqual([
+      ["timeline", "6 tuần."],
+      ["timeline", "4 tuần."],
+    ]);
+  });
+
+  it("rời ô hai lần liên tiếp với cùng một chữ chỉ báo MỘT lần", () => {
+    const doc = makeDoc('<p data-field="timeline" data-label="Tiến độ">4 tuần.</p>');
+    const onChange = vi.fn();
+    attachInlineEdit(doc, onChange);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+
+    node.textContent = "6 tuần.";
+    node.dispatchEvent(new Event("blur"));
+    node.dispatchEvent(new Event("blur"));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("xoá trắng một ô đang có chữ vẫn báo chuỗi rỗng", () => {
+    const doc = makeDoc('<p data-field="timeline" data-label="Tiến độ">4 tuần.</p>');
+    const onChange = vi.fn();
+    attachInlineEdit(doc, onChange);
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+
+    node.textContent = "";
+    node.dispatchEvent(new Event("blur"));
+
+    expect(onChange).toHaveBeenCalledWith("timeline", "");
+  });
+
   it("danh sách để contentEditable=true để Enter đẻ ra gạch đầu dòng mới", () => {
     // `plaintext-only` sẽ giết mất hành vi này — Enter chỉ xuống dòng chứ không tạo <li>.
     const doc = makeDoc('<ul data-field="scope_of_work" data-kind="list"><li>A</li></ul>');

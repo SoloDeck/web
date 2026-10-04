@@ -736,6 +736,144 @@ describe("ProposalModal", () => {
     );
   });
 
+  it("sửa chữ trong một điều CÓ SẴN trên tờ giấy → lưu vào clause_texts / section_titles, không rụng khoá nào", async () => {
+    // Ô cấu trúc (`clause_*`, `title_*`, `extra_*`) không có chỗ trong bảng `INLINE_FIELD_MAP`, nên
+    // trước đây `handleInlineFieldChange` bỏ qua im lặng: chữ vừa gõ hiện trên màn, nhưng không
+    // bao giờ được lưu — mở lại là về mặc định và bản gửi khách cũng vậy.  #Huynh
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          project_overview: "Làm web bán cà phê.",
+          scope_of_work: ["Dựng hệ thống"],
+          pricing_items: [{ label: "Dựng giao diện", amount: 50_000_000 }],
+          hidden_sections: ["assumptions"],
+          section_titles: { deliverables: "Sản phẩm giao cho khách" },
+          clause_texts: { standard_terms: "Chữ riêng của admin" },
+          extra_sections: [{ title: "Quyền sử dụng", body: "Một năm." }],
+        },
+      })
+    );
+    mockUpdateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+    const frame = (await screen.findByTitle(/bấm vào chữ để sửa/i)) as HTMLIFrameElement;
+
+    // jsdom không tự dựng bản xem trước thật của server; tự dựng vài ô như template Jinja ra.
+    const doc = frame.contentDocument!;
+    doc.getElementById("se-inline-edit-style")?.remove();
+    doc.body.innerHTML = `
+      <h2><span data-field="title_scope_of_work" data-label="Tên đầu mục">Phạm Vi Công Việc</span></h2>
+      <p data-field="clause_confirmation" data-label="Xác nhận">Vui lòng xác nhận.</p>
+      <p data-field="extra_body_0" data-label="Nội dung đầu mục">Một năm.</p>`;
+    fireEvent.load(frame);
+
+    const sua = (field: string, text: string) => {
+      const node = doc.querySelector<HTMLElement>(`[data-field="${field}"]`)!;
+      node.dispatchEvent(new Event("focus"));
+      node.textContent = text;
+      node.dispatchEvent(new Event("blur"));
+    };
+    sua("clause_confirmation", "Xác nhận bằng chữ ký điện tử.");
+    sua("title_scope_of_work", "Phạm vi riêng");
+    sua("extra_body_0", "Hai năm.");
+
+    await waitFor(
+      () =>
+        expect(mockUpdateMutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              content: expect.objectContaining({
+                clause_texts: {
+                  standard_terms: "Chữ riêng của admin",
+                  confirmation: "Xác nhận bằng chữ ký điện tử.",
+                },
+                section_titles: {
+                  deliverables: "Sản phẩm giao cho khách",
+                  scope_of_work: "Phạm vi riêng",
+                },
+                extra_sections: [{ title: "Quyền sử dụng", body: "Hai năm." }],
+                // Các khoá cấu trúc không đụng tới vẫn đi theo.
+                hidden_sections: ["assumptions"],
+              }),
+            }),
+          }),
+          expect.anything()
+        ),
+      { timeout: 4000 }
+    );
+    // Và KHÔNG có khoá rác kiểu `clause_confirmation` / `title_scope_of_work` ở gốc content.
+    const luuCuoi = mockUpdateMutate.mock.calls.at(-1)![0].payload.content;
+    expect(luuCuoi).not.toHaveProperty("clause_confirmation");
+    expect(luuCuoi).not.toHaveProperty("title_scope_of_work");
+    expect(luuCuoi).not.toHaveProperty("extra_body_0");
+  });
+
+  it("bấm vào điều khoản có sẵn rồi bấm ra mà không gõ gì → không lưu gì", async () => {
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: { project_overview: "Làm web.", scope_of_work: ["A"] },
+      })
+    );
+    mockUpdateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+    const frame = (await screen.findByTitle(/bấm vào chữ để sửa/i)) as HTMLIFrameElement;
+    const doc = frame.contentDocument!;
+    doc.getElementById("se-inline-edit-style")?.remove();
+    doc.body.innerHTML =
+      '<p data-field="clause_confirmation" data-label="Xác nhận">Vui lòng xác nhận.</p>';
+    fireEvent.load(frame);
+
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+    node.dispatchEvent(new Event("focus"));
+    node.dispatchEvent(new Event("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    expect(mockUpdateMutate).not.toHaveBeenCalled();
+  });
+
+  it("gõ đúng chữ ĐÃ lưu sẵn trong báo giá (tờ giấy cũ hơn) → không lưu lại", async () => {
+    mockGenerateMutate.mockImplementation(() =>
+      Promise.resolve({
+        id: "proposal-456",
+        content: {
+          project_overview: "Làm web.",
+          scope_of_work: ["A"],
+          clause_texts: { confirmation: "Đã có sẵn." },
+        },
+      })
+    );
+    mockUpdateMutate.mockImplementation((_payload: unknown, callbacks: { onSuccess: () => void }) => {
+      callbacks.onSuccess();
+    });
+
+    renderWithClient(<ProposalModal deal={makeDeal()} onClose={onClose} />);
+    await bamTaoBangAI();
+    const frame = (await screen.findByTitle(/bấm vào chữ để sửa/i)) as HTMLIFrameElement;
+    const doc = frame.contentDocument!;
+    doc.getElementById("se-inline-edit-style")?.remove();
+    // Tờ giấy còn hiện chữ mặc định dù `clause_texts` đã có chữ này (bản xem trước tụt hậu).
+    doc.body.innerHTML =
+      '<p data-field="clause_confirmation" data-label="Xác nhận">Vui lòng xác nhận.</p>';
+    fireEvent.load(frame);
+
+    const node = doc.querySelector<HTMLElement>("[data-field]")!;
+    node.dispatchEvent(new Event("focus"));
+    node.textContent = "Đã có sẵn.";
+    node.dispatchEvent(new Event("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    expect(mockUpdateMutate).not.toHaveBeenCalled();
+  });
+
   it("lưu bản nháp TRƯỚC khi tải PDF", async () => {
     const user = userEvent.setup();
     mockGenerateMutate.mockImplementation(() =>

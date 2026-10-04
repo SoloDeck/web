@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { attachInlineEdit, injectPreviewPageStyle } from "@/features/deals/inlineEditPreview";
+import {
+  apDoiCauTruc,
+  laOCauTruc,
+  tinhDoiCauTruc,
+} from "@/features/deals/structuredFieldEdit";
 import { useUpdateContract } from "@/features/deals/hooks/useContracts";
 import type { ContractContentDTO, ContractResponse } from "@/services/contractsService";
 
@@ -81,10 +86,19 @@ export function useContractInlineEditor(
       const ids = idsRef.current;
       if (!contract?.id || !editable || !ids) return;
       const current = contentRef.current as Record<string, unknown>;
-      if (current[field] === value) return; // liếc qua rồi ra, không sửa gì thì bỏ
 
-      // Gộp lên content HIỆN TẠI để giữ nguyên parties/governing_law — PATCH thay cả cục.
-      const next = { ...current, [field]: value } as ContractContentDTO;
+      // Ô cấu trúc (tên điều, chữ trong điều có sẵn, đầu mục tự soạn) ghi vào khoá riêng của nó,
+      // không phải `content[field]`. Ghi thẳng thì lưu được mà tờ giấy không bao giờ đọc lại.
+      let next: ContractContentDTO;
+      if (laOCauTruc(field)) {
+        const doi = tinhDoiCauTruc(current, "contract", field, value);
+        if (Object.keys(doi).length === 0) return; // bấm vào rồi ra, không đổi gì
+        next = apDoiCauTruc(current, doi) as ContractContentDTO;
+      } else {
+        if (current[field] === value) return; // liếc qua rồi ra, không sửa gì thì bỏ
+        // Gộp lên content HIỆN TẠI để giữ nguyên parties/governing_law — PATCH thay cả cục.
+        next = { ...current, [field]: value } as ContractContentDTO;
+      }
       contentRef.current = next;
 
       // Gõ liên tục thì gộp lại, 800ms sau mới ghi một lượt — không đập server mỗi phím.
