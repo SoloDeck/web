@@ -109,3 +109,64 @@ describe("DocTemplateChooser — một danh sách", () => {
     expect(screen.getByText("Mẫu chưa có nội dung")).toBeInTheDocument();
   });
 });
+
+
+/**
+ * Mẫu thật liệt kê cả chục mục ("Phần thân: ... — Điều khoản: ..."). Phụ đề một dòng `truncate`
+ * không co theo bề rộng hộp thoại: nó đẩy cột lưới của hộp thoại ra rộng hơn màn hình, kéo theo cả
+ * hàng nút "Hủy / Tôi tự soạn / Nhờ AI viết" văng ra ngoài hộp. Phụ đề giờ cho phép tối đa hai
+ * dòng, bẻ chữ được, và chữ đầy đủ nằm trong `title`.
+ */
+describe("DocTemplateChooser — mẫu có phụ đề rất dài", () => {
+  const MAU_DAI: TermTemplateOption = {
+    id: "t1",
+    name: "Hợp đồng Lập trình phần mềm",
+    skeleton_blocks: [
+      "Nội dung và phạm vi công việc",
+      "Giá trị hợp đồng và thanh toán",
+      "Chính sách chỉnh sửa và phát sinh",
+    ],
+    blocks: [
+      "Quyền sở hữu trí tuệ",
+      "Sửa đổi và chấm dứt",
+      "Điều khoản chuẩn",
+      "Điều khoản bổ sung",
+    ],
+  };
+  const PHU_DE_DAI =
+    "Phần thân: Nội dung và phạm vi công việc · Giá trị hợp đồng và thanh toán · Chính sách chỉnh sửa và phát sinh — Điều khoản: Quyền sở hữu trí tuệ · Sửa đổi và chấm dứt · Điều khoản chuẩn · Điều khoản bổ sung";
+
+  it("phụ đề tối đa hai dòng và bẻ chữ được, không còn cắt cụt một dòng", () => {
+    renderChooser([MAU_DAI]);
+
+    const phuDe = screen.getByText(PHU_DE_DAI);
+    expect(phuDe).toHaveClass("line-clamp-2", "break-words");
+    expect(phuDe).not.toHaveClass("truncate");
+  });
+
+  it("chữ đầy đủ nằm trong title để ai muốn đọc hết thì rê chuột vào", () => {
+    renderChooser([MAU_DAI]);
+
+    expect(screen.getByText(PHU_DE_DAI)).toHaveAttribute("title", PHU_DE_DAI);
+  });
+
+  it("tên mẫu vẫn cắt một dòng, không làm cao hàng", () => {
+    renderChooser([MAU_DAI]);
+
+    expect(screen.getByText("Hợp đồng Lập trình phần mềm")).toHaveClass("truncate");
+  });
+
+  it("hộp chọn và từng lựa chọn được phép co hẹp hơn nội dung (min-w-0)", () => {
+    const { container } = render(
+      <DocTemplateChooser
+        templates={[MAU_DAI]}
+        value={null}
+        onChange={vi.fn()}
+        docLabel="hợp đồng"
+      />
+    );
+
+    expect(container.firstElementChild).toHaveClass("min-w-0");
+    for (const nut of screen.getAllByRole("button")) expect(nut).toHaveClass("min-w-0");
+  });
+});

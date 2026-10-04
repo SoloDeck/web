@@ -48,7 +48,7 @@ export function DocTemplateChooser({
   docLabel: string;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <p className="text-sm text-muted-foreground">
         Chọn mẫu làm nền cho {docLabel} này, rồi chọn cách soạn ở dưới.
       </p>
@@ -101,7 +101,7 @@ function Option({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+        "flex w-full min-w-0 items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
         selected ? "border-primary bg-primary/5" : "border-border hover:bg-secondary/40"
       )}
     >
@@ -115,7 +115,14 @@ function Option({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{title}</span>
-        <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>
+        {/* Tối đa hai dòng thay vì một dòng cắt cụt: mẫu thật liệt kê cả chục mục, một dòng thì chỉ
+            thấy nửa chữ đầu. Chữ đầy đủ nằm trong `title` cho ai muốn đọc hết. */}
+        <span
+          className="line-clamp-2 break-words text-xs text-muted-foreground"
+          title={subtitle}
+        >
+          {subtitle}
+        </span>
       </span>
       {selected && <Check className="size-4 shrink-0 text-primary" />}
     </button>
