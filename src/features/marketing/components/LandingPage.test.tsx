@@ -37,13 +37,20 @@ describe("LandingPage", () => {
       expect(screen.getAllByText(stage.title).length).toBeGreaterThan(0);
     }
     // Phiếu đăng ký SÁU giai đoạn, và bảng Kanban cũng không render cột `lost`.
-    expect(screen.queryByText("Không Chốt Được")).not.toBeInTheDocument();
+    expect(screen.queryByText("Không Thành Công")).not.toBeInTheDocument();
+  });
+
+  it("nói đúng tên hai chỉ số của bảng doanh thu như phiếu: tỷ lệ thắng, giá trị deal trung bình", () => {
+    const { container } = render(<LandingPage />);
+
+    expect(container.textContent).toMatch(/tỷ lệ thắng/);
+    expect(container.textContent).toMatch(/giá trị deal trung bình/);
+    expect(container.textContent).not.toMatch(/tỷ lệ chốt deal/);
   });
 
   it("không hứa những thứ sản phẩm chưa có", () => {
     // Biến chính sách "không nói quá" thành luật chạy được. Repo không có file .dart
-    // nào, email đi qua SMTP chứ không phải SendGrid, và analytics không có chỉ số
-    // giá trị deal trung bình — dù phiếu có nhắc tới ứng dụng di động và chỉ số đó.
+    // nào và email đi qua SMTP chứ không phải SendGrid — dù phiếu có nhắc tới ứng dụng di động.
     const CAM = [
       /Flutter/i,
       /ứng dụng di động/i,
@@ -52,8 +59,6 @@ describe("LandingPage", () => {
       /App Store/i,
       /Google Play/i,
       /SendGrid/i,
-      /giá trị deal trung bình/i,
-      /quy mô deal trung bình/i,
       // SoloDesk là CRM riêng của từng freelancer, KHÔNG phải sàn cho khách chọn thợ.
       // Chữ nghĩa là chỗ tính chất "chợ" bò lại dễ nhất, nên chặn luôn ở đây.  #Huynh
       /tìm freelancer/i,

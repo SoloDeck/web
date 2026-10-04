@@ -30,6 +30,8 @@ type ApiDealResponse = {
   updated_at: string;
   /** Ngày deal vào giai đoạn cuối. Backend vẫn trả sẵn, FE trước đây chưa khai. */
   closed_at?: string | null;
+  /** Lý do dự án không thành công (giai đoạn `lost`). */
+  lost_reason?: string | null;
 };
 
 type ClientHint = {
@@ -137,6 +139,7 @@ export function mapDeal(d: ApiDealResponse, clientMap: Map<string, ClientHint>):
     clientPhone: client?.phone ?? null,
     projectType: d.title,
     closedAt: d.closed_at ?? null,
+    lostReason: d.lost_reason ?? null,
     value,
     score: mapScore(d.ai_qualification_score),
     stage: d.stage,
@@ -358,7 +361,31 @@ export async function getArchivedDeals(opts: {
   };
   if (opts.title?.trim()) params.title = opts.title.trim();
   if (opts.clientId) params.client_id = opts.clientId;
+  return fetchDealsPage(params);
+}
 
+/**
+ * GET /deals?stage=lost — mục "Không thành công" của kho lưu trữ, PHÂN TRANG THẬT.
+ *
+ * Khác mục "Đã hoàn thành": deal không thành công vào kho NGAY (không chờ 90 ngày) vì nó không có
+ * cột nào trên bảng. Mỗi deal kèm `lostReason`. Sắp theo ngày đóng, mới nhất trước.  #Huynh
+ */
+export async function getLostDeals(opts: {
+  page: number;
+  pageSize?: number;
+  title?: string;
+}): Promise<ArchivedDealsPage> {
+  const params: Record<string, unknown> = {
+    stage: "lost",
+    sort_by: "closed_at",
+    page: opts.page,
+    page_size: opts.pageSize ?? 10,
+  };
+  if (opts.title?.trim()) params.title = opts.title.trim();
+  return fetchDealsPage(params);
+}
+
+async function fetchDealsPage(params: Record<string, unknown>): Promise<ArchivedDealsPage> {
   const [dealsRes, clientsRes] = await Promise.all([
     axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", { params }),
     axiosClient
@@ -380,6 +407,14 @@ export async function getArchivedDeals(opts: {
 export async function countArchivedDeals(): Promise<number> {
   const res = await axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
     params: { archived: true, page_size: 1 },
+  });
+  return res.data.pagination?.total ?? 0;
+}
+
+/** Như `countArchivedDeals` nhưng cho mục "Không thành công" của kho. */
+export async function countLostDeals(): Promise<number> {
+  const res = await axiosClient.get<PaginatedEnvelope<ApiDealResponse>>("/deals", {
+    params: { stage: "lost", page_size: 1 },
   });
   return res.data.pagination?.total ?? 0;
 }
@@ -419,11 +454,18 @@ export async function getDealIntakes(pageSize = 100): Promise<DealIntake[]> {
   return (data.data ?? []).map(mapDealIntake);
 }
 
-/** POST /deals/{id}/stage — transitions a deal to a new stage. */
-export async function updateDealStage(id: string, stage: Stage): Promise<Deal> {
+/**
+ * POST /deals/{id}/stage — transitions a deal to a new stage.
+ *
+ * `reason` là lý do dự án không thành công, chỉ dùng khi `stage` là `lost` (các giai đoạn khác bỏ
+ * qua). Web luôn gửi vì hộp "Loại bỏ dự án" bắt buộc nhập; backend không bắt buộc để client khác
+ * (app di động) không gửi vẫn chạy.
+ */
+export async function updateDealStage(id: string, stage: Stage, reason?: string): Promise<Deal> {
   const { data } = await axiosClient.post<ApiResponse<ApiDealResponse>>(
     `/deals/${id}/stage`,
-    { stage }
+    // `reason` bỏ trống thì JSON không có khoá này, nên các giai đoạn khác gửi đúng như cũ.
+    { stage, reason }
   );
   return mapDeal(data.data, new Map());
 }
@@ -447,7 +489,7 @@ export async function updateDeal(id: string, payload: DealPayload): Promise<Deal
   return mapDeal(data.data, new Map());
 }
 
-/** DELETE /deals/{id} — soft-deletes a deal. */
+/** DELETE /deals/{id} — soft-deletes a deal (giao diện gọi là "xóa vĩnh viễn": không khôi phục được). */
 export async function deleteDeal(id: string): Promise<void> {
   await axiosClient.delete(`/deals/${id}`);
 }

@@ -107,7 +107,7 @@ export function KanbanColumn({
           className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-[11px] font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
         >
           <Archive className="h-3.5 w-3.5" />
-          {archivedCount} dự án cũ hơn trong kho →
+          {archivedCount} dự án trong kho →
         </button>
       )}
     </section>

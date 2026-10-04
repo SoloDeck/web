@@ -92,12 +92,14 @@ export type Deal = {
   createdAt: string;
   updatedAt?: string;
   /**
-   * Ngày deal vào giai đoạn cuối (hoàn thành / không chốt được).
+   * Ngày deal vào giai đoạn cuối (hoàn thành / không thành công).
    *
    * Cũng chính là mốc quyết định dự án đã vào KHO LƯU TRỮ hay chưa — kho là thứ suy ra từ
    * ngày này, không phải một cột trạng thái riêng.  #Huynh
    */
   closedAt?: string | null;
+  /** Vì sao dự án KHÔNG THÀNH CÔNG — chỉ có ở deal `lost`. */
+  lostReason?: string | null;
   notes: string;
   /** Mốc thời gian KHÁCH nêu. Vào khối chấm điểm — tiêu chí "Thời gian". */
   desiredTimeline?: string;
@@ -195,9 +197,9 @@ export const STAGES: StageConfig[] = [
   },
   {
     id: "lost",
-    title: "Không Chốt Được",
-    shortTitle: "Không chốt",
-    hint: "Deal đã mất",
+    title: "Không Thành Công",
+    shortTitle: "Không thành công",
+    hint: "Deal không thành công",
     dotClass: "bg-rose-500",
     bgClass: "bg-rose-50",
     textClass: "text-rose-700",
