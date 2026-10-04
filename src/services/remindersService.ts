@@ -54,7 +54,6 @@ export type ReminderRule = {
   offset_days: number;
   repeat_every_days: number | null;
   channel: ReminderChannel;
-  auto_send: boolean;
   send_at_hour: number;
   /** Câu mô tả do backend soạn — đừng chế lại ở FE kẻo hai nơi nói hai kiểu. */
   label: string;
@@ -75,7 +74,6 @@ export type ReminderRuleUpdate = Partial<
     | "offset_days"
     | "repeat_every_days"
     | "channel"
-    | "auto_send"
     | "send_at_hour"
     | "message_template"
   >

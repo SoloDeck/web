@@ -39,7 +39,6 @@ function rule(over: Partial<ReminderRule> = {}): ReminderRule {
     supports_repeat: false,
     channel: "email",
     send_at_hour: 9,
-    auto_send: false,
     message_template: "",
     template_variables: [],
     ...over,
@@ -111,5 +110,64 @@ describe("<ReminderRulesSettings /> — gấp mở", () => {
     expect(screen.getByText("Đang tắt")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Quá hạn"));
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Công tắc "Tự động gửi, không cần tôi duyệt" đã bỏ khỏi MỌI quy tắc: lời nhắc do quy tắc tạo luôn
+ * nằm chờ người dùng duyệt. Dữ liệu cũ còn trả `auto_send` cũng không được làm nó hiện lại.
+ */
+describe("<ReminderRulesSettings /> — không có công tắc 'Tự động gửi'", () => {
+  const legacy = { auto_send: true } as unknown as Partial<ReminderRule>;
+
+  it("cả năm quy tắc: mở ra đều không có công tắc 'Tự động gửi'", async () => {
+    const types = [
+      "proposal_follow_up",
+      "contract_signing_nudge",
+      "payment_due",
+      "payment_overdue",
+      "re_engagement",
+    ] as const;
+    rulesState.current = types.map((type, index) =>
+      rule({ rule_type: type, label: `Quy tắc ${index + 1}` })
+    );
+    render(<ReminderRulesSettings />);
+
+    for (let index = 1; index <= types.length; index++) {
+      await userEvent.click(screen.getByText(`Quy tắc ${index}`));
+      const row = rowOf(`Quy tắc ${index}`);
+      expect(within(row).getByRole("spinbutton")).toBeInTheDocument(); // đúng là đang mở cấu hình
+      expect(within(row).queryByText(/tự động gửi/i)).toBeNull();
+      expect(within(row).queryByText(/không cần tôi duyệt/i)).toBeNull();
+      expect(within(row).queryByLabelText(/tự động gửi/i)).toBeNull();
+      // Chỉ còn đúng một công tắc: bật/tắt chính quy tắc đó.
+      expect(within(row).getAllByRole("switch")).toHaveLength(1);
+    }
+  });
+
+  it("dữ liệu cũ còn auto_send=true cũng không hiện '· tự gửi' ở dòng tóm tắt", () => {
+    rulesState.current = [rule({ label: "Quá hạn", offset_days: 5, send_at_hour: 14, ...legacy })];
+    render(<ReminderRulesSettings />);
+
+    expect(screen.getByText("5 ngày · gửi email cho khách · 14:00")).toBeInTheDocument();
+    expect(screen.queryByText(/tự gửi/i)).toBeNull();
+  });
+
+  it("mở quy tắc cũ còn auto_send=true cũng không có cảnh báo 'email sẽ gửi thẳng tới khách'", async () => {
+    rulesState.current = [rule({ label: "Quá hạn", ...legacy })];
+    render(<ReminderRulesSettings />);
+
+    await userEvent.click(screen.getByText("Quá hạn"));
+
+    expect(screen.queryByText(/gửi thẳng tới khách/i)).toBeNull();
+    expect(screen.queryByText(/không kịp xem lại/i)).toBeNull();
+  });
+
+  it("lời giới thiệu nói rõ bạn luôn duyệt trước khi gửi", () => {
+    rulesState.current = [rule()];
+    render(<ReminderRulesSettings />);
+
+    expect(screen.getByText(/Bạn luôn duyệt trước khi gửi/)).toBeInTheDocument();
+    expect(screen.queryByText(/Mặc định bạn duyệt/)).toBeNull();
   });
 });

@@ -8,7 +8,6 @@ import {
   Save,
   Send,
   Sparkles,
-  Wallet,
   X,
 } from "lucide-react";
 import { vi } from "date-fns/locale";
@@ -49,7 +48,7 @@ import type { Deal } from "@/features/deals/types";
 import { cn } from "@/lib/utils";
 
 const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
-  { value: "follow_up", label: "Follow-up chung" },
+  { value: "follow_up", label: "Hỏi thăm chung" },
   { value: "proposal_follow_up", label: "Nhắc phản hồi báo giá" },
   { value: "contract_signing_nudge", label: "Nhắc ký hợp đồng" },
   { value: "payment_due", label: "Nhắc thanh toán đến hạn" },
@@ -64,8 +63,6 @@ const CHANNELS: Array<{ value: ReminderChannel; label: string; hint: string }> =
   { value: "both", label: "Email + nhắc tôi", hint: "Vừa gửi khách vừa báo cho bạn" },
   { value: "zalo", label: "Gửi Zalo cho khách", hint: "Qua Zalo OA của bạn" },
 ];
-
-const PAYMENT_TYPES = new Set<ReminderType>(["payment_due", "payment_overdue"]);
 
 /** Khớp `MAX_IMAGES_PER_REMINDER` bên backend — chặn sớm để báo ngay thay vì chờ lỗi 422. */
 const MAX_IMAGES = 5;
@@ -154,9 +151,6 @@ export function ReminderComposerModal({
     target_type: reminder?.target_type ?? ("deal" as const),
     target_id: reminder?.target_id ?? deal.id,
   };
-
-  const paymentInfoMissing = !profile.bankCode && !profile.momoPhone;
-  const needsPaymentInfo = PAYMENT_TYPES.has(type) && paymentInfoMissing;
 
   // Xem trước hoãn ~700ms sau mỗi lần gõ — cùng nhịp với thanh giá ở modal báo giá: đủ để
   // thấy ngay, không đủ để bắn một lệnh gọi mỗi ký tự.
@@ -398,19 +392,6 @@ export function ReminderComposerModal({
                 </SelectContent>
               </Select>
             </Field>
-
-            {/* Nhắc thanh toán mà thư không có chỗ nào chỉ cách trả tiền thì khách đọc xong
-              vẫn phải nhắn lại hỏi số tài khoản. Chỉ hiện khi CHƯA đính ảnh nào — đính rồi
-              thì coi như đã có mã QR. */}
-            {needsPaymentInfo && images.length === 0 && (
-              <p className="flex items-start gap-1.5 rounded-md bg-warning/10 p-2 text-xs leading-4 text-warning-foreground">
-                <Wallet className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  Thư nhắc thanh toán này chưa có thông tin chuyển khoản. Bạn chèn ảnh{" "}
-                  <strong>mã QR</strong> ở mục Nội dung bên dưới nhé.
-                </span>
-              </p>
-            )}
 
             <Field label="Kênh gửi">
               <Select

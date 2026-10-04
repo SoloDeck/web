@@ -81,16 +81,20 @@ describe("<DealReminderPanel /> — gửi ngay", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /gửi ngay/i }));
     const hopThoai = screen.getByRole("alertdialog");
-    await userEvent.click(within(hopThoai).getByRole("button", { name: /gửi ngay cho khách/i }));
+    await userEvent.click(within(hopThoai).getByRole("button", { name: "Gửi" }));
 
     expect(mockSendNow).toHaveBeenCalledWith("rem-1");
   });
 
-  it("bấm 'Giữ đúng lịch' thì không gửi gì cả", async () => {
+  it("hộp xác nhận chỉ có hai nút 'Hủy' và 'Gửi'; bấm 'Hủy' thì không gửi gì cả", async () => {
     render(<DealReminderPanel deal={deal} />);
 
     await userEvent.click(screen.getByRole("button", { name: /gửi ngay/i }));
-    await userEvent.click(screen.getByRole("button", { name: /giữ đúng lịch/i }));
+    const nhan = Array.from(screen.getByRole("alertdialog").querySelectorAll("button")).map((b) =>
+      b.textContent?.trim()
+    );
+    expect(nhan).toEqual(["Hủy", "Gửi"]);
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Hủy" }));
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(mockSendNow).not.toHaveBeenCalled();
@@ -193,5 +197,23 @@ describe("<DealReminderPanel /> — tải lỗi", () => {
 
     expect(screen.queryByText(/xem lý do ở chuông/i)).not.toBeInTheDocument();
     expect(screen.getByText(/rồi bấm “Soạn lời nhắc” để gửi lại/i)).toBeInTheDocument();
+  });
+});
+
+describe("<DealReminderPanel /> — chữ tiếng Việt", () => {
+  it("lời nhắc loại hỏi thăm hiện tên 'Hỏi thăm chung', không phải 'Follow-up'", () => {
+    reminders = [reminder({ id: "rem-h", reminder_type: "follow_up" })];
+    render(<DealReminderPanel deal={deal} />);
+
+    expect(screen.getByRole("heading", { name: "Hỏi thăm chung" })).toBeInTheDocument();
+    expect(screen.queryByText(/follow/i)).not.toBeInTheDocument();
+  });
+
+  it("chưa có lời nhắc nào thì câu hướng dẫn cũng không dùng chữ 'follow-up'", () => {
+    reminders = [];
+    render(<DealReminderPanel deal={deal} />);
+
+    expect(screen.getByText(/không bỏ sót việc hỏi thăm khách, báo giá/i)).toBeInTheDocument();
+    expect(screen.queryByText(/follow/i)).not.toBeInTheDocument();
   });
 });
