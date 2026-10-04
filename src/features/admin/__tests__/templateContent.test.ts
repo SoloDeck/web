@@ -10,6 +10,7 @@ import {
   extraSections,
   themDauMuc,
   xoaDauMuc,
+  doiViTriDauMuc,
   xoaNoiDungMuc,
   coChu,
   contentBanDau,
@@ -209,6 +210,76 @@ describe("đầu mục tự soạn", () => {
 
     const sau = xoaDauMuc(content, 1);
     expect(extraSections(sau).map((m) => m.title)).toEqual(["A", "C"]);
+  });
+
+  describe("đổi thứ tự", () => {
+    function bonMuc() {
+      let content: Record<string, unknown> = { standard_terms: "Chuẩn." };
+      for (const ten of ["A", "B", "C", "D"]) {
+        content = themDauMuc(content);
+        const i = extraSections(content).length - 1;
+        content = ghiField(content, "proposal", `extra_title_${i}`, ten);
+        content = ghiField(content, "proposal", `extra_body_${i}`, `Nội dung ${ten}`);
+      }
+      return content;
+    }
+    const ten = (content: Record<string, unknown>) => extraSections(content).map((m) => m.title);
+
+    it("đưa một mục xuống dưới một bậc", () => {
+      expect(ten(doiViTriDauMuc(bonMuc(), 1, 1))).toEqual(["A", "C", "B", "D"]);
+    });
+
+    it("đưa một mục lên trên một bậc", () => {
+      expect(ten(doiViTriDauMuc(bonMuc(), 2, -1))).toEqual(["A", "C", "B", "D"]);
+    });
+
+    it("mỗi mục mang theo NỘI DUNG của nó khi dời, không chỉ tên", () => {
+      const sau = extraSections(doiViTriDauMuc(bonMuc(), 0, 1));
+
+      expect(sau[0]).toEqual({ title: "B", body: "Nội dung B" });
+      expect(sau[1]).toEqual({ title: "A", body: "Nội dung A" });
+    });
+
+    it("ở đầu mà đòi lên, hoặc ở cuối mà đòi xuống → trả lại CHÍNH content đó", () => {
+      const content = bonMuc();
+
+      expect(doiViTriDauMuc(content, 0, -1)).toBe(content);
+      expect(doiViTriDauMuc(content, 3, 1)).toBe(content);
+    });
+
+    it("chỉ số không có thật hoặc danh sách rỗng → không đổi, không nổ", () => {
+      const content = bonMuc();
+
+      expect(doiViTriDauMuc(content, 9, -1)).toBe(content);
+      expect(doiViTriDauMuc(content, -1, 1)).toBe(content);
+      expect(doiViTriDauMuc({}, 0, 1)).toEqual({});
+    });
+
+    it("chỉ có một mục thì không dời được", () => {
+      const content = themDauMuc({});
+
+      expect(doiViTriDauMuc(content, 0, 1)).toBe(content);
+      expect(doiViTriDauMuc(content, 0, -1)).toBe(content);
+    });
+
+    it("không đụng các khoá khác của mẫu và không sửa bản gốc", () => {
+      const content = bonMuc();
+      const truoc = JSON.stringify(content);
+
+      const sau = doiViTriDauMuc(content, 1, 1);
+
+      expect(sau.standard_terms).toBe("Chuẩn.");
+      expect(JSON.stringify(content)).toBe(truoc);
+      expect(sau).not.toBe(content);
+    });
+
+    it("dời qua lại hai lần về đúng thứ tự cũ", () => {
+      const content = bonMuc();
+
+      const sau = doiViTriDauMuc(doiViTriDauMuc(content, 1, 1), 2, -1);
+
+      expect(ten(sau)).toEqual(ten(content));
+    });
   });
 
   it("xoá mục cuối cùng thì bỏ hẳn khoá, không để mảng rỗng", () => {

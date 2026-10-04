@@ -279,6 +279,30 @@ export function xoaDauMuc(
 }
 
 /**
+ * Dời một đầu mục tự soạn lên trước (`-1`) hoặc xuống sau (`+1`) một vị trí.
+ *
+ * Chỉ áp cho ĐẦU MỤC TỰ SOẠN: thứ tự của chúng chính là thứ tự in trên giấy, nên đổi vị trí trong
+ * danh sách là đổi luôn vị trí trên giấy. Bộ đầu mục có sẵn thì KHÔNG dời được — số điều đánh theo
+ * vị trí và nhiều câu chữ nhắc theo số (ví dụ "bảng chi phí ở mục 7").
+ *
+ * Đã ở đầu mà bấm lên (hoặc ở cuối mà bấm xuống), hay chỉ số không có thật, thì trả lại CHÍNH
+ * `content` đó — để chỗ gọi nhận ra "không đổi gì" mà không phải dựng lại tờ giấy.  #Huynh
+ */
+export function doiViTriDauMuc(
+  content: Record<string, unknown>,
+  index: number,
+  huong: -1 | 1
+): Record<string, unknown> {
+  const hienCo = extraSections(content);
+  const dich = index + huong;
+  if (!hienCo[index] || !hienCo[dich]) return content;
+
+  const sau = [...hienCo];
+  [sau[index], sau[dich]] = [sau[dich], sau[index]];
+  return ghiExtraSections(content, sau);
+}
+
+/**
  * Xoá NỘI DUNG một mục có sẵn của tờ giấy.
  *
  * Mục cứng thì không bỏ khỏi cấu trúc được, nhưng bỏ trống là nó KHÔNG hiện trên bản gửi khách
