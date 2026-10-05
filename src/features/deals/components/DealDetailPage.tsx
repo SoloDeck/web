@@ -106,6 +106,7 @@ import {
   useGenerateContractContent,
   useSendContract,
   useRecordContractSent,
+  useRecordClientDecline,
   useRecordClientSignature,
 } from "@/features/deals/hooks/useContracts";
 import { STAGES, STAGE_BY_ID, formatDealSource, type Deal, type ProjectTask } from "@/features/deals/types";
@@ -358,6 +359,9 @@ export function DealDetailPage({
    */
   const [proposalPendingAccept, setProposalPendingAccept] = useState<string | null>(null);
   const [contractPendingSign, setContractPendingSign] = useState<{ id: string } | null>(null);
+  // Hợp đồng bị bấm "Khách không ký" — đang chờ xác nhận (ghi nhận xong thì không đổi lại được).
+  const [contractPendingDecline, setContractPendingDecline] = useState<string | null>(null);
+  const recordClientDeclineMutation = useRecordClientDecline();
 
   // File đính kèm giờ lưu trên object storage (MinIO/S3) qua API, KHÔNG còn nhét base64
   // vào localStorage: ~5MB là vỡ, đổi máy là mất sạch, và file không rời khỏi trình duyệt
@@ -418,6 +422,20 @@ export function DealDetailPage({
   const qualifications = useDealQualifications(deal?.id);
   const savedQualificationDocs = savedQualifications(qualifications.data);
   const acceptedProposal = proposalItems.find((proposal) => proposal.status === "accepted");
+  // Báo giá đang ở đâu — để nút bên phải biết còn phải chờ khách hay phải soạn bản mới.
+  // `proposalItems` xếp mới nhất trước, nên bản đóng gần nhất (từ chối / hết hạn) là bản đầu tiên.
+  const lastClosedProposal = proposalItems.find(
+    (proposal) => proposal.status === "rejected" || proposal.status === "expired"
+  );
+  const proposalOutcome: "live" | "rejected" | "expired" | "none" = proposalItems.some(
+    (proposal) => proposal.status === "sent" || proposal.status === "accepted"
+  )
+    ? "live"
+    : lastClosedProposal
+      ? lastClosedProposal.status === "rejected"
+        ? "rejected"
+        : "expired"
+      : "none";
   // Bản nháp để tái dùng khi bấm "Tạo lại" — tránh đẻ thêm hợp đồng mới.
   const draftContract = contractItems.find((contract) => contract.status === "draft");
   // Hợp đồng ĐÃ GỬI, đang chờ khách ký (`pending_signatures`). Lúc này không được tạo/viết lại
@@ -1054,6 +1072,25 @@ export function DealDetailPage({
     });
   }
 
+  /**
+   * Khách không ký hợp đồng đã gửi → ghi nhận để nó hết hiệu lực. Backend mỗi deal chỉ cho MỘT
+   * hợp đồng chờ ký / đang hiệu lực, nên đây là cửa duy nhất mở lại việc soạn hợp đồng khác.
+   */
+  function handleDeclineContract(contractId: string) {
+    if (!deal) return;
+    recordClientDeclineMutation.mutate(contractId, {
+      onSuccess: () => {
+        toast.success('Đã ghi nhận khách không ký. Bấm "Tạo Hợp Đồng AI" để soạn bản khác.');
+        addDealHistoryEntry(deal.id, {
+          date: new Date().toISOString(),
+          text: "Ghi nhận: khách không ký hợp đồng đã gửi.",
+          channel: "message",
+        });
+      },
+      onError: (error) => toast.error(contractErrorMessage(error)),
+    });
+  }
+
   function handleAddTask(title: string, note: string) {
     if (!projectId) {
       toast.error("Project chưa sẵn sàng. Vui lòng đợi dữ liệu triển khai tải xong.");
@@ -1611,6 +1648,7 @@ export function DealDetailPage({
                     onDeleteProposal={(id) => setDeleteProposalId(id)}
                     onSendContract={(contractId) => setContractPendingSendId(contractId)}
                     onSignContract={(contract) => setContractPendingSign({ id: contract.id })}
+                    onDeclineContract={(contractId) => setContractPendingDecline(contractId)}
                     onViewContract={(id) => setViewContractId(id)}
                     savedQualifications={savedQualificationDocs}
                     onViewQualification={setViewQualificationDoc}
@@ -1685,6 +1723,7 @@ export function DealDetailPage({
                 hasDraftContract={Boolean(draftContract)}
                 hasPendingContract={hasPendingContract}
                 hasActiveContract={hasDeploymentReadyContract}
+                proposalOutcome={proposalOutcome}
               />
 
               <ClientInfoPanel deal={deal} client={client} />
@@ -1812,6 +1851,22 @@ export function DealDetailPage({
           if (!contractPendingSign) return;
           handleSignContract(contractPendingSign);
           setContractPendingSign(null);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(contractPendingDecline)}
+        onOpenChange={(open) => {
+          if (!open) setContractPendingDecline(null);
+        }}
+        title="Khách không ký hợp đồng này?"
+        description="Hợp đồng sẽ chuyển sang 'Hết hiệu lực' và không đổi lại được. Sau đó bạn soạn được hợp đồng khác (chỉnh theo phản hồi của khách) để gửi lại."
+        confirmLabel="Đúng, khách không ký"
+        cancelLabel="Chưa, để sau"
+        isLoading={recordClientDeclineMutation.isPending}
+        onConfirm={() => {
+          if (!contractPendingDecline) return;
+          handleDeclineContract(contractPendingDecline);
+          setContractPendingDecline(null);
         }}
       />
       <ConfirmDialog
@@ -2287,10 +2342,10 @@ export function ActionsPanel({
   contractLoading,
   stageTransitionLoading,
   hasAcceptedProposal,
-  hasContract,
   hasDraftContract,
   hasPendingContract = false,
   hasActiveContract,
+  proposalOutcome = "live",
 }: {
   deal: Deal;
   onEvaluate: () => void;
@@ -2301,11 +2356,21 @@ export function ActionsPanel({
   contractLoading: boolean;
   stageTransitionLoading: boolean;
   hasAcceptedProposal: boolean;
-  hasContract: boolean;
+  /** Có hợp đồng nào chưa — chỉ để chỗ gọi truyền; nút bên phải dựa vào hasPendingContract. */
+  hasContract?: boolean;
   hasDraftContract: boolean;
   /** Hợp đồng đã gửi, đang chờ khách ký: khoá nút tạo/viết lại hợp đồng bằng AI. */
   hasPendingContract?: boolean;
   hasActiveContract: boolean;
+  /**
+   * Báo giá của deal đang ở đâu, để giai đoạn "Đã gửi báo giá" biết có phải đứng chờ khách nữa
+   * không:
+   * - `live`: có bản đã gửi / đã chấp nhận — chờ khách hoặc đã xong.
+   * - `rejected` / `expired`: bản gần nhất bị khách từ chối / hết hiệu lực, chưa có bản nào
+   *   thay — phải soạn bản mới, không còn gì để chờ.
+   * - `none`: giai đoạn đã là "Đã gửi báo giá" nhưng chưa có bản nào được gửi đi.
+   */
+  proposalOutcome?: "live" | "rejected" | "expired" | "none";
 }) {
   const stage = deal.stage;
 
@@ -2390,11 +2455,37 @@ export function ActionsPanel({
         </button>
       )}
 
-      {stage === "proposal_sent" && (
+      {stage === "proposal_sent" && proposalOutcome === "live" && (
         <div className="rounded-lg border border-border bg-muted/20 p-3 text-center">
           <p className="text-xs font-medium text-muted-foreground">Đã gửi báo giá · chờ phản hồi khách</p>
           <p className="mt-1 text-xs text-muted-foreground">Vào tab <span className="font-semibold text-foreground">Tài liệu</span> để ghi nhận phản hồi.</p>
         </div>
+      )}
+
+      {/* Khách từ chối (hoặc báo giá hết hạn) thì không còn gì để chờ — phải có đường soạn bản
+          mới ngay tại đây. Bản cũ chỉ in dòng "chờ phản hồi khách" nên freelancer kẹt: báo giá
+          đã đóng, deal vẫn nằm ở "Đã gửi báo giá", và không có nút nào để làm tiếp.  #Huynh */}
+      {stage === "proposal_sent" && proposalOutcome !== "live" && (
+        <>
+          <div className="rounded-lg border border-border bg-muted/20 p-3 text-center">
+            <p className="text-xs font-medium text-foreground">
+              {proposalOutcome === "rejected"
+                ? "Khách đã từ chối báo giá"
+                : proposalOutcome === "expired"
+                  ? "Báo giá đã hết hiệu lực"
+                  : "Chưa có báo giá nào được gửi cho khách"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Soạn bản mới (chỉnh giá hoặc phạm vi theo phản hồi) rồi gửi lại. Bản cũ vẫn nằm ở tab Tài liệu.
+            </p>
+          </div>
+          <button
+            onClick={onProposal}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          >
+            <FileText className="h-4 w-4" /> Tạo Báo Giá Mới
+          </button>
+        </>
       )}
 
       {/* MỘT việc tại một thời điểm, không bày cả hai.
@@ -2436,8 +2527,8 @@ export function ActionsPanel({
                   : "Tạo Hợp Đồng AI"}
             </button>
           )}
-          {hasContract && !hasActiveContract && (
-            <p className="text-center text-xs text-muted-foreground">Hợp đồng đang chờ ký. Vào tab Tài liệu, bấm "Ghi nhận: khách đã ký" sau khi hai bên đã ký ngoài hệ thống.</p>
+          {hasPendingContract && !hasActiveContract && (
+            <p className="text-center text-xs text-muted-foreground">Hợp đồng đang chờ ký. Vào tab Tài liệu, bấm "Ghi nhận: khách đã ký" sau khi hai bên đã ký ngoài hệ thống — hoặc "Khách không ký" nếu khách từ chối để soạn bản khác.</p>
           )}
         </>
       )}
@@ -3267,6 +3358,7 @@ export function DocumentsTab({
   onDeleteProposal,
   onSendContract,
   onSignContract,
+  onDeclineContract,
   onViewContract,
   contractActionLoading,
   pendingInvoiceId,
@@ -3310,6 +3402,11 @@ export function DocumentsTab({
   onDeleteProposal: (proposalId: string) => void;
   onSendContract: (contractId: string) => void;
   onSignContract: (contract: { id: string; share_token?: string | null; signed_by_freelancer_at?: string | null }) => void;
+  /**
+   * Khách không ký hợp đồng đã gửi: ghi nhận để hợp đồng hết hiệu lực và soạn được bản khác.
+   * Tuỳ chọn để chỗ nào chỉ liệt kê tài liệu thì không phải truyền.
+   */
+  onDeclineContract?: (contractId: string) => void;
   onViewContract: (contractId: string) => void;
   contractActionLoading: boolean;
   /** Hoá đơn đang được xử lý — chỉ hàng của nó bị khoá, các hàng khác vẫn bấm được. */
@@ -3794,6 +3891,16 @@ export function DocumentsTab({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" /> Ghi nhận: khách đã ký
+              </button>
+            )}
+            {!readOnly && item.status === "pending_signatures" && onDeclineContract && (
+              <button
+                type="button"
+                disabled={contractActionLoading}
+                onClick={() => onDeclineContract(item.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-3.5 w-3.5" /> Khách không ký
               </button>
             )}
           </div>

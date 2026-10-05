@@ -13,7 +13,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.f
  * nhau; nay hợp đồng ghi "Đã gửi".
  */
 
-function renderTab(contractStatus: string) {
+function renderTab(contractStatus: string, onDeclineContract?: (id: string) => void) {
   render(
     <DocumentsTab
       savedQualifications={[]}
@@ -38,6 +38,7 @@ function renderTab(contractStatus: string) {
       onDeleteProposal={vi.fn()}
       onSendContract={vi.fn()}
       onSignContract={vi.fn()}
+      onDeclineContract={onDeclineContract}
       onViewContract={vi.fn()}
       contractActionLoading={false}
       pendingInvoiceId={null}
@@ -68,5 +69,19 @@ describe("hàng hợp đồng trong tab Tài liệu", () => {
     const row = rowOf("Hợp đồng lần 1");
     expect(within(row).getByText("Bản nháp")).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: /Gửi cho khách ký/ })).toBeInTheDocument();
+  });
+
+  it("đang chờ ký: có nút 'Khách không ký' và bấm thì báo lên để trang hỏi lại", () => {
+    const onDecline = vi.fn();
+    renderTab("pending_signatures", onDecline);
+
+    const row = rowOf("Hợp đồng lần 1");
+    within(row).getByRole("button", { name: /Khách không ký/ }).click();
+    expect(onDecline).toHaveBeenCalledWith("c-1");
+  });
+
+  it("bản nháp thì không có nút 'Khách không ký'", () => {
+    renderTab("draft", vi.fn());
+    expect(screen.queryByRole("button", { name: /Khách không ký/ })).toBeNull();
   });
 });

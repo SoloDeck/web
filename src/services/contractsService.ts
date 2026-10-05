@@ -237,6 +237,22 @@ export async function recordContractSent(contractId: string): Promise<ContractRe
   return data.data;
 }
 
+/**
+ * Freelancer GHI NHẬN rằng khách KHÔNG ký (từ chối, im lặng quá hạn) — hợp đồng đang chờ ký
+ * chuyển sang `expired` (backend: pending_signatures → expired).
+ *
+ * Không có đường này thì hợp đồng đã gửi kẹt ở "Đã gửi" mãi: backend mỗi deal chỉ cho MỘT hợp
+ * đồng chờ ký / đang hiệu lực nên nút tạo hợp đồng mới bị khoá, và freelancer không còn lối
+ * nào để soạn lại bản khác theo ý khách.  #Huynh
+ */
+export async function recordClientDecline(contractId: string): Promise<ContractResponse> {
+  const { data } = await axiosClient.patch<ApiResponse<ContractResponse>>(
+    `/contracts/${contractId}/status`,
+    { status: "expired" }
+  );
+  return data.data;
+}
+
 /** POST /contracts/{id}/sign — record freelancer signature. */
 export async function signContract(contractId: string): Promise<ContractResponse> {
   const { data } = await axiosClient.post<ApiResponse<ContractResponse>>(
