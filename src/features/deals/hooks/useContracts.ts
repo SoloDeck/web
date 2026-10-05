@@ -8,6 +8,7 @@ import {
   recordContractSent,
   signContract,
   recordClientSignature,
+  recordClientDecline,
   generateContractContent,
   amendContract,
   terminateContract,
@@ -126,6 +127,18 @@ export function useSignContract() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (contractId: string) => signContract(contractId),
+    onSuccess: (_, contractId) => {
+      qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
+      qc.invalidateQueries({ queryKey: contractKeys.all });
+    },
+  });
+}
+
+/** Freelancer ghi nhận khách KHÔNG ký (hợp đồng -> expired). Xem recordClientDecline(). */
+export function useRecordClientDecline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contractId: string) => recordClientDecline(contractId),
     onSuccess: (_, contractId) => {
       qc.invalidateQueries({ queryKey: contractKeys.detail(contractId) });
       qc.invalidateQueries({ queryKey: contractKeys.all });

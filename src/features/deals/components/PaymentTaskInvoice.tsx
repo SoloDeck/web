@@ -50,17 +50,25 @@ const NHAN: Record<string, { chu: string; mau: string }> = {
 export function PaymentTaskInvoice({
   task,
   actions,
+  locked = false,
 }: {
   task: ProjectTask;
   actions: PaymentInvoiceActions;
+  /**
+   * Deal đã "Hoàn thành": chỉ còn nhãn trạng thái và mã hóa đơn để xem lại, ẨN hẳn nút soạn,
+   * gửi và ghi nhận thanh toán. Dự án đã đóng và tính tiền xong — soạn hay gửi thêm hóa đơn lúc
+   * này là gửi thư thật cho khách về một khoản đã khép sổ.  #Huynh
+   */
+  locked?: boolean;
 }) {
   const state = invoiceUiState(task);
   const dangChay = actions.pendingTaskId === task.id;
   const invoice = task.invoice;
 
   // Nút hành động của từng trạng thái. `paid` và `void` không có nút — đã xong hoặc đã bỏ.
-  const nut =
-    state === "none"
+  const nut = locked
+    ? null
+    : state === "none"
       ? {
           chu: "Soạn & gửi hóa đơn",
           Icon: FileText,

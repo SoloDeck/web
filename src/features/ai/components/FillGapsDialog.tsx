@@ -91,9 +91,10 @@ export function FillGapsDialog({
               chấm lại để xem điểm lên bao nhiêu" nghe như bấm Lưu là điểm tự nhảy, nên lưu
               xong thấy điểm y nguyên là tưởng hỏng.  #Huynh */}
           <DialogDescription>
-            Hỏi được khách rồi thì ghi vào đây — chỉ hiện những ô đang thiếu điểm. Lưu ở bước này
-            không tốn lượt AI; điền xong hết thì bấm <strong>Đánh giá lại</strong> ở cửa sổ chính
-            để chấm lại điểm.
+            Hỏi được khách rồi thì ghi vào đây — chỉ hiện những ô đang thiếu điểm. Ngân sách và mốc
+            thời gian được <strong>tính điểm ngay khi lưu</strong>, không tốn lượt AI. Phần nội
+            dung yêu cầu cần AI đọc lại: điền xong thì bấm <strong>Đánh giá lại</strong> ở cửa sổ
+            chính.
           </DialogDescription>
         </DialogHeader>
 
@@ -178,10 +179,9 @@ export function FillGapsDialog({
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {/* "Lưu thông tin", KHÔNG phải "Lưu và chấm lại": nút này chỉ PATCH deal rồi bật
-                dải báo điểm đã cũ — việc chấm lại nằm ở nút "Đánh giá lại" bên cửa sổ chính
-                và tốn một lượt AI thật. Nhãn cũ hứa nhiều hơn việc nó làm nên người dùng
-                đứng chờ điểm mới không bao giờ tới.  #Huynh */}
+            {/* "Lưu thông tin": PATCH deal rồi tính lại điểm phần ngân sách / mốc thời gian
+                bằng barem (không tốn lượt AI). Phần nội dung yêu cầu thì vẫn phải bấm "Đánh giá
+                lại" ở cửa sổ chính — tốn một lượt AI thật.  #Huynh */}
             Lưu thông tin
           </button>
         </DialogFooter>

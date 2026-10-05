@@ -112,9 +112,24 @@ describe("ActionsPanel — giai đoạn Đang Đàm Phán", () => {
     expect(screen.queryByText(/gửi cho khách ký trước khi mở project/i)).not.toBeInTheDocument();
   });
 
-  it("hợp đồng đang chờ ký thì chỉ đường tới chỗ ghi nhận", () => {
-    renderPanel({ hasContract: true, hasActiveContract: false });
+  it("hợp đồng đang chờ ký thì chỉ đường tới chỗ ghi nhận (ký hoặc khách không ký)", () => {
+    renderPanel({ hasContract: true, hasPendingContract: true, hasActiveContract: false });
     expect(screen.getByText(/Ghi nhận: khách đã ký/i)).toBeInTheDocument();
+    expect(screen.getByText(/Khách không ký/)).toBeInTheDocument();
+  });
+
+  it("hợp đồng đã hết hiệu lực (khách không ký): hết dòng 'đang chờ ký', tạo lại được ngay", async () => {
+    // Khách không ký thì hợp đồng chuyển 'expired'. Trước đây không có đường này nên nút tạo hợp
+    // đồng bị khoá mãi, freelancer kẹt.
+    const user = userEvent.setup();
+    const onContract = vi.fn();
+    renderPanel({ hasContract: true, hasPendingContract: false, onContract });
+
+    expect(screen.queryByText(/Ghi nhận: khách đã ký/i)).toBeNull();
+    const nut = screen.getByRole("button", { name: /tạo hợp đồng ai/i });
+    expect(nut).toBeEnabled();
+    await user.click(nut);
+    expect(onContract).toHaveBeenCalledTimes(1);
   });
 
   it("hợp đồng ĐÃ GỬI, đang chờ khách ký: nút tạo hợp đồng bị khoá — như báo giá đã gửi", async () => {
@@ -143,5 +158,41 @@ describe("ActionsPanel — giai đoạn Đang Đàm Phán", () => {
     expect(nut).toBeEnabled();
     await user.click(nut);
     expect(onContract).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ActionsPanel — giai đoạn Đã gửi báo giá: khách từ chối thì không bị kẹt", () => {
+  const proposalSentDeal = () => makeDeal({ stage: "proposal_sent" });
+
+  it("còn bản đã gửi: chỉ chờ phản hồi, không có nút soạn mới", () => {
+    renderPanel({ deal: proposalSentDeal(), proposalOutcome: "live" });
+
+    expect(screen.getByText(/chờ phản hồi khách/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /tạo báo giá mới/i })).toBeNull();
+  });
+
+  it("khách TỪ CHỐI báo giá: nói rõ và mở nút 'Tạo Báo Giá Mới'", async () => {
+    const user = userEvent.setup();
+    const onProposal = vi.fn();
+    renderPanel({ deal: proposalSentDeal(), proposalOutcome: "rejected", onProposal });
+
+    expect(screen.getByText("Khách đã từ chối báo giá")).toBeInTheDocument();
+    expect(screen.queryByText(/chờ phản hồi khách/i)).toBeNull();
+    await user.click(screen.getByRole("button", { name: /tạo báo giá mới/i }));
+    expect(onProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("báo giá HẾT HẠN: cũng mở nút soạn bản mới", () => {
+    renderPanel({ deal: proposalSentDeal(), proposalOutcome: "expired" });
+
+    expect(screen.getByText("Báo giá đã hết hiệu lực")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /tạo báo giá mới/i })).toBeEnabled();
+  });
+
+  it("giai đoạn đã là 'Đã gửi báo giá' mà chưa có bản nào gửi đi: cũng có nút soạn", () => {
+    renderPanel({ deal: proposalSentDeal(), proposalOutcome: "none" });
+
+    expect(screen.getByText(/chưa có báo giá nào được gửi/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /tạo báo giá mới/i })).toBeInTheDocument();
   });
 });
