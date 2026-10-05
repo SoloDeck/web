@@ -166,8 +166,9 @@ type ProjectTaskPanelProps = {
   height?: "cap" | "fill";
   /**
    * Chế độ CHỈ XEM: khóa mọi thao tác làm đổi danh sách — thêm, sửa, xóa và tick. Dùng khi deal đã
-   * "Hoàn thành" (xem `isTaskListLocked`). Danh sách vẫn xem và sắp xếp được. Các nút hóa đơn của
-   * mốc thu tiền KHÔNG bị khóa: đó là việc về chứng từ chứ không phải sửa công việc.  #Huynh
+   * "Hoàn thành" (xem `isTaskListLocked`). Danh sách vẫn xem và sắp xếp được. Khối hóa đơn của
+   * mốc thu tiền cũng chỉ còn để xem: nhãn trạng thái và mã hóa đơn còn, nút soạn/gửi/ghi nhận
+   * thanh toán và dòng nhắc "chưa gửi hóa đơn" ẨN — sổ đã khép, không còn gì để gửi.  #Huynh
    */
   readOnly?: boolean;
 };
@@ -671,7 +672,7 @@ function TaskRow({
 
             Vàng nhạt chứ không đỏ: đây là việc còn bỏ ngỏ, không phải lỗi. Và bỏ được, vì
             freelancer hoàn toàn có thể đã gửi hóa đơn riêng ngoài hệ thống.  #Huynh */}
-        {showInvoiceReminder && !editing && (
+        {showInvoiceReminder && !editing && !locked && (
           <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             <span className="flex-1">{invoiceReminderText(task)}</span>
@@ -690,7 +691,7 @@ function TaskRow({
         {/* Chỉ task thu tiền mới có khối hóa đơn. `invoiceActions` là tuỳ chọn nên
             `DealDetailModal` (dùng lại panel này ở cửa sổ nhỏ) không phải sửa gì. */}
         {invoiceActions && isPaymentTask(task) && !editing && (
-          <PaymentTaskInvoice task={task} actions={invoiceActions} />
+          <PaymentTaskInvoice task={task} actions={invoiceActions} locked={locked} />
         )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">

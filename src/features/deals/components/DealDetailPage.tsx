@@ -1616,6 +1616,8 @@ export function DealDetailPage({
                     onViewQualification={setViewQualificationDoc}
                     contractActionLoading={sendContract.isPending}
                     pendingInvoiceId={pendingInvoiceId}
+                    /* Deal đã "Hoàn thành": tài liệu chỉ để xem — ẩn soạn/gửi/ghi nhận. */
+                    readOnly={isTaskListLocked(deal.stage)}
                     clientName={client?.name ?? deal.client}
                     clientEmail={client?.email ?? deal.clientEmail ?? null}
                   />
@@ -3272,7 +3274,15 @@ export function DocumentsTab({
   clientEmail,
   savedQualifications: savedQualificationItems,
   onViewQualification,
+  readOnly = false,
 }: {
+  /**
+   * Deal đã "Hoàn thành": tab chỉ để xem lại và tải về. Ẩn mọi nút làm ĐỔI hoặc GỬI ĐI thứ gì —
+   * thêm/xoá file, sửa/gửi/hủy hóa đơn, ghi nhận thanh toán, sửa/xoá báo giá, chấp nhận/từ chối,
+   * gửi hợp đồng, ghi nhận khách đã ký. Dự án đã đóng và tính tiền xong, gửi thêm thư cho khách
+   * lúc này chỉ gây rối.  #Huynh
+   */
+  readOnly?: boolean;
   savedQualifications: DealQualification[];
   onViewQualification: (row: DealQualification) => void;
   attachments: DealAttachment[];
@@ -3418,6 +3428,7 @@ export function DocumentsTab({
             Lưu ảnh/PDF chứng từ, biên nhận hoặc ghi chú thanh toán để dễ đối soát sau này.
           </p>
         </div>
+        {!readOnly && (
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90">
             <Plus className="h-4 w-4" /> Thêm file
@@ -3435,6 +3446,7 @@ export function DocumentsTab({
             />
           </label>
         </div>
+        )}
       </div>
 
       {/* Thanh tìm kiếm: tab này gom file, báo giá, hợp đồng, hóa đơn — vài đợt thu tiền là
@@ -3477,9 +3489,11 @@ export function DocumentsTab({
         const remaining = Math.max(total - paid, 0);
         // Chỉ khoá hàng đang có việc chạy. Các hàng khác vẫn bấm được — chúng độc lập nhau.
         const rowBusy = pendingInvoiceId === invoice.id;
-        const canSendInvoice = invoice.status === "draft";
-        const canRecordPayment = remaining > 0 && !["draft", "void", "cancelled"].includes(invoice.status);
-        const canVoidInvoice = !["draft", "paid", "void", "cancelled"].includes(invoice.status) && paid <= 0;
+        const canSendInvoice = !readOnly && invoice.status === "draft";
+        const canRecordPayment =
+          !readOnly && remaining > 0 && !["draft", "void", "cancelled"].includes(invoice.status);
+        const canVoidInvoice =
+          !readOnly && !["draft", "paid", "void", "cancelled"].includes(invoice.status) && paid <= 0;
         const displayTitle = getInvoiceDisplayTitle(invoice, invoices);
 
         return (
@@ -3513,6 +3527,8 @@ export function DocumentsTab({
                 {invoice.status === "paid" && <CheckCircle2 className="h-3.5 w-3.5" />}
                 {invoiceStatusLabel[invoice.status]?.label ?? invoice.status}
               </span>
+              {/* Bản nháp thì nút này là cửa SOẠN (sửa rồi gửi) nên deal đã đóng thì ẩn. */}
+              {!(readOnly && invoice.status === "draft") && (
               <button
                 type="button"
                 onClick={() => onViewInvoice(invoice)}
@@ -3530,6 +3546,7 @@ export function DocumentsTab({
                   </>
                 )}
               </button>
+              )}
               {canSendInvoice && (
                 <button
                   type="button"
@@ -3610,6 +3627,7 @@ export function DocumentsTab({
               <FileText className="h-3.5 w-3.5" />
               {item.content_type === "application/pdf" ? "Tải PDF" : "Tải về"}
             </button>
+            {!readOnly && (
             <button
               type="button"
               onClick={() => onDeleteAttachment(item)}
@@ -3618,6 +3636,7 @@ export function DocumentsTab({
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
+            )}
           </div>
         </div>
       ))}
@@ -3684,6 +3703,7 @@ export function DocumentsTab({
                 nào, trong khi modal soạn thảo hiện ĐÚNG tờ đó (cùng `getProposalPreview` do server
                 dựng), lại còn sửa được giá/mốc và gửi. Backend chặn gửi khi chưa chốt giá và khi tổng
                 mốc thanh toán ≠ 100%, nên bước gửi buộc phải qua modal đó.  #Huynh */}
+            {!(readOnly && item.status === "draft") && (
             <button
               type="button"
               onClick={() => (item.status === "draft" ? onEditProposal(item.id) : onViewProposal(item.id))}
@@ -3691,11 +3711,12 @@ export function DocumentsTab({
             >
               <Eye className="h-3.5 w-3.5" /> Xem
             </button>
+            )}
             <DownloadPdfButton
               fetchPdf={() => downloadProposalPdf(item.id)}
               filename={`bao-gia-lan-${item.version_number}.pdf`}
             />
-            {item.status === "draft" && (
+            {!readOnly && item.status === "draft" && (
               <button
                 type="button"
                 onClick={() => onDeleteProposal(item.id)}
@@ -3705,7 +3726,7 @@ export function DocumentsTab({
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             )}
-            {item.status === "sent" && (
+            {!readOnly && item.status === "sent" && (
               <>
                 <button
                   type="button"
@@ -3755,7 +3776,7 @@ export function DocumentsTab({
               fetchPdf={() => downloadContractPdf(item.id)}
               filename={`hop-dong-lan-${item.version_number}.pdf`}
             />
-            {item.status === "draft" && (
+            {!readOnly && item.status === "draft" && (
               <button
                 type="button"
                 disabled={contractActionLoading}
@@ -3765,7 +3786,7 @@ export function DocumentsTab({
                 <Send className="h-3.5 w-3.5" /> Gửi cho khách ký
               </button>
             )}
-            {item.status === "pending_signatures" && (
+            {!readOnly && item.status === "pending_signatures" && (
               <button
                 type="button"
                 disabled={contractActionLoading}
