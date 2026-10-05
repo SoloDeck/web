@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   getDealQualifications,
+  rescoreDealQualification,
   saveDealQualification,
   type DealQualification,
 } from "@/services/dealsService";
@@ -25,6 +26,13 @@ export function useDealQualifications(dealId?: string) {
     queryFn: () => getDealQualifications(dealId as string),
     enabled: Boolean(dealId),
     staleTime: 30_000,
+  });
+}
+
+/** Tính lại điểm theo phần vừa bổ sung (ngân sách, mốc thời gian) — không tốn lượt AI. */
+export function useRescoreDealQualification() {
+  return useMutation({
+    mutationFn: (dealId: string) => rescoreDealQualification(dealId),
   });
 }
 

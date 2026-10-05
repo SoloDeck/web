@@ -606,6 +606,29 @@ export async function getDealQualifications(dealId: string): Promise<DealQualifi
 }
 
 /**
+ * Kết quả `POST /deals/{id}/qualifications/rescore`.
+ *
+ * `changed: false` = không có gì để tính lại (chưa điền ô nào, hoặc chỉ bổ sung phần mô tả —
+ * cái đó phải để AI đọc lại). `changed: true` kèm cả kết quả chấm điểm cùng khuôn với kết quả
+ * của job AI, nên màn hình dùng chung một bộ hiển thị.
+ */
+export type RescoreQualificationResult = { changed: boolean } & Record<string, unknown>;
+
+/**
+ * POST /deals/{id}/qualifications/rescore — tính lại điểm sau khi bổ sung ngân sách / mốc
+ * thời gian. KHÔNG gọi AI, KHÔNG trừ lượt dùng: hai ô đó có nấc điểm viết sẵn trong barem.
+ * Gọi sau khi `PATCH /deals/{id}` đã lưu các ô đó.
+ */
+export async function rescoreDealQualification(
+  dealId: string
+): Promise<RescoreQualificationResult> {
+  const { data } = await axiosClient.post<ApiResponse<RescoreQualificationResult>>(
+    `/deals/${dealId}/qualifications/rescore`
+  );
+  return data.data;
+}
+
+/**
  * POST /deals/{id}/qualifications/save — chốt bản chấm mới nhất để nó vào tab Tài liệu.
  *
  * Không gửi id: bảng đánh giá luôn hiển thị lần chấm vừa xong, nên "chốt cái đang xem"

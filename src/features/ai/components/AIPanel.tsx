@@ -10,6 +10,7 @@ import {
   dealQualificationKeys,
   scoreDelta,
   useDealQualifications,
+  useRescoreDealQualification,
   useSaveDealQualification,
 } from "@/features/deals/hooks/useDealQualifications";
 import type { DealPayload, QualificationScoreGaps } from "@/services/dealsService";
@@ -177,6 +178,17 @@ export function AIPanel({
   /** Vừa bổ sung dữ liệu nhưng chưa chấm lại — điểm đang hiện là của dữ liệu cũ. */
   const [staleAfterFill, setStaleAfterFill] = useState(false);
   /**
+   * Những ô vừa bổ sung mà điểm CHƯA tính. Ngân sách và mốc thời gian được tính ngay lúc lưu
+   * (xem `submitGapFill`) nên thường chỉ còn phần mô tả nằm ở đây.
+   */
+  const [staleFields, setStaleFields] = useState<FillField[]>([]);
+  /**
+   * Kết quả tính lại bằng barem sau khi bổ sung ngân sách / mốc thời gian — KHÔNG phải job AI.
+   * Khi có, nó thay kết quả của job trong bảng điểm. Xoá khi người dùng chủ động chấm lại bằng
+   * AI (kết quả mới của AI đã tính cả phần bổ sung).
+   */
+  const [rescored, setRescored] = useState<ApiQualificationResult | null>(null);
+  /**
    * Những ô đã bổ sung trong phiên này, để khung "Thông tin khách đã cho" gắn nhãn "vừa
    * thêm". CỐ Ý không xoá sau khi chấm lại: đó đúng là lúc người dùng cần đối chiếu "mình
    * thêm cái này nên điểm lên chừng này". Cộng dồn qua nhiều lần điền lẻ từng ô.
@@ -240,6 +252,7 @@ export function AIPanel({
 
   const transitionStage = useTransitionDealStage();
   const saveQualification = useSaveDealQualification();
+  const rescoreQualification = useRescoreDealQualification();
   const updateDeal = useUpdateDeal();
   const qualificationHistory = useDealQualifications(deal?.id);
   const qc = useQueryClient();
@@ -250,9 +263,12 @@ export function AIPanel({
   // Kết quả và lỗi được SUY RA từ job, không lưu thành state riêng. Nhờ vậy sau khi
   // F5 và khôi phục lại job, màn hình tự hiện đúng — không cần đồng bộ tay.
   const result: EvaluationResult | null = useMemo(() => {
-    if (!deal || job?.status !== "succeeded" || !job.result) return null;
+    if (!deal) return null;
+    // Điểm đã tính lại theo phần vừa bổ sung thì dùng bản đó thay kết quả job (cùng khuôn).
+    if (rescored) return mapApiQualification(rescored);
+    if (job?.status !== "succeeded" || !job.result) return null;
     return mapApiQualification(job.result as ApiQualificationResult);
-  }, [deal, job]);
+  }, [deal, job, rescored]);
 
   // Ngân sách theo LỜI KHÁCH để hiện ở dải đầu cửa sổ. Ưu tiên chữ khách nói qua ô bổ sung
   // (client_budget) vì đó là bản mới nhất và cũng chính là thứ AI đọc để chấm tiêu chí Ngân
@@ -277,6 +293,9 @@ export function AIPanel({
     setCreateError("");
     setCreatedJobId(null);
     setStaleAfterFill(false);
+    setStaleFields([]);
+    // Kết quả AI mới đã tính cả phần bổ sung, nên bản tính-bằng-barem hết nhiệm vụ.
+    setRescored(null);
     setMinimized(true);
 
     createJob.mutate(
@@ -479,16 +498,46 @@ export function AIPanel({
       {
         onSuccess: () => {
           setFillGapsOpen(false);
-          // CHỈ LƯU, KHÔNG tự chấm lại.
-          //
-          // Mỗi lần chấm là một lượt AI bị trừ khỏi hạn mức của freelancer và một lần tốn
-          // tiền thật. Tự chạy sau một thao tác người dùng nghĩ là "lưu" thì họ điền lẻ ba
-          // ô là mất ba lượt mà không ai báo trước — đó là kiểu bất ngờ làm mất niềm tin,
-          // chứ không chỉ là chuyện tốn kém.
-          //
-          // Thay vào đó bật cờ báo điểm đã cũ; người dùng tự bấm "Chấm lại" khi đã điền
-          // xong hết.  #Huynh
-          setStaleAfterFill(true);
+          // KHÔNG tự gọi AI chấm lại — mỗi lần chấm là một lượt AI bị trừ khỏi hạn mức. Nhưng
+          // hai ô NGÂN SÁCH và MỐC THỜI GIAN có nấc điểm viết sẵn trong barem, nên backend tính
+          // lại được ngay (`rescore`, không tốn lượt nào) — người dùng gõ xong là thấy điểm
+          // nhảy, khỏi bấm "Đánh giá lại" chỉ để máy ghi nhận lại đúng cái mình vừa nhập. Chỉ
+          // phần MÔ TẢ nội dung (phạm vi, độ chi tiết, bối cảnh) mới cần AI đọc lại.  #Huynh
+          const needsAi = Boolean(values.notes_append);
+          const supplied: FillField[] = [];
+          if (values.client_budget) supplied.push("client_budget");
+          if (values.desired_timeline) supplied.push("desired_timeline");
+
+          if (supplied.length > 0) {
+            rescoreQualification.mutate(deal.id, {
+              onSuccess: (outcome) => {
+                if (outcome.changed) {
+                  setRescored(outcome as unknown as ApiQualificationResult);
+                  setStaleAfterFill(needsAi);
+                  setStaleFields(needsAi ? ["notes"] : []);
+                  qc.invalidateQueries({ queryKey: dealQualificationKeys.forDeal(deal.id) });
+                  qc.invalidateQueries({ queryKey: ["deals"] });
+                  toast.success("Đã cập nhật điểm theo thông tin bạn bổ sung. Không tốn lượt AI.");
+                } else {
+                  // Không có gì để tính (ô đã đạt nấc đó từ lần chấm trước): quay về luồng cũ.
+                  setStaleAfterFill(true);
+                  setStaleFields(
+                    [...supplied, ...(needsAi ? (["notes"] as FillField[]) : [])]
+                  );
+                }
+              },
+              onError: () => {
+                setStaleAfterFill(true);
+                setStaleFields([...supplied, ...(needsAi ? (["notes"] as FillField[]) : [])]);
+                toast.error(
+                  "Đã lưu thông tin nhưng chưa cập nhật được điểm. Bấm Đánh giá lại để chấm bằng AI."
+                );
+              },
+            });
+          } else {
+            setStaleAfterFill(true);
+            setStaleFields(needsAi ? ["notes"] : []);
+          }
 
           // Gộp với lần bổ sung trước để điền lẻ từng ô vẫn giữ đủ dấu vết.
           //
@@ -691,9 +740,21 @@ export function AIPanel({
                 >
                   <div className="text-sm font-semibold">Đã lưu thông tin bổ sung</div>
                   <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
-                    Điểm bên dưới vẫn là của lần chấm trước, chưa tính phần bạn vừa thêm. Bấm
-                    <span className="font-semibold text-foreground"> Đánh giá lại </span>
-                    ở cuối cửa sổ để cập nhật — sẽ dùng một lượt AI.
+                    {rescored ? (
+                      <>
+                        Điểm ngân sách / mốc thời gian đã được cập nhật theo phần bạn vừa thêm
+                        (không tốn lượt AI). Riêng phần nội dung yêu cầu mới viết thêm thì chưa
+                        tính — bấm
+                        <span className="font-semibold text-foreground"> Đánh giá lại </span>
+                        ở cuối cửa sổ để AI đọc lại, sẽ dùng một lượt AI.
+                      </>
+                    ) : (
+                      <>
+                        Điểm bên dưới vẫn là của lần chấm trước, chưa tính phần bạn vừa thêm. Bấm
+                        <span className="font-semibold text-foreground"> Đánh giá lại </span>
+                        ở cuối cửa sổ để cập nhật — sẽ dùng một lượt AI.
+                      </>
+                    )}
                   </p>
                 </div>
               )}
@@ -708,6 +769,7 @@ export function AIPanel({
                 justAddedNotes={justAddedNotes}
                 breakdown={result.breakdown}
                 scoresAreStale={staleAfterFill}
+                staleFields={staleFields}
                 canEdit={(result.gaps?.gaps.length ?? 0) > 0}
                 onEdit={() => setFillGapsOpen(true)}
               />

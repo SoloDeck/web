@@ -94,6 +94,7 @@ export function ClientFactsCard({
   justAddedNotes,
   breakdown,
   scoresAreStale,
+  staleFields,
   canEdit,
   onEdit,
 }: {
@@ -105,6 +106,12 @@ export function ClientFactsCard({
   breakdown: ScoreItem[];
   /** Đã bổ sung nhưng chưa chấm lại → điểm đang hiện là của lần chấm trước. */
   scoresAreStale: boolean;
+  /**
+   * Ô nào còn chưa được tính điểm. Bỏ trống = mọi ô vừa bổ sung đều chưa tính. Ngân sách và
+   * mốc thời gian được tính ngay lúc lưu (không cần AI) nên chỉ phần mô tả mới còn "chưa chấm
+   * lại".
+   */
+  staleFields?: FillField[];
   /**
    * Còn khoảng thiếu nào để điền không. Hộp bổ sung CHỈ dựng ô cho tiêu chí đang thiếu
    * điểm, nên deal đã đủ điểm mà vẫn bày nút thì bấm vào ra một hộp thoại trống trơn.
@@ -149,7 +156,10 @@ export function ClientFactsCard({
               <dd className={cn("text-sm font-semibold", isNew ? "text-primary" : "text-foreground")}>
                 {fact.value}
               </dd>
-              <ScoreTag item={criterionScore(breakdown, fact.field)} stale={scoresAreStale} />
+              <ScoreTag
+                item={criterionScore(breakdown, fact.field)}
+                stale={scoresAreStale && (staleFields?.includes(fact.field) ?? true)}
+              />
               {isNew && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
                   <Sparkles className="h-3 w-3" />
